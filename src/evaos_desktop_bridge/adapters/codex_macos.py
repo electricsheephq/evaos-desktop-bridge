@@ -115,19 +115,19 @@ def rect_value(element):
         return None
 
 
-def walk(element, rows, depth=0):
+def walk(element, rows, depth=0, window_index=None):
     if len(rows) >= max_nodes:
         return True
     role = text_value(ax_value(element, AS.kAXRoleAttribute)) or "unknown"
     name = text_value(ax_value(element, AS.kAXTitleAttribute)) or text_value(ax_value(element, AS.kAXDescriptionAttribute))
-    rows.append({"role": role, "name": name, "depth": depth})
+    rows.append({"role": role, "name": name, "depth": depth, "window_index": window_index})
     children = ax_value(element, AS.kAXChildrenAttribute) or []
     try:
         child_iter = list(children)
     except Exception:
         child_iter = []
     for child in child_iter:
-        if walk(child, rows, depth + 1):
+        if walk(child, rows, depth + 1, window_index):
             return True
     return False
 
@@ -165,7 +165,7 @@ for idx, window in enumerate(windows_list):
         "codex_frontmost": frontmost == "Codex",
     })
     if include_nodes:
-        truncated = walk(window, node_rows, 0) or truncated
+        truncated = walk(window, node_rows, 0, idx) or truncated
 
 print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "truncated": truncated}))
 """.strip()
@@ -368,6 +368,38 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         windows = [self._safe_window(row) for row in payload.get("windows", [])]
         return CommandResult(ok=True, data={"windows": windows, "count": len(windows)}, warnings=warnings)
 
+    def inspect(self, *, max_nodes: int) -> CommandResult:
+        status = self.status()
+        frontmost = self.frontmost()
+        windows = self.windows()
+        ax = self.ax_tree(max_nodes=max_nodes)
+        warnings = status.warnings + frontmost.warnings + windows.warnings + ax.warnings
+        errors = windows.errors + ax.errors
+        nodes = ax.data.get("nodes", []) if ax.ok else []
+        buttons = [node for node in nodes if node.get("role") == "AXButton" and node.get("name")]
+        text_items = [node for node in nodes if node.get("name") and node.get("role") in {"AXStaticText", "AXTextField", "AXWebArea", "AXGroup"}]
+        return CommandResult(
+            ok=status.ok and frontmost.ok and windows.ok and ax.ok,
+            data={
+                "status": status.data,
+                "frontmost": frontmost.data,
+                "windows": windows.data.get("windows", []),
+                "ax": {
+                    "nodes": nodes,
+                    "truncated": ax.data.get("truncated", False),
+                    "max_nodes": max_nodes,
+                },
+                "summary": {
+                    "window_count": windows.data.get("count", 0),
+                    "codex_frontmost": frontmost.data.get("codex_frontmost", False),
+                    "visible_buttons": buttons[:20],
+                    "visible_text": text_items[:20],
+                },
+            },
+            warnings=warnings,
+            errors=errors,
+        )
+
     def ax_tree(self, *, max_nodes: int) -> CommandResult:
         if self.platform_name != "Darwin":
             return CommandResult(
@@ -515,4 +547,9 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
     def _safe_node(self, row: dict[str, Any]) -> dict[str, Any]:
         role, _ = cap_text(str(redact_value(row.get("role") or "unknown")), 80)
         name, _ = cap_text(str(redact_value(row.get("name"))) if row.get("name") else None, 160)
-        return {"role": role, "name": name, "depth": int(row.get("depth") or 0)}
+        return {
+            "role": role,
+            "name": name,
+            "depth": int(row.get("depth") or 0),
+            "window_index": row.get("window_index"),
+        }

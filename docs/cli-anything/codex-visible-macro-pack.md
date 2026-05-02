@@ -42,13 +42,26 @@ Use CLI-Anything `native_api` to wrap bridge commands. Do **not** expose generic
 
 Important version note: the current local OpenClaw macro harness supports `macro info` and `macro run`, but **does not expose `macro run --dry-run`** even though some docs imply dry-run behavior. For now, inspect with `macro info` first and use bridge-level dry-run flags where commands support them, such as `codex focus --dry-run`.
 
+Example smoke:
+
+```bash
+cp macros/cli-anything/codex-visible/codex_inspect.yaml /Users/lume/repos/CLI-Anything/openclaw-skill/agent-harness/cli_anything/openclaw/macro_definitions/
+cd /Users/lume/repos/CLI-Anything/openclaw-skill/agent-harness
+/tmp/openclaw-harness-venv/bin/python -m cli_anything.openclaw --json macro info codex_inspect
+/tmp/openclaw-harness-venv/bin/python -m cli_anything.openclaw --json macro run codex_inspect
+rm cli_anything/openclaw/macro_definitions/codex_inspect.yaml
+```
+
+Committed first macro pack lives in `macros/cli-anything/codex-visible/`.
+
 Recommended first macros:
 
-- `codex_status`
+- `bridge_status`
 - `codex_frontmost`
 - `codex_windows`
 - `codex_focus`
 - `codex_snapshot`
+- `codex_inspect`
 - `codex_ax_tree`
 
 `gui_macro` is allowed only as a separate, explicit, layout-strict fallback after a visible preflight proves Codex is frontmost and the expected window is present.

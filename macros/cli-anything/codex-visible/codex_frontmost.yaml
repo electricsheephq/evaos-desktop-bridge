@@ -1,0 +1,29 @@
+name: codex_frontmost
+version: "1.0"
+description: Run evaos-desktop-bridge codex frontmost against the visible Codex Desktop workspace.
+tags: [codex, desktop, visible, read-only]
+parameters: {}
+preconditions:
+  - file_exists: /Users/lume/.config/superpowers/worktrees/evaos-desktop-bridge/feat-codex-desktop-passive-observer/.venv/bin/python
+  - process_running: Codex
+steps:
+  - id: run_bridge
+    backend: native_api
+    action: run_command
+    params:
+      command:
+        - /Users/lume/.config/superpowers/worktrees/evaos-desktop-bridge/feat-codex-desktop-passive-observer/.venv/bin/python
+        - -m
+        - evaos_desktop_bridge.cli
+        - codex
+        - frontmost
+        - --json
+      capture_stdout: true
+    timeout_ms: 30000
+    on_failure: fail
+postconditions:
+  - always: true
+agent_hints:
+  danger_level: safe
+  side_effects: []
+  reversible: true

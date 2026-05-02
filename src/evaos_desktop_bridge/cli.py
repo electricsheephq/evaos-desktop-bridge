@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum visible text chars.")
     snapshot_parser.set_defaults(command_id="codex.snapshot", target="codex")
 
+    inspect_parser = codex_subparsers.add_parser("inspect", help="Return a compact page map of visible Codex Desktop state.")
+    inspect_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    inspect_parser.add_argument("--max-nodes", type=_positive_int, default=120, help="Maximum AX nodes to include.")
+    inspect_parser.set_defaults(command_id="codex.inspect", target="codex")
+
     ax_parser = codex_subparsers.add_parser("ax-tree", help="Capture a capped Accessibility tree summary.")
     ax_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     ax_parser.add_argument("--max-nodes", type=_positive_int, default=200, help="Maximum AX nodes to return.")
@@ -128,6 +133,8 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, args: argparse.N
         return observer.focus(dry_run=args.dry_run)
     if command_id == "codex.snapshot":
         return observer.snapshot(max_chars=args.max_chars)
+    if command_id == "codex.inspect":
+        return observer.inspect(max_nodes=args.max_nodes)
     if command_id == "codex.ax_tree":
         return observer.ax_tree(max_nodes=args.max_nodes)
     raise PolicyError(command_id)

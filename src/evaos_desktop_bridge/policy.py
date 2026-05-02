@@ -11,6 +11,7 @@ ALLOWED_COMMANDS = frozenset(
         "codex.windows",
         "codex.focus",
         "codex.snapshot",
+        "codex.inspect",
         "codex.ax_tree",
     }
 )
@@ -22,7 +23,7 @@ class PolicyError(RuntimeError):
         self.error: dict[str, Any] = make_error(
             code="command_not_allowed",
             message=f"Command '{command}' is outside the Desktop Bridge MVP allowlist.",
-            guidance="Use one of: status, codex frontmost, codex windows, codex focus, codex snapshot, codex ax-tree.",
+            guidance="Use one of: status, codex frontmost, codex windows, codex focus, codex snapshot, codex inspect, codex ax-tree.",
         )
         super().__init__(self.error["message"])
 

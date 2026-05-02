@@ -64,6 +64,17 @@ class FakeObserver:
             },
         )
 
+    def inspect(self, *, max_nodes: int) -> CommandResult:
+        return CommandResult(
+            ok=True,
+            data={
+                "frontmost": {"codex_frontmost": True},
+                "windows": [{"index": 0, "title": "Codex"}],
+                "ax": {"nodes": [{"role": "AXButton", "name": "New chat", "depth": 0, "window_index": 0}], "truncated": False, "max_nodes": max_nodes},
+                "summary": {"window_count": 1, "codex_frontmost": True, "visible_buttons": [{"role": "AXButton", "name": "New chat", "depth": 0, "window_index": 0}], "visible_text": []},
+            },
+        )
+
     def ax_tree(self, *, max_nodes: int) -> CommandResult:
         return CommandResult(
             ok=True,
@@ -157,6 +168,15 @@ def test_snapshot_json_honors_max_chars(tmp_path: Path) -> None:
     assert payload["command"] == "codex.snapshot"
     assert payload["data"]["max_chars"] == 4000
     assert payload["data"]["screenshot_path"].startswith("~/")
+
+
+def test_inspect_json_returns_page_map(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "inspect", "--json", "--max-nodes", "20"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.inspect"
+    assert payload["data"]["summary"]["codex_frontmost"] is True
+    assert payload["data"]["summary"]["visible_buttons"][0]["name"] == "New chat"
 
 
 def test_ax_tree_json_honors_max_nodes_and_reports_truncation(tmp_path: Path) -> None:

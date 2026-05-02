@@ -167,7 +167,7 @@ def test_ax_tree_returns_roles_names_only_and_truncates(tmp_path: Path) -> None:
             ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
             (sys.executable, "-c"): RunnerResult(
                 returncode=0,
-                stdout='{"ok": true, "windows": [], "nodes": [{"role": "AXWindow", "name": "Codex", "depth": 0}, {"role": "AXStaticText", "name": "/Users/lume/secret project", "depth": 1}], "truncated": true}',
+                stdout='{"ok": true, "windows": [], "nodes": [{"role": "AXWindow", "name": "Codex", "depth": 0, "window_index": null}, {"role": "AXStaticText", "name": "/Users/lume/secret project", "depth": 1, "window_index": null}], "truncated": true}',
                 stderr="",
             ),
         }
@@ -184,8 +184,8 @@ def test_ax_tree_returns_roles_names_only_and_truncates(tmp_path: Path) -> None:
 
     assert result.ok is True
     assert result.data["nodes"] == [
-        {"role": "AXWindow", "name": "Codex", "depth": 0},
-        {"role": "AXStaticText", "name": "~/secret project", "depth": 1},
+        {"role": "AXWindow", "name": "Codex", "depth": 0, "window_index": None},
+        {"role": "AXStaticText", "name": "~/secret project", "depth": 1, "window_index": None},
     ]
     assert result.data["truncated"] is True
     assert result.warnings == ["AX tree truncated at 2 nodes"]
