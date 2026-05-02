@@ -2,6 +2,22 @@
 
 This bridge intentionally controls the **visible Codex Desktop workspace first**. Hidden app-server/session DB paths are fallback research only, not the MVP control lane.
 
+## Source docs checked
+
+This setup follows the local upstream CLI-Anything/OpenClaw docs:
+
+- `/Users/lume/repos/CLI-Anything/openclaw-skill/agent-harness/OPENCLAW.md`
+- `/Users/lume/repos/CLI-Anything/openclaw-skill/SKILL.md`
+
+Key requirements carried forward here:
+
+- macros are YAML and inspected via `macro info` before running
+- every agent-facing command should emit JSON
+- use explicit preconditions/postconditions
+- prefer the real backend/native interface before fragile GUI replay
+- use `find_namespace_packages(include=["cli_anything.*"])` / console scripts for generated harnesses when building a full harness
+- do not remove or break existing harness commands
+
 ## Environment
 
 Install bridge GUI dependencies in the repo-local venv:
@@ -12,9 +28,19 @@ Install bridge GUI dependencies in the repo-local venv:
 
 This installs the bridge plus GUI extras (`pyobjc-framework-Quartz`, `pyobjc-framework-ApplicationServices`, `pyautogui`, `pynput`) without touching Homebrew Python.
 
+Install the OpenClaw macro harness in its own repo-local/throwaway venv, not Homebrew Python:
+
+```bash
+python3 -m venv /tmp/openclaw-harness-venv
+/tmp/openclaw-harness-venv/bin/python -m pip install -e /Users/lume/repos/CLI-Anything/openclaw-skill/agent-harness
+/tmp/openclaw-harness-venv/bin/python -m cli_anything.openclaw --json backends
+```
+
 ## CLI-Anything shape
 
 Use CLI-Anything `native_api` to wrap bridge commands. Do **not** expose generic click/type/send in the first macro pack.
+
+Important version note: the current local OpenClaw macro harness supports `macro info` and `macro run`, but **does not expose `macro run --dry-run`** even though some docs imply dry-run behavior. For now, inspect with `macro info` first and use bridge-level dry-run flags where commands support them, such as `codex focus --dry-run`.
 
 Recommended first macros:
 
@@ -48,6 +74,7 @@ tags: [codex, desktop, visible, read-only]
 parameters: {}
 preconditions:
   - file_exists: /ABS/PATH/TO/evaos-desktop-bridge/.venv/bin/python
+  - process_running: Codex
 
 steps:
   - id: list_windows
@@ -67,4 +94,9 @@ steps:
 
 postconditions:
   - always: true
+
+agent_hints:
+  danger_level: safe
+  side_effects: []
+  reversible: true
 ```
