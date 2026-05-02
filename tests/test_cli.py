@@ -29,6 +29,12 @@ class FakeObserver:
             },
         )
 
+    def frontmost(self) -> CommandResult:
+        return CommandResult(ok=True, data={"frontmost_app": "Codex", "window_title": "Codex", "codex_frontmost": True})
+
+    def windows(self) -> CommandResult:
+        return CommandResult(ok=True, data={"windows": [{"index": 0, "title": "Codex", "role": "AXWindow", "bounds": {"x": 1, "y": 2, "width": 3, "height": 4}, "codex_frontmost": True}], "count": 1})
+
     def focus(self, *, dry_run: bool = False) -> CommandResult:
         if dry_run:
             return CommandResult(ok=True, data={"would_focus": True, "focused": False})
@@ -95,6 +101,23 @@ def test_status_json_reports_absent_codex_without_error(tmp_path: Path) -> None:
     assert payload["data"]["app"]["installed"] is False
     assert payload["data"]["app"]["pid"] is None
     assert payload["audit_id"]
+
+
+def test_frontmost_json_reports_codex_state(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "frontmost", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.frontmost"
+    assert payload["data"]["codex_frontmost"] is True
+
+
+def test_windows_json_lists_visible_codex_windows(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "windows", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.windows"
+    assert payload["data"]["count"] == 1
+    assert payload["data"]["windows"][0]["role"] == "AXWindow"
 
 
 def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> None:

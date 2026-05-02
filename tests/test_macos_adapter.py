@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from evaos_desktop_bridge.adapters.codex_macos import MacOSCodexObserver, RunnerResult
 
@@ -133,18 +134,42 @@ def test_snapshot_skips_screenshot_when_codex_is_not_frontmost(tmp_path: Path) -
     assert not any(command[0] == "screencapture" for command in runner.commands)
 
 
+def test_windows_returns_redacted_visible_window_metadata(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
+                returncode=0,
+                stdout='{"ok": true, "windows": [{"index": 0, "title": "/Users/lume/private Codex", "role": "AXWindow", "bounds": {"x": 1, "y": 2, "width": 3, "height": 4}, "codex_frontmost": true}], "nodes": [], "truncated": false}',
+                stderr="",
+            ),
+        }
+    )
+    observer = MacOSCodexObserver(
+        runner=runner,
+        app_paths=[],
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.windows()
+
+    assert result.ok is True
+    assert result.data["count"] == 1
+    assert result.data["windows"][0]["title"] == "~/private Codex"
+    assert result.data["windows"][0]["bounds"] == {"x": 1, "y": 2, "width": 3, "height": 4}
+
+
 def test_ax_tree_returns_roles_names_only_and_truncates(tmp_path: Path) -> None:
     runner = FakeRunner(
         {
-            (
-                "osascript",
-                "-e",
-                MacOSCodexObserver.AX_TREE_SCRIPT,
-            ): RunnerResult(
+            ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
                 returncode=0,
-                stdout="AXWindow\tCodex\nAXStaticText\t/Users/lume/secret project\nAXButton\tSend\n",
+                stdout='{"ok": true, "windows": [], "nodes": [{"role": "AXWindow", "name": "Codex", "depth": 0}, {"role": "AXStaticText", "name": "/Users/lume/secret project", "depth": 1}], "truncated": true}',
                 stderr="",
-            )
+            ),
         }
     )
     observer = MacOSCodexObserver(
@@ -159,8 +184,8 @@ def test_ax_tree_returns_roles_names_only_and_truncates(tmp_path: Path) -> None:
 
     assert result.ok is True
     assert result.data["nodes"] == [
-        {"role": "AXWindow", "name": "Codex"},
-        {"role": "AXStaticText", "name": "~/secret project"},
+        {"role": "AXWindow", "name": "Codex", "depth": 0},
+        {"role": "AXStaticText", "name": "~/secret project", "depth": 1},
     ]
     assert result.data["truncated"] is True
     assert result.warnings == ["AX tree truncated at 2 nodes"]

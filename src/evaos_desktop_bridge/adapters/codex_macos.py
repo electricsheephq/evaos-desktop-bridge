@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import platform
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from ..audit import default_state_dir
 from ..redaction import cap_text, redact_value
@@ -30,13 +32,21 @@ class RunnerResult:
 
 
 def run_command(command: list[str], timeout: float = 5.0) -> RunnerResult:
-    completed = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        display = command[:3] + ["..."] if len(command) > 3 else command
+        return RunnerResult(
+            returncode=124,
+            stdout="",
+            stderr=f"command timed out after {timeout:.1f}s: {display}",
+        )
     return RunnerResult(
         returncode=completed.returncode,
         stdout=completed.stdout,
@@ -58,33 +68,106 @@ def check_accessibility_trusted() -> bool | None:
 
 
 class MacOSCodexObserver:
-    AX_TREE_SCRIPT = """
-on walkElements(elementsToWalk, rows)
-  repeat with elementItem in elementsToWalk
-    set elementRole to ""
-    set elementName to ""
-    try
-      set elementRole to role of elementItem as text
-    end try
-    try
-      set elementName to name of elementItem as text
-    end try
-    set end of rows to elementRole & tab & elementName
-    try
-      set rows to my walkElements(UI elements of elementItem, rows)
-    end try
-  end repeat
-  return rows
-end walkElements
+    AX_SNAPSHOT_SCRIPT = """
+import json
+import subprocess
+import sys
 
-tell application "System Events"
-  tell process "Codex"
-    set rows to {}
-    set rows to my walkElements(UI elements, rows)
-    set AppleScript's text item delimiters to linefeed
-    return rows as text
-  end tell
-end tell
+pid = int(sys.argv[1])
+max_nodes = int(sys.argv[2])
+include_nodes = sys.argv[3] == "1"
+
+try:
+    import ApplicationServices as AS
+    import Quartz
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": f"pyobjc_missing: {exc}"}))
+    raise SystemExit(0)
+
+
+def ax_value(element, attr):
+    try:
+        err, value = AS.AXUIElementCopyAttributeValue(element, attr, None)
+    except Exception:
+        return None
+    if err != 0:
+        return None
+    return value
+
+
+def text_value(value):
+    if value is None:
+        return None
+    try:
+        return str(value)
+    except Exception:
+        return None
+
+
+def rect_value(element):
+    pos = ax_value(element, AS.kAXPositionAttribute)
+    size = ax_value(element, AS.kAXSizeAttribute)
+    try:
+        x, y = pos.x, pos.y
+        w, h = size.width, size.height
+        return {"x": int(x), "y": int(y), "width": int(w), "height": int(h)}
+    except Exception:
+        return None
+
+
+def walk(element, rows, depth=0):
+    if len(rows) >= max_nodes:
+        return True
+    role = text_value(ax_value(element, AS.kAXRoleAttribute)) or "unknown"
+    name = text_value(ax_value(element, AS.kAXTitleAttribute)) or text_value(ax_value(element, AS.kAXDescriptionAttribute))
+    rows.append({"role": role, "name": name, "depth": depth})
+    children = ax_value(element, AS.kAXChildrenAttribute) or []
+    try:
+        child_iter = list(children)
+    except Exception:
+        child_iter = []
+    for child in child_iter:
+        if walk(child, rows, depth + 1):
+            return True
+    return False
+
+frontmost = None
+try:
+    frontmost = subprocess.run(
+        ["osascript", "-e", 'tell application "System Events" to get name of first application process whose frontmost is true'],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    ).stdout.strip() or None
+except Exception:
+    pass
+
+app = AS.AXUIElementCreateApplication(pid)
+windows = ax_value(app, AS.kAXWindowsAttribute) or []
+try:
+    windows_list = list(windows)
+except Exception:
+    windows_list = []
+
+window_rows = []
+node_rows = []
+truncated = False
+for idx, window in enumerate(windows_list):
+    title = text_value(ax_value(window, AS.kAXTitleAttribute))
+    role = text_value(ax_value(window, AS.kAXRoleAttribute))
+    window_rows.append({
+        "index": idx,
+        "title": title,
+        "role": role,
+        "bounds": rect_value(window),
+        "frontmost_app": frontmost,
+        "codex_frontmost": frontmost == "Codex",
+    })
+    if include_nodes:
+        truncated = walk(window, node_rows, 0) or truncated
+
+print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "truncated": truncated}))
 """.strip()
 
     def __init__(
@@ -248,6 +331,43 @@ end tell
             warnings=warnings,
         )
 
+    def frontmost(self) -> CommandResult:
+        frontmost_app = self._osascript_value(
+            'tell application "System Events" to get name of first application process whose frontmost is true'
+        )
+        window_title = self._osascript_value(
+            'tell application "System Events" to tell first application process whose frontmost is true to get name of front window'
+        )
+        return CommandResult(
+            ok=True,
+            data={
+                "frontmost_app": redact_value(frontmost_app),
+                "window_title": redact_value(window_title) if frontmost_app == "Codex" else None,
+                "codex_frontmost": frontmost_app == "Codex",
+            },
+            warnings=[] if frontmost_app else ["frontmost app unavailable; Accessibility or Automation permission may be missing"],
+        )
+
+    def windows(self, *, max_nodes: int = 1) -> CommandResult:
+        pid = self._codex_pid()
+        if pid is None:
+            return CommandResult(
+                ok=False,
+                data={"windows": []},
+                errors=[
+                    make_error(
+                        code="codex_not_running",
+                        message="Codex Desktop is not currently running.",
+                        guidance="Open Codex Desktop manually, then rerun the windows command.",
+                    )
+                ],
+            )
+        payload, errors, warnings = self._ax_snapshot(pid=pid, max_nodes=max_nodes, include_nodes=False)
+        if payload is None:
+            return CommandResult(ok=False, data={"windows": []}, errors=errors, warnings=warnings)
+        windows = [self._safe_window(row) for row in payload.get("windows", [])]
+        return CommandResult(ok=True, data={"windows": windows, "count": len(windows)}, warnings=warnings)
+
     def ax_tree(self, *, max_nodes: int) -> CommandResult:
         if self.platform_name != "Darwin":
             return CommandResult(
@@ -274,28 +394,29 @@ end tell
                     )
                 ],
             )
-        result = self.runner(["osascript", "-e", self.AX_TREE_SCRIPT], 10.0)
-        if result.returncode != 0:
+        pid = self._codex_pid()
+        if pid is None:
             return CommandResult(
                 ok=False,
                 data={"nodes": [], "truncated": False},
                 errors=[
                     make_error(
-                        code="ax_tree_unavailable",
-                        message="Unable to read the visible Codex Accessibility tree.",
-                        guidance=ACCESSIBILITY_GUIDANCE,
-                        permission="accessibility",
+                        code="codex_not_running",
+                        message="Codex Desktop is not currently running.",
+                        guidance="Open Codex Desktop manually, then rerun the ax-tree command.",
                     )
                 ],
-                warnings=[str(redact_value(result.stderr.strip()))] if result.stderr.strip() else [],
             )
-        nodes = self._parse_ax_tree(result.stdout)
-        capped = nodes[:max_nodes]
-        truncated = len(nodes) > max_nodes
-        warnings = [f"AX tree truncated at {max_nodes} nodes"] if truncated else []
+        payload, errors, warnings = self._ax_snapshot(pid=pid, max_nodes=max_nodes, include_nodes=True)
+        if payload is None:
+            return CommandResult(ok=False, data={"nodes": [], "truncated": False}, errors=errors, warnings=warnings)
+        nodes = [self._safe_node(row) for row in payload.get("nodes", [])][:max_nodes]
+        truncated = bool(payload.get("truncated"))
+        if truncated:
+            warnings.append(f"AX tree truncated at {max_nodes} nodes")
         return CommandResult(
             ok=True,
-            data={"nodes": capped, "truncated": truncated, "max_nodes": max_nodes},
+            data={"nodes": nodes, "truncated": truncated, "max_nodes": max_nodes},
             warnings=warnings,
         )
 
@@ -345,13 +466,53 @@ end tell
             return None
         return screenshot_path
 
-    def _parse_ax_tree(self, output: str) -> list[dict[str, str | None]]:
-        nodes: list[dict[str, str | None]] = []
-        for line in output.splitlines():
-            if not line.strip():
-                continue
-            role, _, name = line.partition("\t")
-            safe_role, _ = cap_text(str(redact_value(role.strip() or "unknown")), 80)
-            safe_name, _ = cap_text(str(redact_value(name.strip())) if name.strip() else None, 160)
-            nodes.append({"role": safe_role, "name": safe_name})
-        return nodes
+    def _ax_snapshot(self, *, pid: int, max_nodes: int, include_nodes: bool) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
+        result = self.runner(
+            [sys.executable, "-c", self.AX_SNAPSHOT_SCRIPT, str(pid), str(max_nodes), "1" if include_nodes else "0"],
+            20.0,
+        )
+        warnings = [str(redact_value(result.stderr.strip()))] if result.stderr.strip() else []
+        if result.returncode != 0:
+            return None, [
+                make_error(
+                    code="ax_tree_unavailable",
+                    message="Unable to read the visible Codex Accessibility tree.",
+                    guidance=ACCESSIBILITY_GUIDANCE,
+                    permission="accessibility",
+                )
+            ], warnings
+        try:
+            payload = json.loads(result.stdout.strip() or "{}")
+        except json.JSONDecodeError:
+            return None, [
+                make_error(
+                    code="ax_snapshot_parse_failed",
+                    message="Unable to parse Codex Accessibility snapshot output.",
+                    guidance="Check that pyobjc is installed in the Python environment running evaos-desktop-bridge.",
+                )
+            ], warnings
+        if not payload.get("ok"):
+            return None, [
+                make_error(
+                    code="ax_dependency_missing",
+                    message=str(redact_value(payload.get("error") or "Accessibility snapshot dependency missing.")),
+                    guidance="Install pyobjc-framework-Quartz and pyobjc-framework-ApplicationServices in the bridge environment.",
+                )
+            ], warnings
+        return payload, [], warnings
+
+    def _safe_window(self, row: dict[str, Any]) -> dict[str, Any]:
+        title, _ = cap_text(redact_value(row.get("title")), 160)
+        role, _ = cap_text(str(redact_value(row.get("role") or "unknown")), 80)
+        return {
+            "index": row.get("index"),
+            "title": title,
+            "role": role,
+            "bounds": row.get("bounds"),
+            "codex_frontmost": bool(row.get("codex_frontmost")),
+        }
+
+    def _safe_node(self, row: dict[str, Any]) -> dict[str, Any]:
+        role, _ = cap_text(str(redact_value(row.get("role") or "unknown")), 80)
+        name, _ = cap_text(str(redact_value(row.get("name"))) if row.get("name") else None, 160)
+        return {"role": role, "name": name, "depth": int(row.get("depth") or 0)}

@@ -27,6 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     codex_parser = subparsers.add_parser("codex", help="Codex Desktop passive observer commands.")
     codex_subparsers = codex_parser.add_subparsers(dest="codex_command")
 
+    frontmost_parser = codex_subparsers.add_parser("frontmost", help="Report the current frontmost app without capturing screenshots.")
+    frontmost_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    frontmost_parser.set_defaults(command_id="codex.frontmost", target="codex")
+
+    windows_parser = codex_subparsers.add_parser("windows", help="List visible Codex Desktop windows via Accessibility.")
+    windows_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    windows_parser.set_defaults(command_id="codex.windows", target="codex")
+
     focus_parser = codex_subparsers.add_parser("focus", help="Focus the visible Codex Desktop app.")
     focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     focus_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without focusing.")
@@ -112,6 +120,10 @@ def entrypoint() -> None:
 def _run_command(command_id: str, observer: MacOSCodexObserver, args: argparse.Namespace) -> CommandResult:
     if command_id == "status":
         return observer.status()
+    if command_id == "codex.frontmost":
+        return observer.frontmost()
+    if command_id == "codex.windows":
+        return observer.windows()
     if command_id == "codex.focus":
         return observer.focus(dry_run=args.dry_run)
     if command_id == "codex.snapshot":
