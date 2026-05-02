@@ -70,7 +70,9 @@ Recommended first macros:
 
 - Every command emits JSON.
 - Run status/frontmost/windows before any visible mutation.
-- `focus` is the only allowed mutation in the first pack.
+- `focus` and the explicit visible macOS menu action `File → New Chat` are the only allowed mutations in the first hands pack.
+- Prefer visible macOS menu actions over duplicate Electron web-button AXPress when a real app menu exists.
+- `codex press-control --label "New chat"` is intentionally not the preferred New Chat primitive: live tests showed both duplicate AXButton matches can return `pressed: true` without changing the active conversation. Treat AXPress success as mechanical only until paired with screenshot/inspect verification.
 - No hidden app-server attach.
 - No session DB reads.
 - No prompt typing, send, approve, or generic click actions.
@@ -113,3 +115,16 @@ agent_hints:
   side_effects: []
   reversible: true
 ```
+
+## Live New Chat finding (2026-05-03)
+
+Two visible AX buttons named `New chat` were discovered in Codex Desktop. The bridge correctly refused an ambiguous press without `--match-index`. Live tests then showed both `match-index 0` and `match-index 1` could return `pressed: true` while the visible Codex workspace stayed on the existing `Build desktop bridge MVP` conversation.
+
+The safer primitive is the native macOS menu item:
+
+```bash
+python -m evaos_desktop_bridge.cli codex menu-action --json --menu File --item 'New Chat' --dry-run
+python -m evaos_desktop_bridge.cli codex menu-action --json --menu File --item 'New Chat'
+```
+
+Live screenshot verification confirmed `File → New Chat` opens the empty `What should we work on in Codex?` workspace. Do not equate AXPress success with product success; pair future visible mutations with before/after verification.

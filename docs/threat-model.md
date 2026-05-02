@@ -64,6 +64,7 @@ The MVP must not:
 - Report macOS permission state where detectable.
 - Focus an already-running Codex Desktop process through Accessibility.
 - Select an already-visible Codex thread candidate by current `visible_id`.
+- Invoke a tiny allowlist of visible native macOS menu actions, currently only `File → New Chat`, after Codex is frontmost and dry-run verification passes.
 - Capture a visible-state snapshot with capped window metadata.
 - Save a screenshot artifact when Screen Recording permits it.
 - Return a capped AX tree containing roles and names only.
@@ -87,6 +88,7 @@ The MVP must not:
 | Plugin shell escape | OpenClaw wrapper exposes fixed read-only tool mappings only and uses `execFile` with `shell: false`. |
 | Generic desktop-control bypass | Plugin `before_tool_call` firewall blocks suspicious shell/computer calls containing desktop-control, Codex app-server, prompt-send, token, or session database patterns. |
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
+| Misleading AXPress success | Prefer native visible menu actions where available; require before/after visual or inspect verification before treating a hands action as product-successful. |
 
 ## Audit Log
 
@@ -125,5 +127,5 @@ Before adding GUI hands beyond focus:
 
 - Split hands tools from passive observer tools.
 - Require explicit operator approval for click/type/send-capable macros.
-- Use named visible macros instead of arbitrary coordinates or text injection.
+- Use named visible macros or explicit native menu items instead of arbitrary coordinates or text injection.
 - Preserve screenshot/AX caps and append-only audit records for every hands attempt.

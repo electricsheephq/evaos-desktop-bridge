@@ -606,6 +606,42 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         )
 
 
+
+    def menu_action(self, *, menu: str, item: str, dry_run: bool = False) -> CommandResult:
+        allowed = {("File", "New Chat")}
+        if (menu, item) not in allowed:
+            return CommandResult(
+                ok=False,
+                data={"selected": False, "would_select": dry_run, "menu": menu, "item": item, "allowed": sorted([{"menu": m, "item": i} for m, i in allowed], key=lambda x: (x["menu"], x["item"]))},
+                errors=[make_error(code="menu_action_not_allowlisted", message="This Codex Desktop menu action is not allowlisted.", guidance="Only add one explicit visible menu action at a time after dry-run verification.")],
+                provenance={"source": "macos_menu", "dry_run": dry_run, "menu": menu, "item": item},
+            )
+        if self.platform_name != "Darwin":
+            return CommandResult(ok=False, data={"selected": False, "would_select": dry_run, "menu": menu, "item": item}, errors=[make_error(code="unsupported_platform", message="Codex menu actions are only supported on macOS.", guidance="Run on the macOS desktop host running Codex Desktop.")], provenance={"source": "macos_menu", "dry_run": dry_run, "menu": menu, "item": item})
+        if self.accessibility_checker() is False:
+            return CommandResult(ok=False, data={"selected": False, "would_select": dry_run, "menu": menu, "item": item}, errors=[make_error(code="permission_missing", message="Accessibility permission is required for visible menu actions.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], provenance={"source": "macos_menu", "dry_run": dry_run, "menu": menu, "item": item})
+        frontmost = self.frontmost()
+        if not frontmost.data.get("codex_frontmost"):
+            return CommandResult(ok=False, data={"selected": False, "would_select": dry_run, "menu": menu, "item": item, "frontmost": frontmost.data}, errors=[make_error(code="codex_not_frontmost", message="Codex Desktop must be frontmost before invoking a menu action.", guidance="Run codex focus first, then retry menu-action.")], provenance={"source": "macos_menu", "dry_run": dry_run, "menu": menu, "item": item})
+        exists = self.runner([
+            "osascript",
+            "-e",
+            f'tell application "System Events" to tell process "Codex" to exists menu item "{item}" of menu 1 of menu bar item "{menu}" of menu bar 1',
+        ], 5.0)
+        menu_exists = exists.stdout.strip().lower() == "true"
+        if not menu_exists:
+            return CommandResult(ok=False, data={"selected": False, "would_select": dry_run, "menu": menu, "item": item, "menu_item_exists": False}, errors=[make_error(code="menu_action_not_found", message="The allowlisted Codex Desktop menu action is not currently visible.", guidance="Check Codex focus/state and rerun.")], warnings=[str(redact_value(exists.stderr.strip()))] if exists.stderr.strip() else [], provenance={"source": "macos_menu", "dry_run": dry_run, "menu": menu, "item": item})
+        if dry_run:
+            return CommandResult(ok=True, data={"selected": False, "would_select": True, "menu": menu, "item": item, "menu_item_exists": True}, provenance={"source": "macos_menu", "dry_run": True, "menu": menu, "item": item})
+        result = self.runner([
+            "osascript",
+            "-e",
+            f'tell application "System Events" to tell process "Codex" to click menu item "{item}" of menu 1 of menu bar item "{menu}" of menu bar 1',
+        ], 5.0)
+        if result.returncode != 0:
+            return CommandResult(ok=False, data={"selected": False, "menu": menu, "item": item}, errors=[make_error(code="menu_action_failed", message="macOS refused the visible Codex Desktop menu action.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=[str(redact_value(result.stderr.strip()))] if result.stderr.strip() else [], provenance={"source": "macos_menu", "dry_run": False, "menu": menu, "item": item})
+        return CommandResult(ok=True, data={"selected": True, "menu": menu, "item": item}, provenance={"source": "macos_menu", "dry_run": False, "menu": menu, "item": item})
+
     def find_control(self, *, label: str, max_nodes: int = 500) -> CommandResult:
         if self.platform_name != "Darwin":
             return CommandResult(

@@ -22,6 +22,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.frontmost",
         "codex.windows",
         "codex.threads",
+        "codex.menu_action",
         "codex.find_control",
         "codex.snapshot",
         "codex.inspect",
@@ -91,6 +92,13 @@ def build_parser() -> argparse.ArgumentParser:
     focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     focus_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without focusing.")
     focus_parser.set_defaults(command_id="codex.focus", target="codex")
+
+    menu_action_parser = codex_subparsers.add_parser("menu-action", help="Invoke one allowlisted visible Codex menu action.")
+    menu_action_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    menu_action_parser.add_argument("--menu", required=True, help="Menu name, e.g. File.")
+    menu_action_parser.add_argument("--item", required=True, help="Menu item name, e.g. New Chat.")
+    menu_action_parser.add_argument("--dry-run", action="store_true", help="Verify the visible menu action without clicking it.")
+    menu_action_parser.set_defaults(command_id="codex.menu_action", target="codex")
 
     find_control_parser = codex_subparsers.add_parser("find-control", help="Find exact visible Codex controls by AX label without pressing them.")
     find_control_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -257,6 +265,8 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return observer.threads(max_items=args.max_items)
     if command_id == "codex.focus":
         return observer.focus(dry_run=args.dry_run)
+    if command_id == "codex.menu_action":
+        return observer.menu_action(menu=args.menu, item=args.item, dry_run=args.dry_run)
     if command_id == "codex.find_control":
         return observer.find_control(label=args.label, max_nodes=args.max_nodes)
     if command_id == "codex.press_control":
@@ -303,6 +313,7 @@ def _capabilities() -> dict[str, object]:
                 "codex.windows",
                 "codex.threads",
                 "codex.focus",
+                "codex.menu_action",
                 "codex.find_control",
                 "codex.press_control",
                 "codex.select_thread",

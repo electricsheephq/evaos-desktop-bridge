@@ -75,6 +75,9 @@ class FakeObserver:
             )
         return CommandResult(ok=True, data={"focused": True})
 
+    def menu_action(self, *, menu: str, item: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"selected": not dry_run, "would_select": dry_run, "menu": menu, "item": item, "menu_item_exists": True})
+
     def find_control(self, *, label: str, max_nodes: int = 500) -> CommandResult:
         return CommandResult(ok=True, data={"label": label, "matches": [{"role": "AXButton", "name": label, "actions": ["AXPress"], "window_index": 1}], "count": 1, "unique": True, "allowed_labels": ["New chat"]})
 
@@ -242,6 +245,16 @@ def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> N
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.focus"
     assert payload["data"] == {"would_focus": True, "focused": False}
+
+
+def test_menu_action_dry_run_returns_visible_menu_target(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "menu-action", "--json", "--menu", "File", "--item", "New Chat", "--dry-run"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.menu_action"
+    assert payload["data"]["would_select"] is True
+    assert payload["data"]["menu"] == "File"
+    assert payload["data"]["item"] == "New Chat"
 
 
 def test_find_control_json_returns_exact_control_matches(tmp_path: Path) -> None:
