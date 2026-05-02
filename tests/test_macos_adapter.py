@@ -215,6 +215,66 @@ def test_select_thread_dry_run_does_not_click(tmp_path: Path) -> None:
     assert not any(command[0] == "osascript" and "click at" in command[-1] for command in runner.commands)
 
 
+def test_find_control_returns_exact_axpress_match(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
+                returncode=0,
+                stdout='{"ok": true, "matches": [{"role": "AXButton", "name": "New chat", "depth": 14, "window_index": 1, "bounds": {"x": 1, "y": 2, "width": 3, "height": 4}, "actions": ["AXPress"]}], "count": 1, "pressed": false, "allowed_labels": ["New chat"]}',
+                stderr="",
+            ),
+        }
+    )
+    observer = MacOSCodexObserver(runner=runner, app_paths=[], state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.find_control(label="New chat")
+
+    assert result.ok is True
+    assert result.data["unique"] is True
+    assert result.data["matches"][0]["actions"] == ["AXPress"]
+    assert result.data["matches"][0]["bounds"] == {"x": 1, "y": 2, "width": 3, "height": 4}
+
+
+def test_press_control_dry_run_does_not_perform_axpress(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
+                returncode=0,
+                stdout='{"ok": true, "matches": [{"role": "AXButton", "name": "New chat", "depth": 14, "window_index": 1, "actions": ["AXPress"]}], "count": 1, "pressed": false, "allowed_labels": ["New chat"]}',
+                stderr="",
+            ),
+        }
+    )
+    observer = MacOSCodexObserver(runner=runner, app_paths=[], state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.press_control(label="New chat", dry_run=True)
+
+    assert result.ok is True
+    assert result.data["would_press"] is True
+    assert result.data["pressed"] is False
+
+
+def test_press_control_rejects_non_allowlisted_label(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
+                returncode=0,
+                stdout='{"ok": true, "matches": [{"role": "AXButton", "name": "Send", "depth": 14, "window_index": 1, "actions": ["AXPress"]}], "count": 1, "pressed": false, "allowed_labels": ["New chat"]}',
+                stderr="",
+            ),
+        }
+    )
+    observer = MacOSCodexObserver(runner=runner, app_paths=[], state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.press_control(label="Send", dry_run=True)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "control_label_not_allowlisted"
+
+
 def test_ax_tree_returns_roles_names_only_and_truncates(tmp_path: Path) -> None:
     runner = FakeRunner(
         {

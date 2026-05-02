@@ -22,6 +22,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.frontmost",
         "codex.windows",
         "codex.threads",
+        "codex.find_control",
         "codex.snapshot",
         "codex.inspect",
         "codex.ax_tree",
@@ -90,6 +91,20 @@ def build_parser() -> argparse.ArgumentParser:
     focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     focus_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without focusing.")
     focus_parser.set_defaults(command_id="codex.focus", target="codex")
+
+    find_control_parser = codex_subparsers.add_parser("find-control", help="Find exact visible Codex controls by AX label without pressing them.")
+    find_control_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    find_control_parser.add_argument("--label", required=True, help="Exact AX label to find, e.g. 'New chat'.")
+    find_control_parser.add_argument("--max-nodes", type=_positive_int, default=500, help="Maximum AX nodes to inspect.")
+    find_control_parser.set_defaults(command_id="codex.find_control", target="codex")
+
+    press_control_parser = codex_subparsers.add_parser("press-control", help="Press an allowlisted visible Codex control via AXPress.")
+    press_control_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    press_control_parser.add_argument("--label", required=True, help="Exact allowlisted AX label to press, e.g. 'New chat'.")
+    press_control_parser.add_argument("--dry-run", action="store_true", help="Report the target without pressing.")
+    press_control_parser.add_argument("--match-index", type=int, default=None, help="Specific match index from find-control when a label is not unique.")
+    press_control_parser.add_argument("--max-nodes", type=_positive_int, default=500, help="Maximum AX nodes to inspect.")
+    press_control_parser.set_defaults(command_id="codex.press_control", target="codex")
 
     select_parser = codex_subparsers.add_parser("select-thread", help="Select an already-visible Codex Desktop thread candidate.")
     select_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -242,6 +257,10 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return observer.threads(max_items=args.max_items)
     if command_id == "codex.focus":
         return observer.focus(dry_run=args.dry_run)
+    if command_id == "codex.find_control":
+        return observer.find_control(label=args.label, max_nodes=args.max_nodes)
+    if command_id == "codex.press_control":
+        return observer.press_control(label=args.label, dry_run=args.dry_run, max_nodes=args.max_nodes, match_index=args.match_index)
     if command_id == "codex.select_thread":
         return observer.select_thread(thread_id=args.thread_id, dry_run=args.dry_run)
     if command_id == "codex.snapshot":
@@ -284,6 +303,8 @@ def _capabilities() -> dict[str, object]:
                 "codex.windows",
                 "codex.threads",
                 "codex.focus",
+                "codex.find_control",
+                "codex.press_control",
                 "codex.select_thread",
                 "codex.snapshot",
                 "codex.inspect",

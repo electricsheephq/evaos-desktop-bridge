@@ -75,6 +75,14 @@ class FakeObserver:
             )
         return CommandResult(ok=True, data={"focused": True})
 
+    def find_control(self, *, label: str, max_nodes: int = 500) -> CommandResult:
+        return CommandResult(ok=True, data={"label": label, "matches": [{"role": "AXButton", "name": label, "actions": ["AXPress"], "window_index": 1}], "count": 1, "unique": True, "allowed_labels": ["New chat"]})
+
+    def press_control(self, *, label: str, dry_run: bool = False, max_nodes: int = 500, match_index: int | None = None) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"pressed": False, "would_press": True, "label": label, "target": {"role": "AXButton", "name": label, "actions": ["AXPress"]}})
+        return CommandResult(ok=True, data={"pressed": True, "label": label})
+
     def select_thread(self, *, thread_id: str, dry_run: bool = False) -> CommandResult:
         if thread_id != "visible-0-abc":
             return CommandResult(ok=False, data={"selected": False}, errors=[{"code": "visible_thread_not_found", "message": "missing", "guidance": "rerun threads"}])
@@ -234,6 +242,24 @@ def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> N
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.focus"
     assert payload["data"] == {"would_focus": True, "focused": False}
+
+
+def test_find_control_json_returns_exact_control_matches(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "find-control", "--json", "--label", "New chat"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.find_control"
+    assert payload["data"]["unique"] is True
+    assert payload["data"]["matches"][0]["actions"] == ["AXPress"]
+
+
+def test_press_control_dry_run_does_not_press(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "press-control", "--json", "--label", "New chat", "--dry-run"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.press_control"
+    assert payload["data"]["would_press"] is True
+    assert payload["data"]["pressed"] is False
 
 
 def test_select_thread_dry_run_is_audited_visible_action(tmp_path: Path) -> None:
