@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import json
 import platform
 import subprocess
@@ -120,7 +121,7 @@ def walk(element, rows, depth=0, window_index=None):
         return True
     role = text_value(ax_value(element, AS.kAXRoleAttribute)) or "unknown"
     name = text_value(ax_value(element, AS.kAXTitleAttribute)) or text_value(ax_value(element, AS.kAXDescriptionAttribute))
-    rows.append({"role": role, "name": name, "depth": depth, "window_index": window_index})
+    rows.append({"role": role, "name": name, "depth": depth, "window_index": window_index, "bounds": rect_value(element)})
     children = ax_value(element, AS.kAXChildrenAttribute) or []
     try:
         child_iter = list(children)
@@ -368,6 +369,127 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         windows = [self._safe_window(row) for row in payload.get("windows", [])]
         return CommandResult(ok=True, data={"windows": windows, "count": len(windows)}, warnings=warnings)
 
+    def threads(self, *, max_items: int) -> CommandResult:
+        pid = self._codex_pid()
+        if pid is None:
+            return CommandResult(
+                ok=False,
+                data={"threads": [], "count": 0, "max_items": max_items},
+                errors=[
+                    make_error(
+                        code="codex_not_running",
+                        message="Codex Desktop is not currently running.",
+                        guidance="Open Codex Desktop manually, then rerun the threads command.",
+                    )
+                ],
+                provenance={"source": "ax"},
+            )
+        payload, errors, warnings = self._ax_snapshot(pid=pid, max_nodes=max(max_items * 8, 80), include_nodes=True)
+        if payload is None:
+            return CommandResult(ok=False, data={"threads": [], "count": 0, "max_items": max_items}, errors=errors, warnings=warnings, provenance={"source": "ax"})
+        threads = self._visible_threads_from_payload(payload, max_items=max_items)
+        return CommandResult(
+            ok=True,
+            data={"threads": threads, "count": len(threads), "max_items": max_items, "source": "ax"},
+            warnings=warnings,
+            provenance={"source": "ax"},
+        )
+
+    def select_thread(self, *, thread_id: str, dry_run: bool = False, max_items: int = 200) -> CommandResult:
+        if self.platform_name != "Darwin":
+            return CommandResult(
+                ok=False,
+                data={"selected": False, "would_select": dry_run},
+                errors=[
+                    make_error(
+                        code="unsupported_platform",
+                        message="Codex Desktop visible thread selection is only supported on macOS.",
+                        guidance="Run this command on the macOS desktop host running Codex Desktop.",
+                    )
+                ],
+                provenance={"source": "ax", "dry_run": dry_run, "selected_visible_target_id": thread_id},
+            )
+        if self.accessibility_checker() is False:
+            return CommandResult(
+                ok=False,
+                data={"selected": False, "would_select": dry_run},
+                errors=[
+                    make_error(
+                        code="permission_missing",
+                        message="Accessibility permission is required to select a visible Codex thread.",
+                        guidance=ACCESSIBILITY_GUIDANCE,
+                        permission="accessibility",
+                    )
+                ],
+                provenance={"source": "ax", "dry_run": dry_run, "selected_visible_target_id": thread_id},
+            )
+        inventory = self.threads(max_items=max_items)
+        if not inventory.ok:
+            inventory.provenance.update({"dry_run": dry_run, "selected_visible_target_id": thread_id})
+            return inventory
+        target = next((item for item in inventory.data.get("threads", []) if item.get("visible_id") == thread_id), None)
+        if target is None:
+            return CommandResult(
+                ok=False,
+                data={"selected": False, "would_select": dry_run, "thread_id": thread_id},
+                errors=[
+                    make_error(
+                        code="visible_thread_not_found",
+                        message="The requested visible Codex thread id is not present in the current GUI inventory.",
+                        guidance="Rerun `evaos-desktop-bridge codex threads --json` and choose a current visible_id.",
+                    )
+                ],
+                provenance={"source": "ax", "dry_run": dry_run, "selected_visible_target_id": thread_id},
+            )
+        center = target.get("center")
+        if not isinstance(center, dict) or center.get("x") is None or center.get("y") is None:
+            return CommandResult(
+                ok=False,
+                data={"selected": False, "would_select": dry_run, "thread_id": thread_id, "target": target},
+                errors=[
+                    make_error(
+                        code="visible_thread_not_selectable",
+                        message="The visible thread candidate does not have safe screen coordinates.",
+                        guidance="Use a candidate with bounds from the current AX inventory.",
+                    )
+                ],
+                provenance={"source": "ax", "dry_run": dry_run, "selected_visible_target_id": thread_id},
+            )
+        if dry_run:
+            return CommandResult(
+                ok=True,
+                data={"selected": False, "would_select": True, "thread_id": thread_id, "target": target},
+                provenance={"source": "ax", "dry_run": True, "selected_visible_target_id": thread_id},
+            )
+        focus = self.focus(dry_run=False)
+        if not focus.ok:
+            focus.provenance.update({"dry_run": dry_run, "selected_visible_target_id": thread_id})
+            return focus
+        result = self.runner(
+            ["osascript", "-e", f'tell application "System Events" to click at {{{int(center["x"])}, {int(center["y"])}}}'],
+            5.0,
+        )
+        if result.returncode != 0:
+            return CommandResult(
+                ok=False,
+                data={"selected": False, "thread_id": thread_id, "target": target},
+                errors=[
+                    make_error(
+                        code="visible_thread_select_failed",
+                        message="macOS refused to select the visible Codex thread candidate.",
+                        guidance=ACCESSIBILITY_GUIDANCE,
+                        permission="accessibility",
+                    )
+                ],
+                warnings=[str(redact_value(result.stderr.strip()))] if result.stderr.strip() else [],
+                provenance={"source": "ax", "dry_run": False, "selected_visible_target_id": thread_id},
+            )
+        return CommandResult(
+            ok=True,
+            data={"selected": True, "thread_id": thread_id, "target": target},
+            provenance={"source": "ax", "dry_run": False, "selected_visible_target_id": thread_id},
+        )
+
     def inspect(self, *, max_nodes: int) -> CommandResult:
         status = self.status()
         frontmost = self.frontmost()
@@ -459,9 +581,21 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
 
     def _codex_pid(self) -> int | None:
         result = self.runner(["pgrep", "-x", "Codex"], 3.0)
-        if result.returncode != 0:
+        if result.returncode == 0:
+            first = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+            try:
+                return int(first)
+            except ValueError:
+                pass
+        if self.platform_name != "Darwin":
             return None
-        first = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+        fallback = self.runner(
+            ["osascript", "-e", 'tell application "System Events" to get unix id of first application process whose name is "Codex"'],
+            5.0,
+        )
+        if fallback.returncode != 0:
+            return None
+        first = fallback.stdout.strip().splitlines()[0] if fallback.stdout.strip() else ""
         try:
             return int(first)
         except ValueError:
@@ -547,9 +681,59 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
     def _safe_node(self, row: dict[str, Any]) -> dict[str, Any]:
         role, _ = cap_text(str(redact_value(row.get("role") or "unknown")), 80)
         name, _ = cap_text(str(redact_value(row.get("name"))) if row.get("name") else None, 160)
-        return {
+        node = {
             "role": role,
             "name": name,
             "depth": int(row.get("depth") or 0),
             "window_index": row.get("window_index"),
         }
+        if row.get("bounds") is not None:
+            node["bounds"] = row.get("bounds")
+        return node
+
+    def _visible_threads_from_payload(self, payload: dict[str, Any], *, max_items: int) -> list[dict[str, Any]]:
+        candidates: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in payload.get("nodes", []):
+            node = self._safe_node(row)
+            role = str(node.get("role") or "")
+            name = node.get("name")
+            if not name or role not in {"AXButton", "AXStaticText", "AXTextField", "AXGroup", "AXRow", "AXLink"}:
+                continue
+            lowered = str(name).strip().lower()
+            if lowered in {"codex", "new chat", "new thread", "settings", "search", "send"}:
+                continue
+            visible_id = self._visible_thread_id(index=len(candidates), title=str(name), window_index=node.get("window_index"))
+            if visible_id in seen:
+                continue
+            seen.add(visible_id)
+            bounds = node.get("bounds")
+            center = None
+            if isinstance(bounds, dict):
+                try:
+                    center = {
+                        "x": int(bounds["x"]) + int(bounds["width"]) // 2,
+                        "y": int(bounds["y"]) + int(bounds["height"]) // 2,
+                    }
+                except Exception:
+                    center = None
+            candidates.append(
+                {
+                    "visible_id": visible_id,
+                    "index": len(candidates),
+                    "title": name,
+                    "role": role,
+                    "window_index": node.get("window_index"),
+                    "bounds": bounds,
+                    "center": center,
+                    "confidence": "medium" if center else "low",
+                    "source": "ax",
+                }
+            )
+            if len(candidates) >= max_items:
+                break
+        return candidates
+
+    def _visible_thread_id(self, *, index: int, title: str, window_index: Any) -> str:
+        digest = hashlib.sha256(f"{window_index}:{index}:{title}".encode("utf-8")).hexdigest()[:12]
+        return f"visible-{index}-{digest}"

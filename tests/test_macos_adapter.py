@@ -161,6 +161,60 @@ def test_windows_returns_redacted_visible_window_metadata(tmp_path: Path) -> Non
     assert result.data["windows"][0]["bounds"] == {"x": 1, "y": 2, "width": 3, "height": 4}
 
 
+def test_threads_returns_deterministic_visible_candidates(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
+                returncode=0,
+                stdout='{"ok": true, "windows": [], "nodes": [{"role": "AXStaticText", "name": "/Users/lume/project thread", "depth": 1, "window_index": 0, "bounds": {"x": 10, "y": 20, "width": 100, "height": 40}}], "truncated": false}',
+                stderr="",
+            ),
+        }
+    )
+    observer = MacOSCodexObserver(
+        runner=runner,
+        app_paths=[],
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.threads(max_items=10)
+
+    assert result.ok is True
+    assert result.data["threads"][0]["visible_id"].startswith("visible-0-")
+    assert result.data["threads"][0]["title"] == "~/project thread"
+    assert result.data["threads"][0]["center"] == {"x": 60, "y": 40}
+
+
+def test_select_thread_dry_run_does_not_click(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "Codex"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
+                returncode=0,
+                stdout='{"ok": true, "windows": [], "nodes": [{"role": "AXStaticText", "name": "Bridge thread", "depth": 1, "window_index": 0, "bounds": {"x": 10, "y": 20, "width": 100, "height": 40}}], "truncated": false}',
+                stderr="",
+            ),
+        }
+    )
+    observer = MacOSCodexObserver(
+        runner=runner,
+        app_paths=[],
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    thread_id = observer.threads(max_items=1).data["threads"][0]["visible_id"]
+
+    result = observer.select_thread(thread_id=thread_id, dry_run=True)
+
+    assert result.ok is True
+    assert result.data["would_select"] is True
+    assert not any(command[0] == "osascript" and "click at" in command[-1] for command in runner.commands)
+
+
 def test_ax_tree_returns_roles_names_only_and_truncates(tmp_path: Path) -> None:
     runner = FakeRunner(
         {

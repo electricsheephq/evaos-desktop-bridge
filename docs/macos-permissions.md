@@ -44,6 +44,8 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 Required for:
 
 - `evaos-desktop-bridge codex focus --json`
+- `evaos-desktop-bridge codex threads --json --max-items 50`
+- `evaos-desktop-bridge codex select-thread --json --thread-id visible-... --dry-run`
 - `evaos-desktop-bridge codex ax-tree --json --max-nodes 200`
 - Reading front window titles through System Events.
 
@@ -92,6 +94,7 @@ If Screen Recording is missing, snapshot still returns visible text fields when 
 ```bash
 evaos-desktop-bridge status --json
 evaos-desktop-bridge codex focus --json --dry-run
+evaos-desktop-bridge codex threads --json --max-items 20
 evaos-desktop-bridge codex snapshot --json --max-chars 4000
 evaos-desktop-bridge codex ax-tree --json --max-nodes 20
 ```
@@ -102,12 +105,14 @@ Expected behavior:
 - Permission failures use structured `errors`.
 - Missing screenshot permission is reported as a warning.
 - No command sends text to Codex Desktop.
+- `select-thread --dry-run` reports the target without clicking.
 
 ## Troubleshooting
 
 - If `status` reports Accessibility as `missing`, grant Accessibility to the exact app that launches the bridge.
 - If `snapshot` returns `screenshot_path: null`, grant Screen Recording and rerun the terminal.
 - If `ax-tree` returns `ax_tree_unavailable`, confirm Codex Desktop is running and visible, then recheck Accessibility.
+- If `ax-tree`, `windows`, or `threads` returns `ax_dependency_missing`, install the GUI extras with `python3 -m pip install -e '.[gui]'` in the bridge environment.
 - If macOS still denies access after toggling a permission, remove and re-add the terminal app in the relevant privacy pane.
 
 ## Data Location

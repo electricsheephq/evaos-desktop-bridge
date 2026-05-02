@@ -30,6 +30,7 @@ def append_audit(
     ok: bool,
     warnings: list[str],
     errors: list[dict[str, Any]],
+    provenance: dict[str, Any] | None = None,
     state_dir: Path | None = None,
 ) -> str:
     audit_id = f"audit-{uuid.uuid4().hex}"
@@ -45,6 +46,7 @@ def append_audit(
         "ok": ok,
         "warnings": redact_value(warnings),
         "errors": redact_value(errors),
+        "provenance": redact_value(provenance or {}),
     }
     with (root / "audit.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
