@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, TextIO
 
 from .adapters.codex_app_server import CodexAppServerObserver
+from .adapters.codex_acpx import AcpxWorkerObserver
 from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.codex_sessions import CodexSessionObserver
 from .audit import append_audit
@@ -23,6 +24,12 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.frontmost",
         "codex.windows",
         "codex.threads",
+        "codex.acpx_list",
+        "codex.acpx_show",
+        "codex.acpx_status",
+        "codex.acpx_prompt",
+        "codex.acpx_history",
+        "codex.acpx_tail_events",
         "codex.indexed_threads",
         "codex.read_thread_tail",
         "codex.open_thread",
@@ -92,6 +99,42 @@ def build_parser() -> argparse.ArgumentParser:
     threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum visible thread candidates to return.")
     threads_parser.set_defaults(command_id="codex.threads", target="codex")
+
+    acpx_list_parser = codex_subparsers.add_parser("acpx-worker-list", help="List acpx-managed Codex background workers.")
+    acpx_list_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    acpx_list_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum workers to return.")
+    acpx_list_parser.set_defaults(command_id="codex.acpx_list", target="codex")
+
+    acpx_show_parser = codex_subparsers.add_parser("acpx-worker-show", help="Show acpx worker metadata for current cwd or named session.")
+    acpx_show_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    acpx_show_parser.add_argument("--session", default=None, help="Optional acpx named session.")
+    acpx_show_parser.set_defaults(command_id="codex.acpx_show", target="codex")
+
+    acpx_status_parser = codex_subparsers.add_parser("acpx-worker-status", help="Show acpx worker process/status information.")
+    acpx_status_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    acpx_status_parser.add_argument("--session", default=None, help="Optional acpx named session.")
+    acpx_status_parser.set_defaults(command_id="codex.acpx_status", target="codex")
+
+    acpx_prompt_parser = codex_subparsers.add_parser("acpx-worker-prompt", help="Prompt an acpx-managed Codex background worker.")
+    acpx_prompt_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    acpx_prompt_parser.add_argument("--message", required=True, help="Prompt text to send.")
+    acpx_prompt_parser.add_argument("--session", default=None, help="Optional acpx named session.")
+    acpx_prompt_parser.add_argument("--no-wait", action="store_true", help="Queue and return when worker is busy.")
+    acpx_prompt_parser.add_argument("--dry-run", action="store_true", help="Preview without sending.")
+    acpx_prompt_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum preview chars.")
+    acpx_prompt_parser.set_defaults(command_id="codex.acpx_prompt", target="codex")
+
+    acpx_history_parser = codex_subparsers.add_parser("acpx-worker-history", help="Read acpx worker history.")
+    acpx_history_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    acpx_history_parser.add_argument("--session", default=None, help="Optional acpx named session.")
+    acpx_history_parser.add_argument("--limit", type=_positive_int, default=20, help="History item limit.")
+    acpx_history_parser.set_defaults(command_id="codex.acpx_history", target="codex")
+
+    acpx_tail_parser = codex_subparsers.add_parser("acpx-worker-tail-events", help="Read acpx worker stream event tail by acpxRecordId.")
+    acpx_tail_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    acpx_tail_parser.add_argument("--record-id", required=True, help="acpxRecordId from acpx-worker-list.")
+    acpx_tail_parser.add_argument("--max-events", type=_positive_int, default=40, help="Maximum stream events to return.")
+    acpx_tail_parser.set_defaults(command_id="codex.acpx_tail_events", target="codex")
 
     indexed_threads_parser = codex_subparsers.add_parser("indexed-threads", help="List persisted Codex Desktop/interactive threads from session_index.jsonl.")
     indexed_threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -188,6 +231,7 @@ def main(
     observer_factory: Callable[[], MacOSCodexObserver] | None = None,
     app_server_factory: Callable[[], CodexAppServerObserver] | None = None,
     session_factory: Callable[[], CodexSessionObserver] | None = None,
+    acpx_factory: Callable[[], AcpxWorkerObserver] | None = None,
     stdout: TextIO = sys.stdout,
     stderr: TextIO = sys.stderr,
     state_dir: Path | None = None,
@@ -210,7 +254,8 @@ def main(
         observer = observer_factory() if observer_factory is not None else MacOSCodexObserver(state_dir=state_dir)
         app_server = app_server_factory() if app_server_factory is not None else CodexAppServerObserver()
         sessions = session_factory() if session_factory is not None else CodexSessionObserver()
-        result = _run_command(command_id, observer, app_server, sessions, args)
+        acpx = acpx_factory() if acpx_factory is not None else AcpxWorkerObserver()
+        result = _run_command(command_id, observer, app_server, sessions, acpx, args)
     except PolicyError as exc:
         result = CommandResult(ok=False, errors=[exc.error])
     except Exception as exc:
@@ -260,7 +305,7 @@ def entrypoint() -> None:
     raise SystemExit(main())
 
 
-def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: CodexAppServerObserver, sessions: CodexSessionObserver, args: argparse.Namespace) -> CommandResult:
+def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: CodexAppServerObserver, sessions: CodexSessionObserver, acpx: AcpxWorkerObserver, args: argparse.Namespace) -> CommandResult:
     if command_id == "status":
         return observer.status()
     if command_id == "capabilities":
@@ -297,6 +342,18 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return observer.windows()
     if command_id == "codex.threads":
         return observer.threads(max_items=args.max_items)
+    if command_id == "codex.acpx_list":
+        return acpx.list_workers(max_items=args.max_items)
+    if command_id == "codex.acpx_show":
+        return acpx.show_worker(name=args.session)
+    if command_id == "codex.acpx_status":
+        return acpx.status(name=args.session)
+    if command_id == "codex.acpx_prompt":
+        return acpx.prompt(message=args.message, name=args.session, no_wait=args.no_wait, dry_run=args.dry_run, max_chars=args.max_chars)
+    if command_id == "codex.acpx_history":
+        return acpx.history(name=args.session, limit=args.limit)
+    if command_id == "codex.acpx_tail_events":
+        return acpx.tail_events(record_id=args.record_id, max_events=args.max_events)
     if command_id == "codex.indexed_threads":
         return sessions.indexed_threads(max_items=args.max_items)
     if command_id == "codex.read_thread_tail":
@@ -354,7 +411,13 @@ def _capabilities() -> dict[str, object]:
                 "codex.frontmost",
                 "codex.windows",
                 "codex.threads",
-                "codex.indexed_threads",
+                "codex.acpx_list",
+        "codex.acpx_show",
+        "codex.acpx_status",
+        "codex.acpx_prompt",
+        "codex.acpx_history",
+        "codex.acpx_tail_events",
+        "codex.indexed_threads",
                 "codex.read_thread_tail",
                 "codex.open_thread",
                 "codex.steer_thread",

@@ -130,6 +130,27 @@ class FakeObserver:
 
 
 @dataclass
+class FakeAcpx:
+    def list_workers(self, *, max_items: int) -> CommandResult:
+        return CommandResult(ok=True, data={"workers": [{"acpxRecordId": "rec-1", "acpSessionId": "acp-1", "worker_kind": "acpx_background", "desktop_indexed": False}], "count": 1, "max_items": max_items})
+
+    def show_worker(self, *, name: str | None = None) -> CommandResult:
+        return CommandResult(ok=True, data={"worker": {"acpxRecordId": "rec-1", "worker_kind": "acpx_background"}})
+
+    def status(self, *, name: str | None = None) -> CommandResult:
+        return CommandResult(ok=True, data={"status": {"running": False}})
+
+    def prompt(self, *, message: str, name: str | None = None, no_wait: bool = False, dry_run: bool = False, max_chars: int = 4000) -> CommandResult:
+        return CommandResult(ok=True, data={"would_prompt": dry_run, "prompted": not dry_run, "message_preview": message[:max_chars], "no_wait": no_wait})
+
+    def history(self, *, name: str | None = None, limit: int = 20) -> CommandResult:
+        return CommandResult(ok=True, data={"history": [], "limit": limit})
+
+    def tail_events(self, *, record_id: str, max_events: int = 40) -> CommandResult:
+        return CommandResult(ok=True, data={"record_id": record_id, "events": [{"type": "Agent", "text": "OK"}], "count": 1})
+
+
+@dataclass
 class FakeSessions:
     def indexed_threads(self, *, max_items: int) -> CommandResult:
         return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "thread-1", "title": "Build desktop bridge MVP", "source": "session_index"}], "count": 1, "max_items": max_items, "source": "session_index"})
@@ -166,6 +187,7 @@ def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
         observer_factory=lambda: observer,
         app_server_factory=lambda: FakeAppServer(),
         session_factory=lambda: FakeSessions(),
+        acpx_factory=lambda: FakeAcpx(),
         stdout=stdout,
         state_dir=tmp_path,
     )
@@ -251,6 +273,33 @@ def test_threads_json_lists_visible_thread_candidates(tmp_path: Path) -> None:
     assert payload["command"] == "codex.threads"
     assert payload["data"]["threads"][0]["visible_id"] == "visible-0-abc"
     assert payload["data"]["threads"][0]["source"] == "ax"
+
+
+def test_acpx_worker_list_distinguishes_background_workers(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "acpx-worker-list", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.acpx_list"
+    assert payload["data"]["workers"][0]["worker_kind"] == "acpx_background"
+    assert payload["data"]["workers"][0]["desktop_indexed"] is False
+
+
+def test_acpx_worker_prompt_dry_run_previews_message(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "acpx-worker-prompt", "--json", "--message", "continue please", "--dry-run", "--no-wait"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.acpx_prompt"
+    assert payload["data"]["would_prompt"] is True
+    assert payload["data"]["prompted"] is False
+    assert payload["data"]["no_wait"] is True
+
+
+def test_acpx_worker_tail_events_reads_stream_tail(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "acpx-worker-tail-events", "--json", "--record-id", "rec-1"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.acpx_tail_events"
+    assert payload["data"]["events"][0]["text"] == "OK"
 
 
 def test_indexed_threads_lists_session_index_threads(tmp_path: Path) -> None:
