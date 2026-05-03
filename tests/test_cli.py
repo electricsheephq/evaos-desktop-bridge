@@ -140,6 +140,11 @@ class FakeSessions:
     def open_thread(self, *, thread_id: str, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"would_open": dry_run, "opened": not dry_run, "thread_id": thread_id, "url": f"codex://threads/{thread_id}"})
 
+    def steer_thread(self, *, thread_id: str, message: str, dry_run: bool = False, timeout_seconds: int = 120, max_chars: int = 4000) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"would_steer": True, "steered": False, "thread_id": thread_id, "message_preview": message[:max_chars]})
+        return CommandResult(ok=True, data={"would_steer": False, "steered": True, "thread_id": thread_id, "last_message_preview": "done", "events": [{"type": "turn.completed"}]})
+
 
 @dataclass
 class FakeAppServer:
@@ -271,6 +276,25 @@ def test_open_thread_dry_run_returns_deep_link(tmp_path: Path) -> None:
     assert payload["command"] == "codex.open_thread"
     assert payload["data"]["would_open"] is True
     assert payload["data"]["url"] == "codex://threads/thread-1"
+
+
+def test_steer_thread_dry_run_previews_without_sending(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "steer-thread", "--json", "--thread-id", "thread-1", "--message", "please continue", "--dry-run"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.steer_thread"
+    assert payload["data"]["would_steer"] is True
+    assert payload["data"]["steered"] is False
+    assert payload["data"]["message_preview"] == "please continue"
+
+
+def test_steer_thread_live_reports_completion(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "steer-thread", "--json", "--thread-id", "thread-1", "--message", "please continue"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.steer_thread"
+    assert payload["data"]["steered"] is True
+    assert payload["data"]["events"][0]["type"] == "turn.completed"
 
 
 def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> None:

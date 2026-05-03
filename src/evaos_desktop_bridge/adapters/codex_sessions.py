@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -73,6 +74,93 @@ class CodexSessionObserver:
             return CommandResult(ok=False, data={"opened": False, "thread_id": thread_id, "url": url}, errors=[make_error(code="thread_open_failed", message="Unable to open Codex Desktop deep link.", guidance="Ensure Codex.app is installed and codex:// URL handling is registered.")], warnings=[str(redact_value(result.stderr.strip()))] if result.stderr.strip() else [], provenance={"source": "deep_link", "dry_run": False})
         return CommandResult(ok=True, data={"opened": True, "thread_id": thread_id, "url": url}, provenance={"source": "deep_link", "dry_run": False})
 
+
+    def steer_thread(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        dry_run: bool = False,
+        timeout_seconds: int = 120,
+        max_chars: int = 4000,
+    ) -> CommandResult:
+        preview, preview_truncated = cap_text(redact_value(message), max_chars)
+        if not thread_id:
+            return CommandResult(ok=False, errors=[make_error(code="thread_id_required", message="A Codex thread id is required.", guidance="Use codex indexed-threads to choose a Desktop-visible thread.")])
+        if dry_run:
+            return CommandResult(
+                ok=True,
+                data={
+                    "would_steer": True,
+                    "steered": False,
+                    "thread_id": thread_id,
+                    "message_preview": preview,
+                    "message_truncated": preview_truncated,
+                    "command": ["codex", "exec", "resume", thread_id, "-", "--json"],
+                },
+                provenance={"source": "codex_exec_resume", "dry_run": True, "thread_id": thread_id},
+            )
+        with tempfile.TemporaryDirectory(prefix="evaos-codex-steer-") as tmpdir:
+            output_path = Path(tmpdir) / "last-message.txt"
+            try:
+                completed = subprocess.run(
+                    ["codex", "exec", "resume", thread_id, "-", "--json", "--output-last-message", str(output_path)],
+                    input=message,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired:
+                return CommandResult(
+                    ok=False,
+                    data={"steered": False, "thread_id": thread_id, "message_preview": preview},
+                    errors=[make_error(code="steer_thread_timeout", message="Codex CLI resume did not complete before the timeout.", guidance="Use read-thread-tail to monitor the thread; for long-running workers prefer external background launch support.")],
+                    provenance={"source": "codex_exec_resume", "dry_run": False, "thread_id": thread_id},
+                )
+            events = []
+            for line in completed.stdout.splitlines():
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event = self._safe_exec_event(row)
+                if event is not None:
+                    events.append(event)
+            last_message = ""
+            if output_path.exists():
+                last_message = output_path.read_text(encoding="utf-8", errors="replace")
+            last_message_preview, last_message_truncated = cap_text(redact_value(last_message), max_chars)
+            if completed.returncode != 0:
+                stderr_preview, stderr_truncated = cap_text(redact_value(completed.stderr.strip()), max_chars)
+                return CommandResult(
+                    ok=False,
+                    data={
+                        "steered": False,
+                        "thread_id": thread_id,
+                        "message_preview": preview,
+                        "events": events[-20:],
+                        "stderr_preview": stderr_preview,
+                        "stderr_truncated": stderr_truncated,
+                    },
+                    errors=[make_error(code="steer_thread_failed", message="Codex CLI resume exited non-zero.", guidance="Check stderr_preview and read-thread-tail before retrying.")],
+                    provenance={"source": "codex_exec_resume", "dry_run": False, "thread_id": thread_id},
+                )
+            return CommandResult(
+                ok=True,
+                data={
+                    "steered": True,
+                    "thread_id": thread_id,
+                    "message_preview": preview,
+                    "message_truncated": preview_truncated,
+                    "last_message_preview": last_message_preview,
+                    "last_message_truncated": last_message_truncated,
+                    "events": events[-20:],
+                    "returncode": completed.returncode,
+                },
+                provenance={"source": "codex_exec_resume", "dry_run": False, "thread_id": thread_id},
+            )
+
     def _safe_index_row(self, row: dict[str, Any], index: int) -> dict[str, Any]:
         title, title_truncated = cap_text(redact_value(row.get("thread_name") or row.get("title") or "Untitled"), 180)
         return {"index": index, "id": redact_value(row.get("id")), "title": title, "title_truncated": title_truncated, "updated_at": redact_value(row.get("updated_at")), "source": "session_index"}
@@ -82,6 +170,35 @@ class CodexSessionObserver:
             return None
         matches = sorted(self.sessions_root.glob(f"**/*{thread_id}*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True)
         return matches[0] if matches else None
+
+
+    def _safe_exec_event(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        event_type = row.get("type")
+        if event_type == "thread.started":
+            return {"type": event_type, "thread_id": redact_value(row.get("thread_id"))}
+        if event_type in {"turn.started", "turn.completed", "turn.failed", "error"}:
+            safe = {"type": event_type}
+            if "error" in row:
+                safe["error"] = redact_value(row.get("error"))
+            if "message" in row:
+                message, truncated = cap_text(redact_value(row.get("message")), 1200)
+                safe["message"] = message
+                safe["truncated"] = truncated
+            return safe
+        if event_type in {"item.started", "item.completed"} and isinstance(row.get("item"), dict):
+            item = row["item"]
+            item_type = item.get("type")
+            safe = {"type": event_type, "item_type": redact_value(item_type)}
+            if item_type == "agent_message":
+                text, truncated = cap_text(redact_value(item.get("text") or ""), 1200)
+                safe["text"] = text
+                safe["truncated"] = truncated
+            if item_type == "command_execution":
+                safe["command"] = redact_value(item.get("command"))
+                safe["status"] = redact_value(item.get("status"))
+                safe["exit_code"] = redact_value(item.get("exit_code"))
+            return safe
+        return None
 
     def _safe_rollout_event(self, row: dict[str, Any]) -> dict[str, Any] | None:
         timestamp = redact_value(row.get("timestamp"))

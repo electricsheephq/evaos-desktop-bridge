@@ -26,6 +26,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.indexed_threads",
         "codex.read_thread_tail",
         "codex.open_thread",
+        "codex.steer_thread",
         "codex.menu_action",
         "codex.find_control",
         "codex.snapshot",
@@ -109,6 +110,15 @@ def build_parser() -> argparse.ArgumentParser:
     open_thread_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
     open_thread_parser.add_argument("--dry-run", action="store_true", help="Report URL without opening Codex Desktop.")
     open_thread_parser.set_defaults(command_id="codex.open_thread", target="codex")
+
+    steer_thread_parser = codex_subparsers.add_parser("steer-thread", help="Send a steering prompt to an existing Codex Desktop thread via Codex CLI resume.")
+    steer_thread_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    steer_thread_parser.add_argument("--thread-id", required=True, help="Codex thread id from indexed-threads.")
+    steer_thread_parser.add_argument("--message", required=True, help="Steering prompt to send to the thread.")
+    steer_thread_parser.add_argument("--dry-run", action="store_true", help="Preview the steering command without sending.")
+    steer_thread_parser.add_argument("--timeout-seconds", type=_positive_int, default=120, help="Maximum seconds to wait for Codex CLI resume to finish.")
+    steer_thread_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum chars for message/output previews.")
+    steer_thread_parser.set_defaults(command_id="codex.steer_thread", target="codex")
 
     focus_parser = codex_subparsers.add_parser("focus", help="Focus the visible Codex Desktop app.")
     focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -293,6 +303,8 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return sessions.read_thread_tail(thread_id=args.thread_id, max_events=args.max_events, max_chars=args.max_chars)
     if command_id == "codex.open_thread":
         return sessions.open_thread(thread_id=args.thread_id, dry_run=args.dry_run)
+    if command_id == "codex.steer_thread":
+        return sessions.steer_thread(thread_id=args.thread_id, message=args.message, dry_run=args.dry_run, timeout_seconds=args.timeout_seconds, max_chars=args.max_chars)
     if command_id == "codex.focus":
         return observer.focus(dry_run=args.dry_run)
     if command_id == "codex.menu_action":
@@ -345,6 +357,7 @@ def _capabilities() -> dict[str, object]:
                 "codex.indexed_threads",
                 "codex.read_thread_tail",
                 "codex.open_thread",
+                "codex.steer_thread",
                 "codex.focus",
                 "codex.menu_action",
                 "codex.find_control",
