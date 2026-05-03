@@ -8,6 +8,7 @@ from typing import Callable, TextIO
 
 from .adapters.codex_app_server import CodexAppServerObserver
 from .adapters.codex_macos import MacOSCodexObserver
+from .adapters.codex_sessions import CodexSessionObserver
 from .audit import append_audit
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
@@ -22,6 +23,9 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.frontmost",
         "codex.windows",
         "codex.threads",
+        "codex.indexed_threads",
+        "codex.read_thread_tail",
+        "codex.open_thread",
         "codex.menu_action",
         "codex.find_control",
         "codex.snapshot",
@@ -87,6 +91,24 @@ def build_parser() -> argparse.ArgumentParser:
     threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum visible thread candidates to return.")
     threads_parser.set_defaults(command_id="codex.threads", target="codex")
+
+    indexed_threads_parser = codex_subparsers.add_parser("indexed-threads", help="List persisted Codex Desktop/interactive threads from session_index.jsonl.")
+    indexed_threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    indexed_threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum indexed threads to return.")
+    indexed_threads_parser.set_defaults(command_id="codex.indexed_threads", target="codex")
+
+    read_tail_parser = codex_subparsers.add_parser("read-thread-tail", help="Read a redacted tail from a Codex rollout file by thread id.")
+    read_tail_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    read_tail_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
+    read_tail_parser.add_argument("--max-events", type=_positive_int, default=40, help="Maximum relevant rollout events to return.")
+    read_tail_parser.add_argument("--max-chars", type=_positive_int, default=12000, help="Maximum chars per included text field / output budget hint.")
+    read_tail_parser.set_defaults(command_id="codex.read_thread_tail", target="codex")
+
+    open_thread_parser = codex_subparsers.add_parser("open-thread", help="Open a Codex Desktop thread by codex:// deep link.")
+    open_thread_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    open_thread_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
+    open_thread_parser.add_argument("--dry-run", action="store_true", help="Report URL without opening Codex Desktop.")
+    open_thread_parser.set_defaults(command_id="codex.open_thread", target="codex")
 
     focus_parser = codex_subparsers.add_parser("focus", help="Focus the visible Codex Desktop app.")
     focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -155,6 +177,7 @@ def main(
     *,
     observer_factory: Callable[[], MacOSCodexObserver] | None = None,
     app_server_factory: Callable[[], CodexAppServerObserver] | None = None,
+    session_factory: Callable[[], CodexSessionObserver] | None = None,
     stdout: TextIO = sys.stdout,
     stderr: TextIO = sys.stderr,
     state_dir: Path | None = None,
@@ -176,7 +199,8 @@ def main(
         ensure_allowed(command_id)
         observer = observer_factory() if observer_factory is not None else MacOSCodexObserver(state_dir=state_dir)
         app_server = app_server_factory() if app_server_factory is not None else CodexAppServerObserver()
-        result = _run_command(command_id, observer, app_server, args)
+        sessions = session_factory() if session_factory is not None else CodexSessionObserver()
+        result = _run_command(command_id, observer, app_server, sessions, args)
     except PolicyError as exc:
         result = CommandResult(ok=False, errors=[exc.error])
     except Exception as exc:
@@ -226,7 +250,7 @@ def entrypoint() -> None:
     raise SystemExit(main())
 
 
-def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: CodexAppServerObserver, args: argparse.Namespace) -> CommandResult:
+def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: CodexAppServerObserver, sessions: CodexSessionObserver, args: argparse.Namespace) -> CommandResult:
     if command_id == "status":
         return observer.status()
     if command_id == "capabilities":
@@ -263,6 +287,12 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return observer.windows()
     if command_id == "codex.threads":
         return observer.threads(max_items=args.max_items)
+    if command_id == "codex.indexed_threads":
+        return sessions.indexed_threads(max_items=args.max_items)
+    if command_id == "codex.read_thread_tail":
+        return sessions.read_thread_tail(thread_id=args.thread_id, max_events=args.max_events, max_chars=args.max_chars)
+    if command_id == "codex.open_thread":
+        return sessions.open_thread(thread_id=args.thread_id, dry_run=args.dry_run)
     if command_id == "codex.focus":
         return observer.focus(dry_run=args.dry_run)
     if command_id == "codex.menu_action":
@@ -312,6 +342,9 @@ def _capabilities() -> dict[str, object]:
                 "codex.frontmost",
                 "codex.windows",
                 "codex.threads",
+                "codex.indexed_threads",
+                "codex.read_thread_tail",
+                "codex.open_thread",
                 "codex.focus",
                 "codex.menu_action",
                 "codex.find_control",

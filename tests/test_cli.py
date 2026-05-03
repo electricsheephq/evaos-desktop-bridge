@@ -130,6 +130,18 @@ class FakeObserver:
 
 
 @dataclass
+class FakeSessions:
+    def indexed_threads(self, *, max_items: int) -> CommandResult:
+        return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "thread-1", "title": "Build desktop bridge MVP", "source": "session_index"}], "count": 1, "max_items": max_items, "source": "session_index"})
+
+    def read_thread_tail(self, *, thread_id: str, max_events: int = 40, max_chars: int = 12000) -> CommandResult:
+        return CommandResult(ok=True, data={"thread_id": thread_id, "events": [{"type": "agent_message", "message": "OK"}], "count": 1, "max_events": max_events})
+
+    def open_thread(self, *, thread_id: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"would_open": dry_run, "opened": not dry_run, "thread_id": thread_id, "url": f"codex://threads/{thread_id}"})
+
+
+@dataclass
 class FakeAppServer:
     mode: str = "ok"
 
@@ -148,6 +160,7 @@ def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
         argv,
         observer_factory=lambda: observer,
         app_server_factory=lambda: FakeAppServer(),
+        session_factory=lambda: FakeSessions(),
         stdout=stdout,
         state_dir=tmp_path,
     )
@@ -233,6 +246,31 @@ def test_threads_json_lists_visible_thread_candidates(tmp_path: Path) -> None:
     assert payload["command"] == "codex.threads"
     assert payload["data"]["threads"][0]["visible_id"] == "visible-0-abc"
     assert payload["data"]["threads"][0]["source"] == "ax"
+
+
+def test_indexed_threads_lists_session_index_threads(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "indexed-threads", "--json", "--max-items", "1"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.indexed_threads"
+    assert payload["data"]["threads"][0]["id"] == "thread-1"
+
+
+def test_read_thread_tail_returns_rollout_events(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "read-thread-tail", "--json", "--thread-id", "thread-1", "--max-events", "5"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.read_thread_tail"
+    assert payload["data"]["events"][0]["message"] == "OK"
+
+
+def test_open_thread_dry_run_returns_deep_link(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "open-thread", "--json", "--thread-id", "thread-1", "--dry-run"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.open_thread"
+    assert payload["data"]["would_open"] is True
+    assert payload["data"]["url"] == "codex://threads/thread-1"
 
 
 def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> None:
