@@ -62,3 +62,23 @@ Do not blur these lanes. If a command writes to a worker/thread, metadata must s
 - `codex.acpx_prompt`: `guarded_worker_action`, writes an acpx background worker
 
 GUI/AX controls remain a fallback/visibility layer, not the primary manager loop.
+
+## Desktop freshness and rehydration
+
+Externally driven Desktop-indexed threads can be truthful in rollout files while stale in the visible Codex Desktop renderer.
+
+Commands:
+
+- `codex desktop-freshness --thread-id <id> --visible-text <text>`
+- `codex rehydrate-thread --thread-id <id>`
+- `codex rehydrate-thread --thread-id <id> --live`
+
+`desktop-freshness` compares the latest rollout marker against supplied visible text from inspect/OCR/screenshot analysis:
+
+- `fresh`: latest rollout marker is visible
+- `stale`: visible text was supplied, but latest rollout marker is absent
+- `unknown`: no sufficient visible text/marker exists
+
+`rehydrate-thread` opens `codex://threads/<id>` and asks the Desktop app to re-read the thread. This can expose completed external turns after restart/reload, but it does not guarantee live spinner/progress for a remotely started turn.
+
+Live spinner/progress likely requires starting the turn through Desktop/app-server's own route, not `codex exec resume`.

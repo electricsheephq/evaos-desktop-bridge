@@ -161,6 +161,13 @@ class FakeSessions:
     def open_thread(self, *, thread_id: str, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"would_open": dry_run, "opened": not dry_run, "thread_id": thread_id, "url": f"codex://threads/{thread_id}"})
 
+    def desktop_freshness(self, *, thread_id: str, visible_text: str = "", max_events: int = 20) -> CommandResult:
+        state = "fresh" if "OK" in visible_text else "stale"
+        return CommandResult(ok=True, data={"thread_id": thread_id, "desktop_state": state, "latest_session_turn_hint": {"marker": "OK"}, "recommended_action": "no_action" if state == "fresh" else "rehydrate_thread"})
+
+    def rehydrate_thread(self, *, thread_id: str, dry_run: bool = True, wait_ms: int = 1500) -> CommandResult:
+        return CommandResult(ok=True, data={"would_rehydrate": dry_run, "rehydrated": not dry_run, "thread_id": thread_id, "wait_ms": wait_ms})
+
     def steer_thread(self, *, thread_id: str, message: str, dry_run: bool = False, timeout_seconds: int = 120, max_chars: int = 4000) -> CommandResult:
         if dry_run:
             return CommandResult(ok=True, data={"would_steer": True, "steered": False, "thread_id": thread_id, "message_preview": message[:max_chars]})
@@ -325,6 +332,39 @@ def test_open_thread_dry_run_returns_deep_link(tmp_path: Path) -> None:
     assert payload["command"] == "codex.open_thread"
     assert payload["data"]["would_open"] is True
     assert payload["data"]["url"] == "codex://threads/thread-1"
+
+
+def test_desktop_freshness_reports_stale_when_marker_missing(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "desktop-freshness", "--json", "--thread-id", "thread-1", "--visible-text", "old view"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.desktop_freshness"
+    assert payload["data"]["desktop_state"] == "stale"
+    assert payload["data"]["recommended_action"] == "rehydrate_thread"
+
+
+def test_desktop_freshness_reports_fresh_when_marker_visible(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "desktop-freshness", "--json", "--thread-id", "thread-1", "--visible-text", "OK"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.desktop_freshness"
+    assert payload["data"]["desktop_state"] == "fresh"
+
+
+def test_rehydrate_thread_dry_run_returns_action_plan(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "rehydrate-thread", "--json", "--thread-id", "thread-1"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.rehydrate_thread"
+    assert payload["data"]["would_rehydrate"] is True
+    assert payload["data"]["rehydrated"] is False
+
+
+def test_rehydrate_thread_live_requires_explicit_live_flag(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "rehydrate-thread", "--json", "--thread-id", "thread-1", "--live"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["rehydrated"] is True
 
 
 def test_steer_thread_dry_run_previews_without_sending(tmp_path: Path) -> None:

@@ -33,6 +33,8 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.indexed_threads",
         "codex.read_thread_tail",
         "codex.open_thread",
+        "codex.desktop_freshness",
+        "codex.rehydrate_thread",
         "codex.steer_thread",
         "codex.menu_action",
         "codex.find_control",
@@ -153,6 +155,21 @@ def build_parser() -> argparse.ArgumentParser:
     open_thread_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
     open_thread_parser.add_argument("--dry-run", action="store_true", help="Report URL without opening Codex Desktop.")
     open_thread_parser.set_defaults(command_id="codex.open_thread", target="codex")
+
+    freshness_parser = codex_subparsers.add_parser("desktop-freshness", help="Compare rollout truth against visible Desktop text for a thread.")
+    freshness_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    freshness_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
+    freshness_parser.add_argument("--visible-text", default="", help="Visible Desktop text/marker from inspect or OCR/screenshot analysis.")
+    freshness_parser.add_argument("--max-events", type=_positive_int, default=20, help="Maximum rollout events to inspect.")
+    freshness_parser.set_defaults(command_id="codex.desktop_freshness", target="codex")
+
+    rehydrate_parser = codex_subparsers.add_parser("rehydrate-thread", help="Open a Codex Desktop thread deep link to force read-after-write visibility.")
+    rehydrate_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    rehydrate_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
+    rehydrate_parser.add_argument("--dry-run", action="store_true", default=True, help="Preview by default; pass through future explicit live gate before opening.")
+    rehydrate_parser.add_argument("--live", action="store_true", help="Actually open the codex:// thread deep link.")
+    rehydrate_parser.add_argument("--wait-ms", type=_positive_int, default=1500, help="Suggested wait before visible verification.")
+    rehydrate_parser.set_defaults(command_id="codex.rehydrate_thread", target="codex")
 
     steer_thread_parser = codex_subparsers.add_parser("steer-thread", help="Send a steering prompt to an existing Codex Desktop thread via Codex CLI resume.")
     steer_thread_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -360,6 +377,10 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return sessions.read_thread_tail(thread_id=args.thread_id, max_events=args.max_events, max_chars=args.max_chars)
     if command_id == "codex.open_thread":
         return sessions.open_thread(thread_id=args.thread_id, dry_run=args.dry_run)
+    if command_id == "codex.desktop_freshness":
+        return sessions.desktop_freshness(thread_id=args.thread_id, visible_text=args.visible_text, max_events=args.max_events)
+    if command_id == "codex.rehydrate_thread":
+        return sessions.rehydrate_thread(thread_id=args.thread_id, dry_run=not args.live, wait_ms=args.wait_ms)
     if command_id == "codex.steer_thread":
         return sessions.steer_thread(thread_id=args.thread_id, message=args.message, dry_run=args.dry_run, timeout_seconds=args.timeout_seconds, max_chars=args.max_chars)
     if command_id == "codex.focus":
@@ -420,6 +441,8 @@ def _capabilities() -> dict[str, object]:
         "codex.indexed_threads",
                 "codex.read_thread_tail",
                 "codex.open_thread",
+                "codex.desktop_freshness",
+                "codex.rehydrate_thread",
                 "codex.steer_thread",
                 "codex.focus",
                 "codex.menu_action",

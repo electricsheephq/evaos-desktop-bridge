@@ -75,6 +75,57 @@ class CodexSessionObserver:
         return CommandResult(ok=True, data={"opened": True, "thread_id": thread_id, "url": url}, provenance={"source": "deep_link", "dry_run": False})
 
 
+
+    def desktop_freshness(self, *, thread_id: str, visible_text: str = "", max_events: int = 20) -> CommandResult:
+        tail = self.read_thread_tail(thread_id=thread_id, max_events=max_events)
+        if not tail.ok:
+            return tail
+        events = tail.data.get("events", []) if isinstance(tail.data, dict) else []
+        latest = self._latest_visible_marker(events)
+        marker = latest.get("marker") if latest else ""
+        visible = visible_text.lower()
+        marker_text = str(marker or "")
+        marker_visible = bool(marker_text and marker_text.lower()[:160] in visible)
+        if marker_text and marker_visible:
+            desktop_state = "fresh"
+            recommended_action = "no_action"
+        elif marker_text and visible_text:
+            desktop_state = "stale"
+            recommended_action = "rehydrate_thread"
+        else:
+            desktop_state = "unknown"
+            recommended_action = "open_thread_then_inspect"
+        return CommandResult(
+            ok=True,
+            data={
+                "thread_id": thread_id,
+                "desktop_state": desktop_state,
+                "latest_session_turn_hint": latest,
+                "visible_turn_hint_present": marker_visible,
+                "recommended_action": recommended_action,
+                "source": "rollout_vs_visible_text",
+            },
+            provenance={"source": "freshness_heuristic", "thread_id": thread_id},
+        )
+
+    def rehydrate_thread(self, *, thread_id: str, dry_run: bool = True, wait_ms: int = 1500) -> CommandResult:
+        url = f"codex://threads/{thread_id}"
+        if dry_run:
+            return CommandResult(
+                ok=True,
+                data={"would_rehydrate": True, "rehydrated": False, "thread_id": thread_id, "url": url, "wait_ms": wait_ms},
+                provenance={"source": "deep_link_rehydrate", "dry_run": True, "thread_id": thread_id},
+            )
+        result = self.runner(["open", url], 5.0)
+        if result.returncode != 0:
+            return CommandResult(ok=False, data={"rehydrated": False, "thread_id": thread_id, "url": url}, errors=[make_error(code="rehydrate_thread_open_failed", message="Unable to open Codex Desktop thread deep link for rehydration.", guidance="Ensure Codex.app is installed and codex:// URL handling is registered.")], warnings=[str(redact_value(result.stderr.strip()))] if result.stderr.strip() else [], provenance={"source": "deep_link_rehydrate", "dry_run": False, "thread_id": thread_id})
+        return CommandResult(
+            ok=True,
+            data={"would_rehydrate": False, "rehydrated": True, "thread_id": thread_id, "url": url, "wait_ms": wait_ms, "verification_required": True},
+            warnings=["rehydrate opens the thread but does not guarantee Desktop renderer freshness; run desktop-freshness with visible text/snapshot after wait"],
+            provenance={"source": "deep_link_rehydrate", "dry_run": False, "thread_id": thread_id},
+        )
+
     def steer_thread(
         self,
         *,
@@ -160,6 +211,17 @@ class CodexSessionObserver:
                 },
                 provenance={"source": "codex_exec_resume", "dry_run": False, "thread_id": thread_id},
             )
+
+
+    def _latest_visible_marker(self, events: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for event in reversed(events):
+            text = event.get("last_agent_message") or event.get("message")
+            if isinstance(text, str) and text.strip():
+                marker, truncated = cap_text(text.strip(), 500)
+                return {"type": event.get("type"), "timestamp": event.get("timestamp"), "marker": marker, "marker_truncated": truncated}
+            if event.get("type") == "task_complete":
+                return {"type": "task_complete", "timestamp": event.get("timestamp"), "marker": "task_complete", "marker_truncated": False}
+        return None
 
     def _safe_index_row(self, row: dict[str, Any], index: int) -> dict[str, Any]:
         title, title_truncated = cap_text(redact_value(row.get("thread_name") or row.get("title") or "Untitled"), 180)
