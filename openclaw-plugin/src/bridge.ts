@@ -18,7 +18,24 @@ export type BridgeCommandKey =
   | "codexInspect"
   | "codexAxTree"
   | "codexAppServerStatus"
-  | "codexAppServerThreads";
+  | "codexAppServerThreads"
+  | "customerMacStatus"
+  | "customerMacCapabilities"
+  | "customerMacSnapshot"
+  | "customerMacAxTree"
+  | "customerMacAppFocus"
+  | "customerMacLocalSiteOpen"
+  | "customerMacLocalSiteAction"
+  | "customerMacIphoneMirroringStatus"
+  | "customerMacIphoneMirroringFocus"
+  | "customerMacIphoneMirroringHome"
+  | "customerMacIphoneMirroringAppSwitcher"
+  | "customerMacIphoneMirroringSpotlight"
+  | "customerMacIphoneMirroringTypeSpotlight"
+  | "customerMacIphoneMirroringOpenApp"
+  | "customerMacIphoneMirroringTapNamedTarget"
+  | "customerMacIphoneMirroringScroll"
+  | "customerMacScreenSharingStatus";
 
 export type BridgeParams = {
   max_chars?: number;
@@ -30,6 +47,11 @@ export type BridgeParams = {
   message?: string;
   thread_id?: string;
   dry_run?: boolean;
+  app_name?: string;
+  url?: string;
+  action?: string;
+  text?: string;
+  target_label?: string;
 };
 
 const FIXED_COMMANDS: Record<
@@ -44,6 +66,19 @@ const FIXED_COMMANDS: Record<
     | "codexThreads"
     | "codexSelectThread"
     | "codexAppServerThreads"
+    | "customerMacSnapshot"
+    | "customerMacAxTree"
+    | "customerMacAppFocus"
+    | "customerMacLocalSiteOpen"
+    | "customerMacLocalSiteAction"
+    | "customerMacIphoneMirroringFocus"
+    | "customerMacIphoneMirroringHome"
+    | "customerMacIphoneMirroringAppSwitcher"
+    | "customerMacIphoneMirroringSpotlight"
+    | "customerMacIphoneMirroringTypeSpotlight"
+    | "customerMacIphoneMirroringOpenApp"
+    | "customerMacIphoneMirroringTapNamedTarget"
+    | "customerMacIphoneMirroringScroll"
   >,
   string[]
 > = {
@@ -53,6 +88,10 @@ const FIXED_COMMANDS: Record<
   codexFrontmost: ["codex", "frontmost", "--json"],
   codexWindows: ["codex", "windows", "--json"],
   codexAppServerStatus: ["codex", "app-server", "status", "--json"],
+  customerMacStatus: ["customer-mac", "status", "--json"],
+  customerMacCapabilities: ["customer-mac", "capabilities", "--json"],
+  customerMacIphoneMirroringStatus: ["customer-mac", "iphone-mirroring", "status", "--json"],
+  customerMacScreenSharingStatus: ["customer-mac", "screen-sharing", "status", "--json"],
 };
 
 export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams = {}): string[] {
@@ -101,6 +140,92 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
   }
   if (command === "codexAppServerThreads") {
     return ["codex", "app-server", "threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
+  }
+  if (command === "customerMacSnapshot") {
+    return ["customer-mac", "snapshot", "--json", "--max-chars", String(clampInt(params.max_chars, 4000, 1, 20000))];
+  }
+  if (command === "customerMacAxTree") {
+    return ["customer-mac", "ax-tree", "--json", "--max-nodes", String(clampInt(params.max_nodes, 200, 1, 1000))];
+  }
+  if (command === "customerMacAppFocus") {
+    return [
+      "customer-mac",
+      "app-focus",
+      "--json",
+      "--app-name",
+      requiredString(params.app_name, "app_name"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+    ];
+  }
+  if (command === "customerMacLocalSiteOpen") {
+    return [
+      "customer-mac",
+      "local-site",
+      "open",
+      "--json",
+      "--url",
+      requiredString(params.url, "url"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+    ];
+  }
+  if (command === "customerMacLocalSiteAction") {
+    return [
+      "customer-mac",
+      "local-site",
+      "action",
+      "--json",
+      "--action",
+      requiredString(params.action, "action"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+    ];
+  }
+  if (command === "customerMacIphoneMirroringFocus") {
+    return ["customer-mac", "iphone-mirroring", "focus", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+  }
+  if (command === "customerMacIphoneMirroringHome") {
+    return ["customer-mac", "iphone-mirroring", "home", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+  }
+  if (command === "customerMacIphoneMirroringAppSwitcher") {
+    return ["customer-mac", "iphone-mirroring", "app-switcher", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+  }
+  if (command === "customerMacIphoneMirroringSpotlight") {
+    return ["customer-mac", "iphone-mirroring", "spotlight", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+  }
+  if (command === "customerMacIphoneMirroringTypeSpotlight") {
+    return [
+      "customer-mac",
+      "iphone-mirroring",
+      "type-spotlight",
+      "--json",
+      "--text",
+      requiredString(params.text, "text"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+    ];
+  }
+  if (command === "customerMacIphoneMirroringOpenApp") {
+    return [
+      "customer-mac",
+      "iphone-mirroring",
+      "open-app",
+      "--json",
+      "--app-name",
+      requiredString(params.app_name, "app_name"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+    ];
+  }
+  if (command === "customerMacIphoneMirroringTapNamedTarget") {
+    return [
+      "customer-mac",
+      "iphone-mirroring",
+      "tap-named-target",
+      "--json",
+      "--target-label",
+      requiredString(params.target_label, "target_label"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+    ];
+  }
+  if (command === "customerMacIphoneMirroringScroll") {
+    return ["customer-mac", "iphone-mirroring", "scroll", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
   }
   throw new Error(`Unsupported bridge command key: ${String(command)}`);
 }

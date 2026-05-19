@@ -44,6 +44,9 @@ def test_policy_allows_only_mvp_commands() -> None:
     assert ensure_allowed("codex.app_server.threads") == "codex.app_server.threads"
     assert ensure_allowed("codex.snapshot") == "codex.snapshot"
     assert ensure_allowed("codex.ax_tree") == "codex.ax_tree"
+    assert ensure_allowed("customer_mac.status") == "customer_mac.status"
+    assert ensure_allowed("customer_mac.iphone_mirroring_home") == "customer_mac.iphone_mirroring_home"
+    assert ensure_allowed("customer_mac.screen_sharing_status") == "customer_mac.screen_sharing_status"
 
     with pytest.raises(PolicyError) as exc:
         ensure_allowed("codex.send_message")
@@ -55,6 +58,8 @@ def test_policy_allows_only_mvp_commands() -> None:
 def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("codex.select_thread")["mode"] == "guarded_visible_action"
     assert command_metadata("codex.app_server.threads")["source"] == "app_server"
+    assert command_metadata("customer_mac.iphone_mirroring_open_app")["requires_approval"] is True
+    assert command_metadata("customer_mac.screen_sharing_status")["bridge_can_enable"] is False
 
 
 def test_redaction_removes_home_paths_and_secret_like_tokens() -> None:
