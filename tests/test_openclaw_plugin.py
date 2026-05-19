@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import plistlib
 from pathlib import Path
 
 
@@ -34,6 +35,22 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_ax_tree",
         "desktop_bridge_codex_app_server_status",
         "desktop_bridge_codex_app_server_threads",
+        "customer_mac_status",
+        "customer_mac_capabilities",
+        "customer_mac_snapshot",
+        "customer_mac_ax_tree",
+        "customer_mac_app_focus",
+        "customer_mac_local_site_open",
+        "customer_mac_local_site_action",
+        "customer_mac_iphone_mirroring_status",
+        "customer_mac_iphone_mirroring_home",
+        "customer_mac_iphone_mirroring_app_switcher",
+        "customer_mac_iphone_mirroring_spotlight",
+        "customer_mac_iphone_mirroring_type_spotlight",
+        "customer_mac_iphone_mirroring_open_app",
+        "customer_mac_iphone_mirroring_tap_named_target",
+        "customer_mac_iphone_mirroring_scroll",
+        "customer_mac_screen_sharing_status",
     ]
     for tool_name in expected_tools:
         assert tool_name in source
@@ -44,6 +61,8 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_click",
         "desktop_bridge_shell",
         "desktop_bridge_exec",
+        "customer_mac_generic_coordinates",
+        "customer_mac_screen_sharing_enable",
     ]
     for tool_name in forbidden_tool_names:
         assert tool_name not in source
@@ -56,6 +75,8 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "shell: false" in source
     assert "execFile" in source
     assert '"app-server"' in source
+    assert '"customer-mac"' in source
+    assert "customerMacIphoneMirroringOpenApp" in source
     assert "turn/start" not in source
     assert "session.db" not in source
 
@@ -76,8 +97,29 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
         "thread/inject_items",
         "config/batchWrite",
         "plugin/install",
+        "generic coordinates",
+        "kickstart -activate",
+        "camera",
+        "microphone",
     ]:
         assert pattern in source
 
     assert "block: true" in source
+    assert "requireApproval: {" in source
+    assert "title: \"Approve customer Mac action\"" in source
+    assert "timeoutBehavior: \"deny\"" in source
+    assert "allowedDecisions: [\"allow-once\", \"deny\"]" in source
+    assert "requireApproval: true" not in source
     assert "before_tool_call" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
+
+
+def test_launch_agent_uses_absolute_log_paths() -> None:
+    plist_path = ROOT / "packaging" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
+    plist = plistlib.loads(plist_path.read_bytes())
+    build_script = (ROOT / "scripts" / "build-mac-connector-pkg.sh").read_text(encoding="utf-8")
+
+    for key in ["StandardOutPath", "StandardErrorPath"]:
+        assert plist[key].startswith("/")
+        assert "~" not in plist[key]
+
+    assert "Library/Logs/evaos-desktop-bridge" in build_script
