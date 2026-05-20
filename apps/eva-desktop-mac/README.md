@@ -1,6 +1,6 @@
-# Eva Desktop Mac Workbench
+# evaOS Workbench
 
-Eva Desktop is the downloadable macOS cockpit for evaOS runtimes. It wraps the
+evaOS Workbench is the downloadable macOS cockpit for evaOS runtimes. It wraps the
 existing runtime UIs instead of rewriting them:
 
 - evaOS / OpenClaw
@@ -13,6 +13,11 @@ existing runtime UIs instead of rewriting them:
 The MVP uses SwiftUI and `WKWebView` tabs. Local Mac control, iPhone Mirroring,
 iMessage, voice, shell execution, and broad Accessibility/Screen Recording
 permissions are intentionally out of scope for the first workbench sprint.
+
+The visible app name and native shell use ElectricSheep branding, while the
+internal executable and bundle id remain `EvaDesktop` /
+`com.electricsheephq.EvaDesktop` so existing Keychain sessions and URL-scheme
+callbacks keep working.
 
 ## Run Locally
 
@@ -33,6 +38,53 @@ Useful modes:
 ```bash
 swift build
 swift run EvaDesktopCoreSmoke
+./script/build_and_run.sh --verify
+```
+
+## Branding Contract
+
+Visible product copy is centralized in `Sources/EvaDesktopCore/Models/AppBrand.swift`.
+Use `evaOS Workbench` for the Mac app name and `Gateways` for the runtime
+launcher group. Keep the internal executable name and bundle identifier as
+`EvaDesktop` / `com.electricsheephq.EvaDesktop`; changing those breaks the
+existing URL scheme and Keychain namespace.
+
+The sidebar intentionally shows the ElectricSheep wordmark once. Do not add a
+second app title in the split-view sidebar or top toolbar. Runtime rows should
+stay terse: icon plus runtime name, with no explanatory subtext unless a runtime
+is unavailable.
+
+## Resource Packaging
+
+Runtime assets live in `Resources/`:
+
+- `AppIcon.icns` for Finder, Dock, and app switcher branding.
+- `electric-sheep-wordmark.png` for the restrained sidebar brand mark.
+
+`script/build_and_run.sh` copies those resources into the app bundle, writes the
+bundle metadata, and signs the final `.app` after `Info.plist` and resources are
+in place. If `EVA_DESKTOP_CODESIGN_IDENTITY` or `CODESIGN_IDENTITY` is set, that
+identity is used. Otherwise the script uses ad-hoc signing for local development.
+
+## Keychain And Signing
+
+The app reads Keychain non-interactively at launch. If macOS cannot trust the
+current local build to access an older desktop session item, the app treats that
+as signed out instead of showing a Keychain prompt during normal startup.
+
+Repeated Keychain prompts are a signing problem, not an authentication feature.
+For a durable local or release build, sign the finished app bundle with a stable
+Apple Development or Developer ID identity. Ad-hoc SwiftPM rebuilds can change
+the code identity and make macOS ask whether the new build may access the old
+Keychain item.
+
+If a development machine already has a stale prompt-causing item, clear just the
+desktop session item and sign in again:
+
+```bash
+security delete-generic-password \
+  -s com.electricsheephq.EvaDesktop.session \
+  -a desktop-session
 ```
 
 ## Session Model

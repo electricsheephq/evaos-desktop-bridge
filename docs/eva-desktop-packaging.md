@@ -40,6 +40,14 @@ spctl --assess --type execute dist/EvaDesktop.app
 Notarization should be added once the app has a real Developer ID signing
 identity and release artifact path.
 
+## Keychain Trust Note
+
+The app must be signed after final bundle assembly, not only as a raw SwiftPM
+binary. `Info.plist`, resources, and the executable all need to belong to the
+same final code identity. Local ad-hoc signing can launch the app but is not a
+durable Keychain identity across rebuilds. Use a stable Apple Development
+identity for internal canaries and Developer ID for release builds.
+
 ## Reference
 
 OpenClaw's Mac app packaging/update surfaces are a useful reference for Sparkle,

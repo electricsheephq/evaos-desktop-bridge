@@ -1,3 +1,4 @@
+import EvaDesktopCore
 import SwiftUI
 
 struct BridgePanelView: View {
@@ -8,7 +9,7 @@ struct BridgePanelView: View {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Desktop Bridge")
+                        Text(AppBrand.bridgeSectionTitle)
                             .font(.title2.weight(.semibold))
                         Text("Read-only local bridge status and audit context. Local control is intentionally outside the MVP.")
                             .foregroundStyle(.secondary)
@@ -28,6 +29,7 @@ struct BridgePanelView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(.background)
     }
 }
 
@@ -49,5 +51,9 @@ private struct BridgeOutputCard: View {
         }
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.electricSheepCyan.opacity(0.10), lineWidth: 1)
+        )
     }
 }
