@@ -20,6 +20,7 @@ def test_openclaw_plugin_manifest_points_to_entrypoint() -> None:
     assert package["type"] == "module"
     assert manifest["id"] == "evaos-desktop-bridge"
     assert manifest["main"] == "dist/index.js"
+    assert manifest["configSchema"] == {"type": "object", "additionalProperties": False, "properties": {}}
     assert manifest["contracts"]["tools"]
 
 
