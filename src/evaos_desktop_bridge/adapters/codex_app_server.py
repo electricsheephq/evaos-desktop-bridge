@@ -23,6 +23,7 @@ from .codex_macos import RunnerResult, run_command
 APP_SERVER_WS_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_WS"
 APP_SERVER_TRANSPORT_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT"
 APP_SERVER_PROXY_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_PROXY"
+APP_SERVER_SOCKET_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_SOCKET"
 CODEX_BIN_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_BIN"
 APP_SERVER_CLIENT_INFO = {"name": "evaos-desktop-bridge", "version": "0.1.0"}
 DESKTOP_CODEX_BIN = "/Applications/Codex.app/Contents/Resources/codex"
@@ -148,20 +149,11 @@ class LineProcessTransport(JsonRpcTransport):
                 self.process.kill()
 
 
-class LoopbackWebSocketTransport(JsonRpcTransport):
-    def __init__(self, url: str) -> None:
-        parsed = urlparse(url)
-        if parsed.scheme != "ws":
-            raise ValueError("Only ws:// loopback app-server URLs are supported by this bridge lane.")
-        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-            raise ValueError("Only loopback websocket app-server URLs are allowed.")
-        self.url = url
-        self.socket = socket.create_connection((parsed.hostname or "127.0.0.1", parsed.port or 80), timeout=5)
+class WebSocketTransport(JsonRpcTransport):
+    socket: socket.socket
+
+    def _handshake(self, *, host: str, path: str = "/") -> None:
         key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
-        path = parsed.path or "/"
-        if parsed.query:
-            path = f"{path}?{parsed.query}"
-        host = parsed.netloc
         request = (
             f"GET {path} HTTP/1.1\r\n"
             f"Host: {host}\r\n"
@@ -247,6 +239,32 @@ class LoopbackWebSocketTransport(JsonRpcTransport):
             header = bytes([0x81, 0x80 | 127]) + length.to_bytes(8, "big")
         masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(body))
         return header + mask + masked
+
+
+class LoopbackWebSocketTransport(WebSocketTransport):
+    def __init__(self, url: str) -> None:
+        parsed = urlparse(url)
+        if parsed.scheme != "ws":
+            raise ValueError("Only ws:// loopback app-server URLs are supported by this bridge lane.")
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError("Only loopback websocket app-server URLs are allowed.")
+        self.url = url
+        self.socket = socket.create_connection((parsed.hostname or "127.0.0.1", parsed.port or 80), timeout=5)
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+        self._handshake(host=parsed.netloc, path=path)
+
+
+class UnixSocketWebSocketTransport(WebSocketTransport):
+    def __init__(self, socket_path: str | None = None) -> None:
+        self.socket_path = socket_path or app_server_socket_path()
+        if not os.path.isabs(self.socket_path):
+            raise ValueError("Codex app-server Unix socket path must be absolute.")
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.settimeout(5)
+        self.socket.connect(self.socket_path)
+        self._handshake(host="localhost", path="/")
 
 
 class CodexJsonRpcClient:
@@ -357,6 +375,7 @@ class CodexAppServerObserver:
                 "available": available,
                 "codex_version": redact_value(version.stdout.strip()) if version.returncode == 0 else None,
                 "transport": app_server_transport_mode(),
+                "socket_path": redact_value(app_server_socket_path()) if app_server_transport_mode() == "proxy" else None,
                 "allowed_methods": sorted(ALLOWED_APP_SERVER_METHODS),
                 "controller_methods": sorted(CONTROLLER_APP_SERVER_METHODS),
                 "forbidden_methods": sorted(FORBIDDEN_APP_SERVER_METHODS),
@@ -390,6 +409,7 @@ class CodexAppServerObserver:
                 "loopback_websocket_configured": bool(websocket_env),
                 "loopback_websocket_url": redact_value(websocket_env) if websocket_env else None,
                 "transport_mode": app_server_transport_mode(),
+                "unix_socket_path": redact_value(app_server_socket_path()) if app_server_transport_mode() == "proxy" else None,
                 "allowlist_size": len(ALLOWED_APP_SERVER_METHODS),
                 "controller_size": len(CONTROLLER_APP_SERVER_METHODS),
             },
@@ -420,20 +440,26 @@ class CodexAppServerObserver:
         response = self.request("thread/list", {"limit": max_items})
         if not response.ok:
             return response
-        raw_threads = (
-            response.data.get("threads")
-            or response.data.get("items")
-            or response.data.get("data")
-            or response.data.get("result", {}).get("threads")
-            or response.data.get("result", {}).get("data")
-            or []
-        )
+        raw_threads = self._thread_rows(response.data, max_items=max_items)
         threads = [self._safe_thread(row, index) for index, row in enumerate(raw_threads[:max_items])]
         return CommandResult(
             ok=True,
             data={"threads": threads, "count": len(threads), "max_items": max_items, "source": "app_server"},
             warnings=response.warnings,
             provenance={"source": "app_server", "app_server_method": "thread/list"},
+        )
+
+    def loaded_threads(self, *, max_items: int) -> CommandResult:
+        response = self.request("thread/loaded/list", {})
+        if not response.ok:
+            return response
+        raw_threads = self._thread_rows(response.data, max_items=max_items)
+        threads = [self._safe_thread(row, index) for index, row in enumerate(raw_threads[:max_items])]
+        return CommandResult(
+            ok=True,
+            data={"threads": threads, "count": len(threads), "max_items": max_items, "source": "app_server_loaded"},
+            warnings=response.warnings,
+            provenance={"source": "app_server", "app_server_method": "thread/loaded/list"},
         )
 
     def request(self, method: str, params: dict[str, Any] | None = None) -> CommandResult:
@@ -508,6 +534,9 @@ class CodexAppServerObserver:
         gate = self._controller_gate(source_audit_id=source_audit_id, confirmed=confirmed)
         if gate is not None:
             return gate
+        loaded_gate = self._controller_loaded_thread_gate(thread_id=thread_id)
+        if loaded_gate is not None:
+            return loaded_gate
         rpc = self.rpc_client("turn/start", params)
         if not rpc.ok:
             return self._controller_error(method="turn/start", thread_id=thread_id, error=rpc.error)
@@ -539,6 +568,9 @@ class CodexAppServerObserver:
         gate = self._controller_gate(source_audit_id=source_audit_id, confirmed=confirmed, turn_id=turn_id or "")
         if gate is not None:
             return gate
+        loaded_gate = self._controller_loaded_thread_gate(thread_id=thread_id, turn_id=turn_id)
+        if loaded_gate is not None:
+            return loaded_gate
         rpc = self.rpc_client("turn/steer", params)
         if not rpc.ok:
             return self._controller_error(method="turn/steer", thread_id=thread_id, turn_id=turn_id, error=rpc.error)
@@ -567,6 +599,9 @@ class CodexAppServerObserver:
         gate = self._controller_gate(source_audit_id=source_audit_id, confirmed=confirmed, turn_id=turn_id or "")
         if gate is not None:
             return gate
+        loaded_gate = self._controller_loaded_thread_gate(thread_id=thread_id, turn_id=turn_id)
+        if loaded_gate is not None:
+            return loaded_gate
         rpc = self.rpc_client("turn/interrupt", params)
         if not rpc.ok:
             return self._controller_error(method="turn/interrupt", thread_id=thread_id, turn_id=turn_id, error=rpc.error)
@@ -605,6 +640,8 @@ class CodexAppServerObserver:
         websocket_url = os.environ.get(APP_SERVER_WS_ENV)
         if websocket_url:
             return LoopbackWebSocketTransport(websocket_url)
+        if app_server_transport_mode() == "proxy":
+            return UnixSocketWebSocketTransport()
         return LineProcessTransport(codex_bin=self.codex_bin)
 
     def _safe_thread(self, row: Any, index: int) -> dict[str, Any]:
@@ -621,6 +658,13 @@ class CodexAppServerObserver:
             "updated_at": redact_value(row.get("updated_at") or row.get("updatedAt")),
             "source": "app_server",
         }
+
+    def _thread_rows(self, payload: dict[str, Any], *, max_items: int) -> list[Any]:
+        result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+        rows = payload.get("threads") or payload.get("items") or payload.get("data") or result.get("threads") or result.get("data") or []
+        if not isinstance(rows, list):
+            return []
+        return rows[:max_items]
 
     def _safe_event(self, event: Any, *, max_chars: int) -> dict[str, Any]:
         if not isinstance(event, dict):
@@ -700,6 +744,38 @@ class CodexAppServerObserver:
             )
         return None
 
+    def _controller_loaded_thread_gate(self, *, thread_id: str, turn_id: str | None = None) -> CommandResult | None:
+        loaded = self.loaded_threads(max_items=200)
+        if not loaded.ok:
+            return CommandResult(
+                ok=False,
+                data={"thread_id": thread_id, "turn_id": turn_id},
+                errors=[
+                    make_error(
+                        code="app_server_loaded_threads_unavailable",
+                        message="Unable to verify that the target thread is loaded before a live controller action.",
+                        guidance="Retry after `codex app-server loaded-threads --json` succeeds; the bridge will not resume hidden threads or start hidden sessions.",
+                    )
+                ],
+                provenance={"source": "app_server_controller", "app_server_method": "thread/loaded/list", "thread_id": thread_id, "turn_id": turn_id},
+            )
+        loaded_threads = loaded.data.get("threads") if isinstance(loaded.data, dict) else []
+        loaded_ids = [row.get("id") for row in loaded_threads if isinstance(row, dict) and row.get("id")]
+        if thread_id not in loaded_ids:
+            return CommandResult(
+                ok=False,
+                data={"thread_id": thread_id, "turn_id": turn_id, "loaded_thread_count": len(loaded_ids), "loaded_thread_ids": loaded_ids[:20]},
+                errors=[
+                    make_error(
+                        code="app_server_thread_not_loaded",
+                        message="Target thread is not loaded in the Codex app-server controller state.",
+                        guidance="Use `codex app-server loaded-threads --json` to choose a loaded target. The bridge will not call thread/resume, thread/start, or hidden session mutation methods.",
+                    )
+                ],
+                provenance={"source": "app_server_controller", "app_server_method": "thread/loaded/list", "thread_id": thread_id, "turn_id": turn_id},
+            )
+        return None
+
     def _controller_error(self, *, method: str, thread_id: str, error: str | None, turn_id: str | None = None) -> CommandResult:
         return CommandResult(
             ok=False,
@@ -735,12 +811,22 @@ def resolve_codex_bin() -> str:
 
 
 def app_server_transport_mode() -> str:
+    if os.environ.get(APP_SERVER_WS_ENV):
+        return "websocket"
     mode = (os.environ.get(APP_SERVER_TRANSPORT_ENV) or "").strip().lower()
-    if mode:
-        return mode
+    if mode in {"proxy", "unix", "unix_socket", "unix-socket"}:
+        return "proxy"
     if os.environ.get(APP_SERVER_PROXY_ENV) in {"1", "true", "yes"}:
         return "proxy"
     return "stdio"
+
+
+def app_server_socket_path() -> str:
+    configured = os.environ.get(APP_SERVER_SOCKET_ENV)
+    if configured:
+        return configured
+    codex_home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+    return os.path.join(codex_home, "app-server-control", "app-server-control.sock")
 
 
 def build_app_server_argv(*, codex_bin: str | None = None, transport_mode: str | None = None) -> list[str]:

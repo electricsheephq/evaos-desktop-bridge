@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import os
+import socket
+import threading
 from pathlib import Path
 
 import pytest
@@ -16,6 +21,9 @@ from evaos_desktop_bridge.adapters.codex_app_server import (
     JsonRpcResponse,
     JsonRpcTransport,
     LoopbackWebSocketTransport,
+    UnixSocketWebSocketTransport,
+    app_server_socket_path,
+    app_server_transport_mode,
     build_app_server_argv,
     classify_app_server_method,
     extract_generated_protocol_methods,
@@ -279,6 +287,76 @@ def test_loopback_websocket_transport_rejects_non_loopback_urls() -> None:
         LoopbackWebSocketTransport("ws://example.com:9999")
 
 
+def test_unix_socket_websocket_transport_round_trips_json() -> None:
+    socket_path = Path(f"/tmp/evaos-bridge-{os.getpid()}-app-server.sock")
+    socket_path.unlink(missing_ok=True)
+    ready = threading.Event()
+
+    def read_frame(conn: socket.socket) -> dict:
+        header = conn.recv(2)
+        assert len(header) == 2
+        length = header[1] & 0x7F
+        assert header[1] & 0x80
+        if length == 126:
+            length = int.from_bytes(conn.recv(2), "big")
+        elif length == 127:
+            length = int.from_bytes(conn.recv(8), "big")
+        mask = conn.recv(4)
+        body = conn.recv(length)
+        decoded = bytes(byte ^ mask[index % 4] for index, byte in enumerate(body))
+        return json.loads(decoded.decode("utf-8"))
+
+    def write_server_frame(conn: socket.socket, payload: dict) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        assert len(body) < 126
+        conn.sendall(bytes([0x81, len(body)]) + body)
+
+    def server() -> None:
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(socket_path))
+        listener.listen(1)
+        ready.set()
+        conn, _ = listener.accept()
+        with conn, listener:
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += conn.recv(4096)
+            key_line = next(line for line in request.split(b"\r\n") if line.lower().startswith(b"sec-websocket-key:"))
+            key = key_line.split(b":", 1)[1].strip().decode("ascii")
+            accept = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest())
+            conn.sendall(
+                b"HTTP/1.1 101 Switching Protocols\r\n"
+                b"Upgrade: websocket\r\n"
+                b"Connection: Upgrade\r\n"
+                b"Sec-WebSocket-Accept: " + accept + b"\r\n\r\n"
+            )
+            assert read_frame(conn)["method"] == "thread/list"
+            write_server_frame(conn, {"id": 1, "result": {"threads": []}})
+
+    thread = threading.Thread(target=server)
+    thread.start()
+    try:
+        assert ready.wait(2)
+
+        transport = UnixSocketWebSocketTransport(str(socket_path))
+        transport.send({"jsonrpc": "2.0", "id": 1, "method": "thread/list", "params": {"limit": 1}})
+        assert transport.recv(1) == {"id": 1, "result": {"threads": []}}
+        transport.close()
+        thread.join(2)
+        assert not thread.is_alive()
+    finally:
+        socket_path.unlink(missing_ok=True)
+
+
+def test_app_server_proxy_mode_uses_configured_unix_socket(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    socket_path = tmp_path / "control.sock"
+    monkeypatch.setenv("EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT", "proxy")
+    monkeypatch.setenv("EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_SOCKET", str(socket_path))
+
+    assert app_server_transport_mode() == "proxy"
+    assert app_server_socket_path() == str(socket_path)
+
+
 def test_app_server_argv_supports_proxy_transport() -> None:
     assert build_app_server_argv(codex_bin="/bin/codex", transport_mode="stdio") == [
         "/bin/codex",
@@ -332,6 +410,8 @@ def test_app_server_controller_live_calls_guarded_method_with_capped_message() -
 
     def capture_rpc(method: str, params: dict) -> JsonRpcResponse:
         calls.append((method, params))
+        if method == "thread/loaded/list":
+            return JsonRpcResponse(ok=True, payload={"data": [{"id": "thread-1", "title": "Loaded"}]})
         return JsonRpcResponse(ok=True, payload={"turnId": "turn-1"})
 
     observer = CodexAppServerObserver(rpc_client=capture_rpc)
@@ -345,11 +425,31 @@ def test_app_server_controller_live_calls_guarded_method_with_capped_message() -
     )
 
     assert result.ok is True
-    assert calls[0][0] == "turn/start"
-    assert calls[0][1]["threadId"] == "thread-1"
-    assert calls[0][1]["input"][0]["text"].startswith(str(Path.home()))
+    assert calls[0][0] == "thread/loaded/list"
+    assert calls[1][0] == "turn/start"
+    assert calls[1][1]["threadId"] == "thread-1"
+    assert calls[1][1]["input"][0]["text"].startswith(str(Path.home()))
     assert str(Path.home()) not in json.dumps(result.data)
     assert result.data["message_truncated"] is True
+
+
+def test_app_server_controller_live_fails_closed_when_thread_not_loaded() -> None:
+    def loaded_empty(method: str, params: dict) -> JsonRpcResponse:
+        assert method == "thread/loaded/list"
+        return JsonRpcResponse(ok=True, payload={"data": []})
+
+    observer = CodexAppServerObserver(rpc_client=loaded_empty)
+    result = observer.start_turn(
+        thread_id="thread-1",
+        message="continue",
+        dry_run=False,
+        source_audit_id="audit-123",
+        confirmed=True,
+    )
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "app_server_thread_not_loaded"
+    assert result.data["loaded_thread_count"] == 0
 
 
 def test_app_server_steer_and_interrupt_live_require_turn_id() -> None:

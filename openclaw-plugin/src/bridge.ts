@@ -20,6 +20,7 @@ export type BridgeCommandKey =
   | "codexConnectionsStatus"
   | "codexAppServerStatus"
   | "codexAppServerThreads"
+  | "codexAppServerLoadedThreads"
   | "codexAppServerSubscribe"
   | "codexAppServerStartTurn"
   | "codexAppServerSteerTurn"
@@ -52,6 +53,7 @@ const FIXED_COMMANDS: Record<
     | "codexThreads"
     | "codexSelectThread"
     | "codexAppServerThreads"
+    | "codexAppServerLoadedThreads"
     | "codexAppServerSubscribe"
     | "codexAppServerStartTurn"
     | "codexAppServerSteerTurn"
@@ -114,6 +116,9 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
   }
   if (command === "codexAppServerThreads") {
     return ["codex", "app-server", "threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
+  }
+  if (command === "codexAppServerLoadedThreads") {
+    return ["codex", "app-server", "loaded-threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
   }
   if (command === "codexAppServerSubscribe") {
     return [

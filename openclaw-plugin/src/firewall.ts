@@ -30,6 +30,7 @@ const READ_ONLY_TOOL_NAMES = new Set([
   "desktop_bridge_codex_connections_status",
   "desktop_bridge_codex_app_server_status",
   "desktop_bridge_codex_app_server_threads",
+  "desktop_bridge_codex_app_server_loaded_threads",
   "desktop_bridge_codex_live_status",
 ]);
 

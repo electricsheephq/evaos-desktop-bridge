@@ -20,6 +20,7 @@ OpenClaw plugin wrapper for `evaos-desktop-bridge`. Read-only tools remain the d
 - `desktop_bridge_codex_connections_status`
 - `desktop_bridge_codex_app_server_status`
 - `desktop_bridge_codex_app_server_threads`
+- `desktop_bridge_codex_app_server_loaded_threads`
 - `desktop_bridge_codex_live_status`
 - `desktop_bridge_codex_remote_start_turn`
 - `desktop_bridge_codex_remote_steer_turn`

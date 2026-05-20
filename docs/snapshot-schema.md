@@ -283,7 +283,7 @@ With `--dry-run`, it returns:
 
 `codex.connections.status` returns Codex Desktop/app-server readiness, remote-control feature state, loopback websocket configuration, expected live notification methods, and controller safety flags.
 
-`codex.app_server.status` returns read-only app-server availability, read allowlists, controller method names, and forbidden methods. `codex.app_server.threads` returns capped thread summaries from allowed app-server read methods only.
+`codex.app_server.status` returns read-only app-server availability, read allowlists, controller method names, and forbidden methods. `codex.app_server.threads` returns capped stored thread summaries from allowed app-server read methods only. `codex.app_server.loaded_threads` returns capped currently loaded controller targets from `thread/loaded/list`.
 
 `codex.app_server.subscribe` returns:
 

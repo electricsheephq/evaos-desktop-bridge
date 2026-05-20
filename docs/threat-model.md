@@ -69,8 +69,9 @@ The MVP must not:
 - Save a screenshot artifact when Screen Recording permits it.
 - Return a capped AX tree containing roles and names only.
 - Return capped app-server thread summaries through a hard read-only method allowlist.
+- Return capped app-server loaded-thread targets through `thread/loaded/list` before controller actions.
 - Return short capped app-server notification windows for live thread status.
-- Start, steer, or interrupt a Codex app-server turn only through named guarded controller commands that require dry-run support, confirmation, and source audit provenance.
+- Start, steer, or interrupt a Codex app-server turn only through named guarded controller commands that require dry-run support, confirmation, source audit provenance, and an already-loaded target thread.
 - Return the last redacted observation envelope.
 - Return a capped redacted local audit-log tail.
 - Append/list local Eva/OpenClaw queue events.

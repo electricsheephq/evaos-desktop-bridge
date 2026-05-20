@@ -150,6 +150,18 @@ function bridgeTools(): ToolDefinition[] {
       },
     ),
     tool(
+      "desktop_bridge_codex_app_server_loaded_threads",
+      "Read currently loaded Codex app-server controller threads for safe remote-control targeting.",
+      "codexAppServerLoadedThreads",
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          max_items: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+        },
+      },
+    ),
+    tool(
       "desktop_bridge_codex_live_status",
       "Read a short live Codex app-server notification window for a thread.",
       "codexAppServerSubscribe",

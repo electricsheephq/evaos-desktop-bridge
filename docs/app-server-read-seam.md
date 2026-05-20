@@ -4,7 +4,9 @@ The app-server adapter is read-only by default and uses `codex app-server` over 
 
 By default the bridge prefers the Codex Desktop bundled CLI at `/Applications/Codex.app/Contents/Resources/codex` when present, because Desktop may ship newer app-server protocol support than a Homebrew or npm `codex` on `PATH`. Override with `EVAOS_DESKTOP_BRIDGE_CODEX_BIN=/path/to/codex` when needed.
 
-Set `EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT=proxy` to attach through `codex app-server proxy` to a running managed daemon/control socket instead of launching a fresh stdio app-server. This is the transport to use for live Desktop remote-control smokes once the local Codex remote-control daemon is bootstrapped.
+Set `EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT=proxy` to attach to the managed daemon/control socket instead of launching a fresh stdio app-server. The control socket is a WebSocket-over-Unix-socket endpoint at `~/.codex/app-server-control/app-server-control.sock` by default; override it with `EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_SOCKET=/absolute/path.sock` when testing alternate daemon sockets.
+
+Do not use `codex app-server proxy` as a JSONL passthrough for the bridge. That command only forwards raw bytes; the bridge speaks the daemon socket's WebSocket handshake directly.
 
 ## Allowed Methods
 
@@ -15,7 +17,7 @@ Set `EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT=proxy` to attach through `c
 - `thread/turns/list`
 - `getConversationSummary`
 
-Returned data is redacted and capped before it leaves the bridge. The public CLI exposes status, connection readiness, capped thread summaries, and a short live notification window.
+Returned data is redacted and capped before it leaves the bridge. The public CLI exposes status, connection readiness, capped thread summaries, currently loaded controller threads, and a short live notification window.
 
 ## Guarded Controller Methods
 
@@ -26,6 +28,8 @@ These are exposed only through named controller commands with dry-run, confirmat
 - `turn/interrupt`
 
 There is no public generic app-server RPC passthrough.
+
+Live controller commands preflight `thread/loaded/list` and fail closed when the target thread is not already loaded. The bridge does not call `thread/resume`, `thread/start`, or hidden session mutation methods to make a target available.
 
 ## Forbidden Methods
 
@@ -43,6 +47,7 @@ The bridge rejects mutation-capable methods before transport:
 ```bash
 evaos-desktop-bridge codex app-server status --json
 evaos-desktop-bridge codex app-server threads --json --max-items 50
+evaos-desktop-bridge codex app-server loaded-threads --json --max-items 50
 evaos-desktop-bridge codex connections status --json
 evaos-desktop-bridge codex app-server subscribe --json --thread-id THREAD --duration-ms 1000
 evaos-desktop-bridge codex app-server start-turn --json --thread-id THREAD --message "..." --dry-run

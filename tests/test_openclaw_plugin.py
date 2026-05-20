@@ -40,6 +40,7 @@ def test_openclaw_plugin_registers_named_tools_only() -> None:
         "desktop_bridge_codex_ax_tree",
         "desktop_bridge_codex_app_server_status",
         "desktop_bridge_codex_app_server_threads",
+        "desktop_bridge_codex_app_server_loaded_threads",
         "desktop_bridge_codex_connections_status",
         "desktop_bridge_codex_live_status",
         "desktop_bridge_codex_remote_start_turn",

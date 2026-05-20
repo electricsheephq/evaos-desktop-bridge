@@ -28,6 +28,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.connections.status",
         "codex.app_server.status",
         "codex.app_server.threads",
+        "codex.app_server.loaded_threads",
         "codex.app_server.subscribe",
         "codex.app_server.start_turn",
         "codex.app_server.steer_turn",
@@ -135,6 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
     app_server_threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     app_server_threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum app-server thread summaries to return.")
     app_server_threads_parser.set_defaults(command_id="codex.app_server.threads", target="codex")
+
+    app_server_loaded_threads_parser = app_server_subparsers.add_parser("loaded-threads", help="Read currently loaded Codex app-server controller threads.")
+    app_server_loaded_threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_loaded_threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum loaded thread summaries to return.")
+    app_server_loaded_threads_parser.set_defaults(command_id="codex.app_server.loaded_threads", target="codex")
 
     app_server_subscribe_parser = app_server_subparsers.add_parser("subscribe", help="Read a short live Codex app-server notification window.")
     app_server_subscribe_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -313,6 +319,8 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return app_server.status()
     if command_id == "codex.app_server.threads":
         return app_server.threads(max_items=args.max_items)
+    if command_id == "codex.app_server.loaded_threads":
+        return app_server.loaded_threads(max_items=args.max_items)
     if command_id == "codex.app_server.subscribe":
         return app_server.subscribe(thread_id=args.thread_id, duration_ms=args.duration_ms, max_events=args.max_events, max_chars=args.max_chars)
     if command_id == "codex.app_server.start_turn":
@@ -379,6 +387,7 @@ def _capabilities() -> dict[str, object]:
                 "codex.connections.status",
                 "codex.app_server.status",
                 "codex.app_server.threads",
+                "codex.app_server.loaded_threads",
                 "codex.app_server.subscribe",
                 "codex.app_server.start_turn",
                 "codex.app_server.steer_turn",

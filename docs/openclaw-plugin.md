@@ -21,6 +21,7 @@ Read-only tools:
 - `desktop_bridge_codex_connections_status`: Codex Desktop/app-server connection and remote-control readiness.
 - `desktop_bridge_codex_app_server_status`: Codex app-server availability and read allowlist.
 - `desktop_bridge_codex_app_server_threads`: capped app-server thread summaries through the read allowlist.
+- `desktop_bridge_codex_app_server_loaded_threads`: currently loaded app-server controller threads for safe remote-control targeting.
 - `desktop_bridge_codex_live_status`: short capped app-server notification window for a thread.
 
 Guarded visible action:
@@ -33,7 +34,7 @@ Guarded remote-control actions:
 - `desktop_bridge_codex_remote_steer_turn`: steer an active Codex Desktop turn through app-server; dry-run defaults to true.
 - `desktop_bridge_codex_remote_interrupt_turn`: interrupt an active Codex Desktop turn through app-server; dry-run defaults to true.
 
-No plugin tool types text, clicks send/approval controls, launches Codex, calls arbitrary app-server RPCs, reads session databases, or accepts arbitrary shell commands. Live remote-control tools require explicit params and OpenClaw approval.
+No plugin tool types text, clicks send/approval controls, launches Codex, calls arbitrary app-server RPCs, reads session databases, or accepts arbitrary shell commands. Live remote-control tools require explicit params, OpenClaw approval, and a thread already present in `desktop_bridge_codex_app_server_loaded_threads`.
 
 ## Runtime Contract
 

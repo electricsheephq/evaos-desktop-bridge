@@ -141,6 +141,9 @@ class FakeAppServer:
             return CommandResult(ok=False, errors=[{"code": "app_server_unavailable", "message": "offline", "guidance": "start app-server"}])
         return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Thread 1", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items})
 
+    def loaded_threads(self, *, max_items: int) -> CommandResult:
+        return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "thread-1", "title": "Loaded", "source": "app_server_loaded"}][:max_items], "count": 1, "max_items": max_items})
+
     def subscribe(self, *, thread_id: str, duration_ms: int, max_events: int = 40, max_chars: int = 4000) -> CommandResult:
         return CommandResult(
             ok=True,
@@ -391,6 +394,14 @@ def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.app_server.threads"
     assert payload["data"]["threads"][0]["source"] == "app_server"
+
+
+def test_app_server_loaded_threads_json_is_capped(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "app-server", "loaded-threads", "--json", "--max-items", "1"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.app_server.loaded_threads"
+    assert payload["data"]["threads"][0]["source"] == "app_server_loaded"
 
 
 def test_app_server_subscribe_json_reads_live_events(tmp_path: Path) -> None:
