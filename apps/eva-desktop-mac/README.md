@@ -136,9 +136,11 @@ user through Connect This Mac, Enable Permissions, Pair with evaOS VM, Connect
 iPhone, Test Agent Access, and Revoke / Disconnect. The app can start/check the
 LaunchAgent-backed connector, create short-lived pairing grants through
 dashboard/Supabase, and complete the local Mac device record once the connector
-and Headscale client are ready. It still does not expose live local-control
-buttons or a generic command runner; actual actions run through audited
-OpenClaw/Hermes tools.
+and Headscale client are ready. Completion sends the connector URL and local
+connector token to the service-role-only pairing secret store; support-control
+then applies that secret to the paired VM gateway environment. The app still
+does not expose live local-control buttons or a generic command runner; actual
+actions run through audited OpenClaw/Hermes tools.
 
 ## OpenDesign
 
