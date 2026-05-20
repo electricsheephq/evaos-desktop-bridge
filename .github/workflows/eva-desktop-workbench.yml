@@ -1,0 +1,31 @@
+name: Eva Desktop Workbench
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  bridge-python:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python3 -m pip install -e . pytest
+      - name: Run bridge tests
+        run: python3 -m pytest
+
+  eva-desktop-mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Eva Desktop
+        working-directory: apps/eva-desktop-mac
+        run: swift build
+      - name: Run core smoke
+        working-directory: apps/eva-desktop-mac
+        run: swift run EvaDesktopCoreSmoke

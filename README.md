@@ -2,7 +2,41 @@
 
 Safe bridge between Eva/OpenClaw and visible human desktop agent surfaces.
 
+This repository is now the monorepo for the **Eva Desktop Mac Workbench**. The
+existing Python bridge remains the guarded local observation/audit layer; the
+new SwiftUI app under `apps/eva-desktop-mac/` is the customer-facing cockpit for
+OpenClaw, Hermes, Mission Control, OpenDesign, Live Browser, and Terminal.
+
+The workbench MVP is intentionally view-first. It does not add broad local Mac
+control, iPhone Mirroring, iMessage, prompt sending, hidden shell access, or
+new Accessibility/Screen Recording permissions.
+
+The Mac app may call fixed read-only `evaos-desktop-bridge` status commands
+from its Bridge panel after an explicit refresh. It does not expose arbitrary
+local commands or local-control actions.
+
 The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. It does not send prompts, type text, click send/approval controls, call mutation RPCs, hijack stdio, or read Codex session databases.
+
+## Eva Desktop Workbench
+
+The SwiftUI Mac app lives in:
+
+```text
+apps/eva-desktop-mac/
+```
+
+Run it locally:
+
+```bash
+cd apps/eva-desktop-mac
+./script/build_and_run.sh
+```
+
+Architecture and sprint docs:
+
+- [ADR: Eva Desktop Workbench Lives In evaos-desktop-bridge](docs/eva-desktop-workbench-adr.md)
+- [Eva Desktop Workbench MVP Sprint](docs/eva-desktop-workbench-sprint.md)
+- [Eva Desktop Packaging And Notarization](docs/eva-desktop-packaging.md)
 
 ## Architecture
 
