@@ -114,11 +114,81 @@ public struct RuntimeLaunchRequest: Codable, Equatable, Sendable {
     }
 }
 
+public struct DesktopCustomerTargetsRequest: Codable, Equatable, Sendable {
+    public let action: String
+
+    public init() {
+        self.action = "list_customer_targets"
+    }
+}
+
 public struct DesktopSessionRevokeRequest: Codable, Equatable, Sendable {
     public let action: String
 
     public init() {
         self.action = "revoke_desktop_session"
+    }
+}
+
+public struct DesktopCustomerTarget: Codable, Equatable, Identifiable, Sendable {
+    public let customerId: String
+    public let displayName: String
+    public let email: String?
+    public let status: String?
+    public let healthStatus: String?
+    public let isDefault: Bool
+
+    public var id: String { customerId }
+
+    public init(
+        customerId: String,
+        displayName: String,
+        email: String? = nil,
+        status: String? = nil,
+        healthStatus: String? = nil,
+        isDefault: Bool = false
+    ) {
+        self.customerId = customerId
+        self.displayName = displayName
+        self.email = email
+        self.status = status
+        self.healthStatus = healthStatus
+        self.isDefault = isDefault
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case customerId = "customer_id"
+        case displayName = "display_name"
+        case email
+        case status
+        case healthStatus = "health_status"
+        case isDefault = "is_default"
+    }
+}
+
+public struct DesktopCustomerTargetsResponse: Codable, Equatable, Sendable {
+    public let roles: [String]
+    public let isOperator: Bool
+    public let defaultCustomerId: String?
+    public let customers: [DesktopCustomerTarget]
+
+    public init(
+        roles: [String],
+        isOperator: Bool,
+        defaultCustomerId: String? = nil,
+        customers: [DesktopCustomerTarget]
+    ) {
+        self.roles = roles
+        self.isOperator = isOperator
+        self.defaultCustomerId = defaultCustomerId
+        self.customers = customers
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case roles
+        case isOperator = "is_operator"
+        case defaultCustomerId = "default_customer_id"
+        case customers
     }
 }
 

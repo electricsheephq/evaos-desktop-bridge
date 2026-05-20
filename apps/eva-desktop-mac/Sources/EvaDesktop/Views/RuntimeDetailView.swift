@@ -74,6 +74,7 @@ struct RuntimeDetailView: View {
 private struct RuntimeToolbar: View {
     @ObservedObject var model: WorkbenchModel
     let definition: RuntimeDefinition
+    @State private var pendingCustomerTarget: DesktopCustomerTarget?
 
     var body: some View {
         HStack(spacing: 14) {
@@ -83,6 +84,10 @@ private struct RuntimeToolbar: View {
                 .font(.headline)
 
             Spacer()
+
+            if model.canSwitchCustomers {
+                CustomerTargetMenu(model: model, pendingTarget: $pendingCustomerTarget)
+            }
 
             Button {
                 model.reconnectSelectedRuntime()
@@ -105,6 +110,32 @@ private struct RuntimeToolbar: View {
             }
             .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key) || model.runtimeURLs[definition.key] == nil)
         }
+        .confirmationDialog(
+            "Switch customer?",
+            isPresented: Binding(
+                get: { pendingCustomerTarget != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingCustomerTarget = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let target = pendingCustomerTarget {
+                Button("Switch to \(target.displayName)") {
+                    model.switchCustomer(to: target)
+                    pendingCustomerTarget = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingCustomerTarget = nil
+            }
+        } message: {
+            if let target = pendingCustomerTarget {
+                Text("Loaded gateways for \(model.sanitizedCustomerId) will be replaced with \(target.customerId).")
+            }
+        }
     }
 
     private var toolbarTint: Color {
@@ -112,6 +143,61 @@ private struct RuntimeToolbar: View {
             return .secondary
         }
         return definition.requiresAdmin ? .electricSheepAmber : .electricSheepCyan
+    }
+}
+
+private struct CustomerTargetMenu: View {
+    @ObservedObject var model: WorkbenchModel
+    @Binding var pendingTarget: DesktopCustomerTarget?
+
+    var body: some View {
+        Menu {
+            ForEach(model.customerTargets) { target in
+                Button {
+                    pendingTarget = target
+                } label: {
+                    HStack {
+                        Text(target.displayName)
+                        Text(target.customerId)
+                    }
+                }
+                .disabled(normalized(target.customerId) == model.sanitizedCustomerId)
+            }
+
+            Divider()
+
+            Button {
+                Task {
+                    await model.refreshCustomerTargets()
+                }
+            } label: {
+                Label("Refresh Customers", systemImage: "arrow.clockwise")
+            }
+            .disabled(model.isLoadingCustomerTargets)
+        } label: {
+            Label(customerLabel, systemImage: "person.2.badge.key")
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(model.isLoadingCustomerTargets)
+        .help("Admin customer switcher")
+    }
+
+    private var customerLabel: String {
+        if let target = model.currentCustomerTarget {
+            return target.displayName
+        }
+        return model.sanitizedCustomerId
+    }
+
+    private func normalized(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
     }
 }
 

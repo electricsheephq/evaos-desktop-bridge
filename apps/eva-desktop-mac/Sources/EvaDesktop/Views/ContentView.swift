@@ -26,7 +26,7 @@ struct ContentView: View {
             }
         }
         .task {
-            model.loadSelectedRuntime()
+            await model.bootstrap()
         }
         .onOpenURL { url in
             model.handleAuthCallback(url)
