@@ -249,6 +249,19 @@ def test_json_rpc_client_serializes_requests_and_buffers_notifications() -> None
     assert transport.closed is True
 
 
+def test_json_rpc_client_initialize_enables_experimental_api() -> None:
+    transport = FakeTransport([{"id": 1, "result": {"server": "ok"}}])
+
+    with CodexJsonRpcClient(transport_factory=lambda: transport, request_timeout=0.1) as client:
+        response = client.initialize()
+
+    assert response.ok is True
+    assert transport.sent[0]["method"] == "initialize"
+    assert transport.sent[0]["params"]["capabilities"]["experimentalApi"] is True
+    assert transport.sent[1] == {"jsonrpc": "2.0", "method": "initialized"}
+    assert transport.closed is True
+
+
 def test_json_rpc_client_preserves_empty_result_payload() -> None:
     transport = FakeTransport([{"id": 1, "result": {}}])
 

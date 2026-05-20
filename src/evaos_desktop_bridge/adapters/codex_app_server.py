@@ -273,7 +273,7 @@ class CodexJsonRpcClient:
     def initialize(self) -> JsonRpcResponse:
         response = self.request(
             "initialize",
-            {"clientInfo": self.client_info, "capabilities": None},
+            {"clientInfo": self.client_info, "capabilities": {"experimentalApi": True}},
         )
         if response.ok:
             self.notify("initialized")
