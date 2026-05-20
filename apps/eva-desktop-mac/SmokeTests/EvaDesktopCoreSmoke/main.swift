@@ -31,6 +31,10 @@ precondition(launchJSON.contains("\"customer_id\":\"golden\""))
 precondition(launchJSON.contains("\"runtime\":\"browser\""))
 precondition(!launchJSON.contains("customerId"))
 
+let encodedTargets = try JSONEncoder().encode(DesktopCustomerTargetsRequest())
+let targetsRequestJSON = String(data: encodedTargets, encoding: .utf8) ?? ""
+precondition(targetsRequestJSON.contains("\"action\":\"list_customer_targets\""))
+
 let encodedRevoke = try JSONEncoder().encode(DesktopSessionRevokeRequest())
 let revokeJSON = try JSONSerialization.jsonObject(with: encodedRevoke) as? [String: String]
 precondition(revokeJSON?["action"] == "revoke_desktop_session")
@@ -42,6 +46,14 @@ let decodedResponse = try EvaDesktopISO8601.decoder().decode(RuntimeLaunchRespon
 precondition(decodedResponse.expiresAt != nil)
 precondition(EvaDesktopISO8601.parse("2026-05-20T10:48:51.123Z") != nil)
 precondition(EvaDesktopISO8601.parse("2026-05-20T10:48:51Z") != nil)
+
+let targetsResponse = """
+{"roles":["admin","customer"],"is_operator":true,"default_customer_id":"golden","customers":[{"customer_id":"golden","display_name":"Golden","email":"admin@100yen.org","status":"active","health_status":"healthy","is_default":true}]}
+""".data(using: .utf8)!
+let decodedTargets = try JSONDecoder().decode(DesktopCustomerTargetsResponse.self, from: targetsResponse)
+precondition(decodedTargets.isOperator)
+precondition(decodedTargets.defaultCustomerId == "golden")
+precondition(decodedTargets.customers.first?.displayName == "Golden")
 
 let callbackURL = URL(string: "evaos://auth/callback?desktop_session=eds_test&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=admin%40100yen.org")!
 let callbackSession = try DesktopSessionCallbackParser.parse(callbackURL)

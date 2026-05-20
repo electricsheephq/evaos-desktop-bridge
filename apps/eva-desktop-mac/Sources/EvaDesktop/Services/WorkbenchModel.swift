@@ -48,6 +48,10 @@ final class WorkbenchModel: ObservableObject {
     @Published var bridgeCapabilitiesText = "Bridge capabilities have not been checked yet."
     @Published var customerMacCapabilitiesText = "Customer Mac capabilities have not been checked yet."
     @Published var bridgeAuditText = "Bridge audit trail has not been checked yet."
+    @Published var customerTargets: [DesktopCustomerTarget] = []
+    @Published var isOperatorSession = false
+    @Published var isLoadingCustomerTargets = false
+    @Published var customerTargetError: String?
     @Published var isRefreshingBridgeStatus = false
     @Published var webViewRefreshToken = UUID()
 
@@ -95,6 +99,15 @@ final class WorkbenchModel: ObservableObject {
         return !session.isExpired
     }
 
+    var canSwitchCustomers: Bool {
+        isSignedIn && isOperatorSession && !customerTargets.isEmpty
+    }
+
+    var currentCustomerTarget: DesktopCustomerTarget? {
+        let current = sanitizedCustomerId
+        return customerTargets.first { resolver.sanitizedCustomerId($0.customerId) == current }
+    }
+
     func isRuntimeAvailable(_ runtime: RuntimeKey) -> Bool {
         if runtime == .openDesign {
             return configuredOpenDesignURL != nil
@@ -114,6 +127,11 @@ final class WorkbenchModel: ObservableObject {
         Task {
             await loadRuntime(selectedRuntime, force: force)
         }
+    }
+
+    func bootstrap() async {
+        await refreshCustomerTargets()
+        await loadRuntime(selectedRuntime)
     }
 
     func reconnectSelectedRuntime() {
@@ -239,6 +257,7 @@ final class WorkbenchModel: ObservableObject {
             do {
                 let newSession = try await coordinator.signIn()
                 try saveAuthenticatedSession(newSession)
+                await refreshCustomerTargets()
                 await loadRuntime(selectedRuntime, force: true)
             } catch {
                 runtimeErrors[selectedRuntime] = "Desktop sign-in failed or was cancelled: \(error.localizedDescription)"
@@ -261,10 +280,48 @@ final class WorkbenchModel: ObservableObject {
                 return
             }
             try saveAuthenticatedSession(newSession)
-            loadSelectedRuntime()
+            Task {
+                await refreshCustomerTargets()
+                await loadRuntime(selectedRuntime, force: true)
+            }
         } catch {
             runtimeErrors[selectedRuntime] = "Desktop sign-in callback failed: \(error.localizedDescription)"
         }
+    }
+
+    func refreshCustomerTargets() async {
+        guard isSignedIn else {
+            customerTargets = []
+            isOperatorSession = false
+            customerTargetError = nil
+            return
+        }
+        guard !isLoadingCustomerTargets else { return }
+
+        isLoadingCustomerTargets = true
+        customerTargetError = nil
+        defer { isLoadingCustomerTargets = false }
+
+        do {
+            let response = try await broker.customerTargets(desktopSession: session)
+            customerTargets = response.customers
+            isOperatorSession = response.isOperator
+            applyDefaultCustomerIfNeeded(response)
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+            clearLocalSessionState()
+            customerTargetError = "Your evaOS Workbench session expired. Sign in again."
+        } catch {
+            customerTargets = []
+            isOperatorSession = false
+            customerTargetError = "Customer list failed: \(error.localizedDescription)"
+        }
+    }
+
+    func switchCustomer(to target: DesktopCustomerTarget) {
+        let nextCustomerId = resolver.sanitizedCustomerId(target.customerId)
+        guard nextCustomerId != sanitizedCustomerId else { return }
+        customerId = nextCustomerId
+        loadSelectedRuntime(force: true)
     }
 
     func refreshBridgeStatus() {
@@ -344,6 +401,10 @@ final class WorkbenchModel: ObservableObject {
     private func clearLocalSessionState() {
         try? keychain.clear()
         session = nil
+        customerTargets = []
+        isOperatorSession = false
+        isLoadingCustomerTargets = false
+        customerTargetError = nil
         webViews.reset()
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()
@@ -356,6 +417,9 @@ final class WorkbenchModel: ObservableObject {
     private func saveAuthenticatedSession(_ newSession: DesktopSession) throws {
         try keychain.save(newSession)
         session = newSession
+        customerTargets = []
+        isOperatorSession = false
+        customerTargetError = nil
         runtimeErrors.removeAll()
         webViews.reset()
         loadingRuntimes.removeAll()
@@ -370,6 +434,17 @@ final class WorkbenchModel: ObservableObject {
         runtimeErrors[runtime] = status == 401
             ? "Your evaOS Workbench session expired or was revoked. Sign in again to open gateways."
             : "This account is not authorized for that runtime or customer. Sign in with the right account or switch customer."
+    }
+
+    private func applyDefaultCustomerIfNeeded(_ response: DesktopCustomerTargetsResponse) {
+        let knownCustomers = Set(response.customers.map { resolver.sanitizedCustomerId($0.customerId) })
+        if knownCustomers.contains(sanitizedCustomerId) {
+            return
+        }
+        guard let defaultCustomerId = response.defaultCustomerId ?? response.customers.first?.customerId else {
+            return
+        }
+        customerId = resolver.sanitizedCustomerId(defaultCustomerId)
     }
 
     private func handleRuntimeNavigationEvent(_ runtime: RuntimeKey, event: RuntimeNavigationEvent) {

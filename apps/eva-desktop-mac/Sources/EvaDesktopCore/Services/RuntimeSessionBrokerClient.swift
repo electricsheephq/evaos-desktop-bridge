@@ -75,6 +75,32 @@ public struct RuntimeSessionBrokerClient: Sendable {
         }
     }
 
+    public func customerTargets(desktopSession: DesktopSession?) async throws -> DesktopCustomerTargetsResponse {
+        guard let desktopSession, !desktopSession.isExpired else {
+            throw RuntimeSessionBrokerError.missingSession
+        }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(DesktopCustomerTargetsRequest())
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw RuntimeSessionBrokerError.httpStatus(httpResponse.statusCode)
+        }
+
+        do {
+            return try JSONDecoder().decode(DesktopCustomerTargetsResponse.self, from: data)
+        } catch {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+    }
+
     public func revoke(desktopSession: DesktopSession?) async {
         guard let desktopSession else { return }
 

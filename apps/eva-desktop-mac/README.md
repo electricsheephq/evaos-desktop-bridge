@@ -111,6 +111,12 @@ Desktop login must return a broker-minted `desktop_session` with explicit
 expiry. Generic OAuth authorization codes or provider `access_token` values are
 not accepted as durable desktop sessions.
 
+Admin and customer-service desktop sessions can request a safe customer target
+list from the broker. The app renders that as an admin-only picker in the
+gateway toolbar. Switching customers clears loaded gateway WebViews and reloads
+the selected gateway through the broker, preserving the same server-side access
+checks used by the web dashboard.
+
 Sign-out clears Keychain and best-effort revokes the opaque desktop session in
 Supabase. VM runtime cookies are still minted by `evaos-ws-proxy`; they are not
 stored in Keychain or app model state.
