@@ -47,7 +47,7 @@ def read_audit_tail(limit: int = 20, state_dir: Path | None = None) -> list[dict
 
 
 def read_audit_record(audit_id: str, state_dir: Path | None = None) -> dict[str, Any] | None:
-    if not audit_id.startswith("audit-"):
+    if not isinstance(audit_id, str) or not audit_id.startswith("audit-"):
         return None
     root = state_dir or default_state_dir()
     path = root / AUDIT_FILE
@@ -56,7 +56,10 @@ def read_audit_record(audit_id: str, state_dir: Path | None = None) -> dict[str,
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        record = json.loads(line)
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
         if record.get("audit_id") == audit_id:
             return redact_value(record)
     return None

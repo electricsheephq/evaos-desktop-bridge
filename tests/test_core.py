@@ -140,6 +140,8 @@ def test_read_audit_tail_caps_records(tmp_path: Path) -> None:
 
 def test_read_audit_record_returns_matching_record(tmp_path: Path) -> None:
     audit_id = append_audit(command="customer_mac.app_focus", target="customer_mac", args={"app_name": "Safari"}, ok=True, warnings=[], errors=[], state_dir=tmp_path)
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text(audit_path.read_text(encoding="utf-8") + "{bad json\n", encoding="utf-8")
 
     record = read_audit_record(audit_id, state_dir=tmp_path)
 
@@ -147,6 +149,7 @@ def test_read_audit_record_returns_matching_record(tmp_path: Path) -> None:
     assert record["audit_id"] == audit_id
     assert record["command"] == "customer_mac.app_focus"
     assert read_audit_record("audit-missing", state_dir=tmp_path) is None
+    assert read_audit_record(123, state_dir=tmp_path) is None  # type: ignore[arg-type]
 
 
 def test_queue_append_and_list_redacts_payload(tmp_path: Path) -> None:
