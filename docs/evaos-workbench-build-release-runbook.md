@@ -117,8 +117,8 @@ Repair steps:
 - OpenDesign stays unavailable when no URL is configured and loads directly
   when Settings includes an OpenDesign URL.
 - Desktop Bridge panel refreshes Desktop Bridge, Customer Mac, iPhone
-  Mirroring, Screen Sharing, capabilities, and audit tail without exposing a
-  generic command runner.
+  Mirroring, Codex Remote Control, Screen Sharing, capabilities, and audit tail
+  without exposing a generic command runner.
 
 ## Release Readiness
 
@@ -134,3 +134,5 @@ Before announcing a build:
 - OpenDesign configured route, if present, opens without a dashboard detour.
 - Connector status can be refreshed locally; paired-Mac control remains behind
   Headscale ACLs, connector tokens, and OpenClaw approval gates.
+- Support-VM-only iPhone live controls are not enabled in customer builds unless
+  a separate release explicitly sets `EVAOS_SUPPORT_CANARY_CONTROLS=1`.

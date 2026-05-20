@@ -20,7 +20,7 @@ tags:
 
 ## Summary
 
-The bridge gives Eva/OpenClaw safe situational awareness of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions. The customer-Mac canary adds named, audited Mac and iPhone Mirroring actions behind dry-run/approval gates; it does not provide hidden mutation control.
+The bridge gives Eva/OpenClaw safe situational awareness of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions. The customer-Mac canary adds named, audited Mac and iPhone Mirroring actions behind dry-run/approval gates. The support-VM canary may enable live iPhone gestures/messages with `EVAOS_SUPPORT_CANARY_CONTROLS=1`, but that flag is not for customer connectors and does not provide hidden mutation control.
 
 ## Current Status
 
@@ -36,6 +36,7 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 ## Change Log
 
 - 2026-05-03T00:00:00Z - Added OpenClaw plugin wrapper boundary, latest/audit read APIs, and firewall control.
+- 2026-05-20T00:00:00Z - Added support-VM-only Codex remote-control readiness probe plus iPhone Mirroring gesture/message canary boundary.
 - 2026-05-02T00:00:00Z - Initial MVP threat model for read-only Codex Desktop observation.
 
 ## Assets
@@ -51,6 +52,7 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 The MVP must not:
 
 - Send prompts, messages, turns, approvals, or keyboard text.
+- Automate iMessage/messages/dating-app sends outside the support-VM canary's exact same-turn approval flow.
 - Call Codex internal mutation RPCs or mutation-capable app-server methods.
 - Hijack stdio, file descriptors, PTYs, or process streams.
 - Read Codex session databases wholesale.
@@ -73,6 +75,8 @@ The MVP must not:
 - Save a screenshot artifact when Screen Recording permits it.
 - Return a capped AX tree containing roles and names only.
 - Return capped app-server thread summaries through a hard read-only method allowlist.
+- Probe Codex native remote-control readiness without enabling it or calling mutation methods.
+- In support-VM canary mode only, select a visible Codex thread by title and submit exact `continue` as a guarded fallback when native remote-control is unavailable.
 - Return the last redacted observation envelope.
 - Return a capped redacted local audit-log tail.
 - Append/list local Eva/OpenClaw queue events.
@@ -81,6 +85,9 @@ The MVP must not:
 - Capture customer Mac snapshot/AX evidence only for non-sensitive frontmost apps.
 - Run named customer Mac/iPhone Mirroring dry-run actions, and live actions only
   when a plugin approval and `approval_audit_id` are present.
+- In support-VM canary mode only, run named iPhone Mirroring gestures and one
+  approved message-send flow after exact same-turn recipient/context and text
+  approval.
 - Serve the same fixed command surface through a token-gated connector endpoint
   for paired-VM/Headscale canaries.
 - Append a redacted local JSONL audit record for every valid command invocation.
@@ -90,6 +97,7 @@ The MVP must not:
 | Threat | Control |
 | --- | --- |
 | Silent prompt sending | No command types, pastes, clicks send controls, or exposes prompt APIs. |
+| Support Codex fallback drift | The only prompt-like fallback is fixed to exact `continue`, requires `EVAOS_SUPPORT_CANARY_CONTROLS=1`, and requires a matching dry-run audit id. |
 | Hidden Codex state mutation | App-server methods are denied unless on the read-only allowlist. |
 | Session data leakage | No database reads; AX output is capped to roles/names only. |
 | Secret leakage | Redaction replaces home paths, API-key-like strings, bearer tokens, and authorization headers. |
@@ -100,7 +108,9 @@ The MVP must not:
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
 | Cross-customer Mac exposure | Connector is bound locally by default; paired-VM mode requires Headscale ACLs and a connector token. |
 | Accidental live control | Guarded tools default to dry-run; plugin approval and connector `approval_audit_id` are required for remote live actions. |
+| Customer exposure of support-only iPhone actions | Live gesture/message actions fail unless `EVAOS_SUPPORT_CANARY_CONTROLS=1` is set on the Mac connector; customer connectors must leave it unset. |
 | Sensitive app mutation | Sensitive Mac/iPhone app names and dangerous visible labels are blocked before action execution. |
+| Unapproved real-world messages | `send-approved-message` requires exact same-turn recipient/context and text, then presses only an exact visible Send label under support canary mode with audit evidence. |
 
 ## Audit Log
 

@@ -19,6 +19,7 @@ Read-only tools:
 - `desktop_bridge_codex_inspect`: compact page map of visible windows, controls, and text summaries.
 - `desktop_bridge_codex_ax_tree`: capped Accessibility roles/names tree.
 - `desktop_bridge_codex_app_server_status`: Codex app-server availability and read allowlist.
+- `desktop_bridge_codex_app_server_remote_control_status`: Codex native remote-control readiness probe; no enabling or mutation.
 - `desktop_bridge_codex_app_server_threads`: capped app-server thread summaries through the read allowlist.
 - `customer_mac_status`: paired Mac, permission, iPhone Mirroring, and Screen Sharing readiness.
 - `customer_mac_capabilities`: supported customer Mac targets and forbidden actions.
@@ -30,6 +31,7 @@ Read-only tools:
 Guarded visible action:
 
 - `desktop_bridge_codex_select_thread`: select an already-visible thread by `visible_id`; `dry_run` defaults to true.
+- `desktop_bridge_codex_continue_thread`: support-only fallback; select a visible thread by title and submit exact `continue` after dry-run approval.
 - `customer_mac_app_focus`: focus a non-sensitive Mac app by name.
 - `customer_mac_local_site_open`: open a localhost, loopback, or `.local` website.
 - `customer_mac_local_site_action`: reload/back/forward in a supported browser.
@@ -40,9 +42,12 @@ Guarded visible action:
 - `customer_mac_iphone_mirroring_type_spotlight`: type short disposable/search text.
 - `customer_mac_iphone_mirroring_open_app`: open a non-sensitive app.
 - `customer_mac_iphone_mirroring_tap_named_target`: press an exact visible AX label.
-- `customer_mac_iphone_mirroring_scroll`: disabled pending evidence.
+- `customer_mac_iphone_mirroring_scroll`: support-only canary scroll by named direction.
+- `customer_mac_iphone_mirroring_swipe_left/right/up/down`: support-only canary gestures; no generic coordinates.
+- `customer_mac_iphone_mirroring_type_approved_text`: support-only same-turn-approved text entry.
+- `customer_mac_iphone_mirroring_send_approved_message`: support-only same-turn-approved message send with exact recipient/context and text.
 
-No plugin tool sends prompts, types into Codex, clicks Codex send/approval controls, launches Codex, calls mutation app-server RPCs, reads session databases, enables Screen Sharing, accepts arbitrary coordinates, or accepts arbitrary shell commands.
+No plugin tool exposes generic prompt sending, arbitrary Codex app-server RPCs, hidden shell, session database reads, Screen Sharing enablement, arbitrary coordinates, or arbitrary shell commands. The only Codex prompt-like fallback is `desktop_bridge_codex_continue_thread`, which is support-only, fixed to exact `continue`, dry-run/approval-gated, and should be used only when native Codex remote-control is unavailable.
 
 ## Runtime Contract
 
@@ -61,6 +66,10 @@ export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evao
 Remote mode posts fixed command keys to `/v1/commands`. The connector rejects
 unknown commands and rejects remote live guarded actions unless `dry_run=false`
 includes `approval_audit_id`.
+
+Support-only iPhone live gestures/messages also require the Mac connector
+environment variable `EVAOS_SUPPORT_CANARY_CONTROLS=1`. Do not set it on
+customer connectors.
 
 ## Firewall Hook
 
@@ -84,8 +93,10 @@ This hook is a defense-in-depth control. The primary safety boundary remains the
 ## Hands Boundary
 
 GUI control is limited to named actions. Codex Desktop remains read-only plus
-the existing visible thread-selection action. Customer Mac and iPhone Mirroring
-actions are dry-run by default, approval-gated in the plugin, audited by the
-bridge, and blocked for sensitive apps/labels. Broader hands should remain a
-separate, approval-gated macro layer, not arbitrary coordinates or text
+the existing visible thread-selection action and the support-only exact
+`continue` fallback. Customer Mac and iPhone Mirroring actions are dry-run by
+default, approval-gated in the plugin, audited by the bridge, and blocked for
+sensitive apps/labels. Support-only Bumble/iPhone sends require exact same-turn
+approval of both recipient/context and message text. Broader hands should remain
+a separate, approval-gated macro layer, not arbitrary coordinates or text
 injection.

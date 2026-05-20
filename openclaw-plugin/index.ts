@@ -107,6 +107,22 @@ function readOnlyTools(): ToolDefinition[] {
       },
     ),
     tool(
+      "desktop_bridge_codex_continue_thread",
+      "Support-only fallback: select a visible Codex thread by title and submit the exact prompt 'continue'. Dry-run defaults on.",
+      "codexContinueThread",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["title"],
+        properties: {
+          title: { type: "string", minLength: 1, maxLength: 160 },
+          prompt: { type: "string", enum: ["continue"], default: "continue" },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
       "desktop_bridge_codex_snapshot",
       "Read a capped visible Codex Desktop snapshot; screenshots are skipped unless Codex is frontmost.",
       "codexSnapshot",
@@ -143,6 +159,7 @@ function readOnlyTools(): ToolDefinition[] {
       },
     ),
     tool("desktop_bridge_codex_app_server_status", "Read Codex app-server availability and read-only method allowlist.", "codexAppServerStatus"),
+    tool("desktop_bridge_codex_app_server_remote_control_status", "Read Codex native remote-control readiness without enabling or mutating it.", "codexAppServerRemoteControlStatus"),
     tool(
       "desktop_bridge_codex_app_server_threads",
       "Read capped Codex thread summaries through the app-server read allowlist.",
@@ -298,9 +315,73 @@ function readOnlyTools(): ToolDefinition[] {
     ),
     tool(
       "customer_mac_iphone_mirroring_scroll",
-      "Disabled pending evidence: reports unsupported rather than attempting flaky scroll/swipe control.",
+      "Support-only canary action: scroll the focused iPhone Mirroring window by named direction.",
       "customerMacIphoneMirroringScroll",
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          direction: { type: "string", enum: ["up", "down"], default: "down" },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_swipe_left",
+      "Support-only canary action: swipe left in iPhone Mirroring. Requires dry-run approval before live use.",
+      "customerMacIphoneMirroringSwipeLeft",
       { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_swipe_right",
+      "Support-only canary action: swipe right in iPhone Mirroring. Requires dry-run approval before live use.",
+      "customerMacIphoneMirroringSwipeRight",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_swipe_up",
+      "Support-only canary action: swipe up in iPhone Mirroring. Requires dry-run approval before live use.",
+      "customerMacIphoneMirroringSwipeUp",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_swipe_down",
+      "Support-only canary action: swipe down in iPhone Mirroring. Requires dry-run approval before live use.",
+      "customerMacIphoneMirroringSwipeDown",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_type_approved_text",
+      "Support-only canary action: type exact same-turn-approved text in iPhone Mirroring.",
+      "customerMacIphoneMirroringTypeApprovedText",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["text"],
+        properties: {
+          text: { type: "string", minLength: 1, maxLength: 240 },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_send_approved_message",
+      "Support-only canary action: send one exact same-turn-approved message after recipient/context approval.",
+      "customerMacIphoneMirroringSendApprovedMessage",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["text", "recipient_context"],
+        properties: {
+          text: { type: "string", minLength: 1, maxLength: 240 },
+          recipient_context: { type: "string", minLength: 1, maxLength: 160 },
+          target_label: { type: "string", minLength: 1, maxLength: 80, default: "Send" },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
     ),
     tool("customer_mac_screen_sharing_status", "Read Screen Sharing/Remote Management status; this tool cannot enable it.", "customerMacScreenSharingStatus"),
   ];

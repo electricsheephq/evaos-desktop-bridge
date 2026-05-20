@@ -13,12 +13,14 @@ export type BridgeCommandKey =
   | "codexFrontmost"
   | "codexWindows"
   | "codexThreads"
+  | "codexContinueThread"
   | "codexSelectThread"
   | "codexSnapshot"
   | "codexInspect"
   | "codexAxTree"
   | "codexAppServerStatus"
   | "codexAppServerThreads"
+  | "codexAppServerRemoteControlStatus"
   | "customerMacStatus"
   | "customerMacCapabilities"
   | "customerMacSnapshot"
@@ -35,6 +37,12 @@ export type BridgeCommandKey =
   | "customerMacIphoneMirroringOpenApp"
   | "customerMacIphoneMirroringTapNamedTarget"
   | "customerMacIphoneMirroringScroll"
+  | "customerMacIphoneMirroringSwipeLeft"
+  | "customerMacIphoneMirroringSwipeRight"
+  | "customerMacIphoneMirroringSwipeUp"
+  | "customerMacIphoneMirroringSwipeDown"
+  | "customerMacIphoneMirroringTypeApprovedText"
+  | "customerMacIphoneMirroringSendApprovedMessage"
   | "customerMacScreenSharingStatus";
 
 export type BridgeParams = {
@@ -46,11 +54,15 @@ export type BridgeParams = {
   source_audit_id?: string;
   message?: string;
   thread_id?: string;
+  title?: string;
+  prompt?: string;
   dry_run?: boolean;
   app_name?: string;
   url?: string;
   action?: string;
   text?: string;
+  direction?: string;
+  recipient_context?: string;
   target_label?: string;
   approval_audit_id?: string;
 };
@@ -65,6 +77,7 @@ const FIXED_COMMANDS: Record<
     | "queueList"
     | "queueAppend"
     | "codexThreads"
+    | "codexContinueThread"
     | "codexSelectThread"
     | "codexAppServerThreads"
     | "customerMacSnapshot"
@@ -80,6 +93,12 @@ const FIXED_COMMANDS: Record<
     | "customerMacIphoneMirroringOpenApp"
     | "customerMacIphoneMirroringTapNamedTarget"
     | "customerMacIphoneMirroringScroll"
+    | "customerMacIphoneMirroringSwipeLeft"
+    | "customerMacIphoneMirroringSwipeRight"
+    | "customerMacIphoneMirroringSwipeUp"
+    | "customerMacIphoneMirroringSwipeDown"
+    | "customerMacIphoneMirroringTypeApprovedText"
+    | "customerMacIphoneMirroringSendApprovedMessage"
   >,
   string[]
 > = {
@@ -89,6 +108,7 @@ const FIXED_COMMANDS: Record<
   codexFrontmost: ["codex", "frontmost", "--json"],
   codexWindows: ["codex", "windows", "--json"],
   codexAppServerStatus: ["codex", "app-server", "status", "--json"],
+  codexAppServerRemoteControlStatus: ["codex", "app-server", "remote-control-status", "--json"],
   customerMacStatus: ["customer-mac", "status", "--json"],
   customerMacCapabilities: ["customer-mac", "capabilities", "--json"],
   customerMacIphoneMirroringStatus: ["customer-mac", "iphone-mirroring", "status", "--json"],
@@ -127,6 +147,19 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--json",
       "--thread-id",
       requiredString(params.thread_id, "thread_id"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...guardedApprovalArg(params),
+    ];
+  }
+  if (command === "codexContinueThread") {
+    return [
+      "codex",
+      "continue-thread",
+      "--json",
+      "--title",
+      requiredString(params.title, "title"),
+      "--prompt",
+      String(params.prompt || "continue"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
       ...guardedApprovalArg(params),
     ];
@@ -233,7 +266,47 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
     ];
   }
   if (command === "customerMacIphoneMirroringScroll") {
-    return ["customer-mac", "iphone-mirroring", "scroll", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...approvalArg(params)];
+    return ["customer-mac", "iphone-mirroring", "scroll", "--json", "--direction", String(params.direction || "down"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+  }
+  if (command === "customerMacIphoneMirroringSwipeLeft") {
+    return ["customer-mac", "iphone-mirroring", "swipe-left", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+  }
+  if (command === "customerMacIphoneMirroringSwipeRight") {
+    return ["customer-mac", "iphone-mirroring", "swipe-right", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+  }
+  if (command === "customerMacIphoneMirroringSwipeUp") {
+    return ["customer-mac", "iphone-mirroring", "swipe-up", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+  }
+  if (command === "customerMacIphoneMirroringSwipeDown") {
+    return ["customer-mac", "iphone-mirroring", "swipe-down", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+  }
+  if (command === "customerMacIphoneMirroringTypeApprovedText") {
+    return [
+      "customer-mac",
+      "iphone-mirroring",
+      "type-approved-text",
+      "--json",
+      "--text",
+      requiredString(params.text, "text"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...guardedApprovalArg(params),
+    ];
+  }
+  if (command === "customerMacIphoneMirroringSendApprovedMessage") {
+    return [
+      "customer-mac",
+      "iphone-mirroring",
+      "send-approved-message",
+      "--json",
+      "--text",
+      requiredString(params.text, "text"),
+      "--recipient-context",
+      requiredString(params.recipient_context, "recipient_context"),
+      "--target-label",
+      String(params.target_label || "Send"),
+      ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...guardedApprovalArg(params),
+    ];
   }
   throw new Error(`Unsupported bridge command key: ${String(command)}`);
 }

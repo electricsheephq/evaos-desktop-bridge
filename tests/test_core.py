@@ -7,6 +7,7 @@ import pytest
 
 from evaos_desktop_bridge.audit import append_audit
 from evaos_desktop_bridge.adapters.codex_app_server import ALLOWED_APP_SERVER_METHODS, CodexAppServerObserver, JsonRpcResponse
+from evaos_desktop_bridge.adapters.codex_macos import RunnerResult
 from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_allowed
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
@@ -41,11 +42,14 @@ def test_policy_allows_only_mvp_commands() -> None:
     assert ensure_allowed("codex.focus") == "codex.focus"
     assert ensure_allowed("codex.threads") == "codex.threads"
     assert ensure_allowed("codex.select_thread") == "codex.select_thread"
+    assert ensure_allowed("codex.continue_thread") == "codex.continue_thread"
     assert ensure_allowed("codex.app_server.threads") == "codex.app_server.threads"
+    assert ensure_allowed("codex.app_server.remote_control_status") == "codex.app_server.remote_control_status"
     assert ensure_allowed("codex.snapshot") == "codex.snapshot"
     assert ensure_allowed("codex.ax_tree") == "codex.ax_tree"
     assert ensure_allowed("customer_mac.status") == "customer_mac.status"
     assert ensure_allowed("customer_mac.iphone_mirroring_home") == "customer_mac.iphone_mirroring_home"
+    assert ensure_allowed("customer_mac.iphone_mirroring_swipe_left") == "customer_mac.iphone_mirroring_swipe_left"
     assert ensure_allowed("customer_mac.screen_sharing_status") == "customer_mac.screen_sharing_status"
 
     with pytest.raises(PolicyError) as exc:
@@ -58,7 +62,9 @@ def test_policy_allows_only_mvp_commands() -> None:
 def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("codex.select_thread")["mode"] == "guarded_visible_action"
     assert command_metadata("codex.app_server.threads")["source"] == "app_server"
+    assert command_metadata("codex.continue_thread")["support_only"] is True
     assert command_metadata("customer_mac.iphone_mirroring_open_app")["requires_approval"] is True
+    assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["support_only"] is True
     assert command_metadata("customer_mac.screen_sharing_status")["bridge_can_enable"] is False
 
 
@@ -198,6 +204,17 @@ def test_app_server_threads_sanitizes_response() -> None:
     assert result.data["threads"][0]["id"] == "thread-1"
     assert str(Path.home()) not in json.dumps(result.data)
     assert result.data["threads"][0]["title_truncated"] is True
+
+
+def test_app_server_remote_control_status_is_read_only_probe() -> None:
+    observer = CodexAppServerObserver(runner=lambda command, timeout=5.0: RunnerResult(returncode=1, stdout="", stderr="missing"), rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"connected": False}))
+
+    result = observer.remote_control_status()
+
+    assert result.ok is True
+    assert result.data["preferred_path"] == "codex_native_remote_control"
+    assert result.data["remote_control_status_read"]["ok"] is True
+    assert result.data["safety"]["generic_app_server_mutations_exposed"] is False
 
 
 def test_make_error_is_structured() -> None:

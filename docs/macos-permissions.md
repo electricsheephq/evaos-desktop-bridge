@@ -46,10 +46,13 @@ Required for:
 - `evaos-desktop-bridge codex focus --json`
 - `evaos-desktop-bridge codex threads --json --max-items 50`
 - `evaos-desktop-bridge codex select-thread --json --thread-id visible-... --dry-run`
+- `evaos-desktop-bridge codex continue-thread --json --title "SDK Docs" --dry-run` when support canary controls are enabled.
 - `evaos-desktop-bridge codex ax-tree --json --max-nodes 200`
 - `evaos-desktop-bridge customer-mac ax-tree --json --max-nodes 200`
 - `evaos-desktop-bridge customer-mac local-site action --json --action reload --dry-run`
 - `evaos-desktop-bridge customer-mac iphone-mirroring home --json --dry-run`
+- `evaos-desktop-bridge customer-mac iphone-mirroring swipe-left --json --dry-run` when support canary controls are enabled.
+- `evaos-desktop-bridge customer-mac iphone-mirroring send-approved-message --json ... --dry-run` when support canary controls are enabled.
 - Reading front window titles through System Events.
 
 Setup:
@@ -101,6 +104,7 @@ evaos-desktop-bridge codex focus --json --dry-run
 evaos-desktop-bridge codex threads --json --max-items 20
 evaos-desktop-bridge codex snapshot --json --max-chars 4000
 evaos-desktop-bridge codex ax-tree --json --max-nodes 20
+evaos-desktop-bridge codex app-server remote-control-status --json
 evaos-desktop-bridge customer-mac status --json
 evaos-desktop-bridge customer-mac iphone-mirroring status --json
 evaos-desktop-bridge customer-mac screen-sharing status --json
@@ -111,9 +115,12 @@ Expected behavior:
 - Commands return valid JSON.
 - Permission failures use structured `errors`.
 - Missing screenshot permission is reported as a warning.
-- No command sends text to Codex Desktop.
+- No generic command sends text to Codex Desktop; the support-only fallback is
+  fixed to exact `continue`.
+- The support-only Codex fallback is fixed to exact `continue` and requires `EVAOS_SUPPORT_CANARY_CONTROLS=1` plus approval before live use.
 - `select-thread --dry-run` reports the target without clicking.
 - Customer Mac and iPhone Mirroring guarded actions default to dry-run.
+- Support-only iPhone gestures/messages fail closed unless `EVAOS_SUPPORT_CANARY_CONTROLS=1` is set on the connector process.
 - Screen Sharing status never enables Screen Sharing.
 
 ## Troubleshooting
