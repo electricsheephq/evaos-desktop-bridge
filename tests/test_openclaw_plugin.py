@@ -141,3 +141,16 @@ def test_launch_agent_uses_launchd_logging_and_loopback_connector() -> None:
     assert "StartInterval" not in plist
     assert "pkgutil --check-signature" in build_script
     assert "|| true" not in build_script
+
+
+def test_hermes_adapter_uses_same_connector_contract() -> None:
+    adapter = (ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command").read_text(encoding="utf-8")
+    readme = (ROOT / "hermes-adapter" / "README.md").read_text(encoding="utf-8")
+
+    assert "/v1/commands" in adapter
+    assert "EVAOS_DESKTOP_BRIDGE_URL" in adapter
+    assert "EVAOS_DESKTOP_BRIDGE_TOKEN" in adapter
+    assert "urllib.request" in adapter
+    assert "customerMacStatus" in readme
+    assert "OpenClaw remains the first native plugin path" in readme
+    assert "generic shell" in readme

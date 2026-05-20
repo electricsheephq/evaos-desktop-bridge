@@ -49,6 +49,12 @@ final class WorkbenchModel: ObservableObject {
     @Published var bridgeCapabilitiesText = "Bridge capabilities have not been checked yet."
     @Published var customerMacCapabilitiesText = "Customer Mac capabilities have not been checked yet."
     @Published var bridgeAuditText = "Bridge audit trail has not been checked yet."
+    @Published var connectorServiceText = "Connector service status has not been checked yet."
+    @Published var pairingText = "Pair this Mac to enable VM agents to use the audited connector tools."
+    @Published var pairedDevices: [CustomerMacDevice] = []
+    @Published var enrollmentCode: String?
+    @Published var enrollmentExpiresAt: Date?
+    @Published var isPairingMac = false
     @Published var customerTargets: [DesktopCustomerTarget] = []
     @Published var isOperatorSession = false
     @Published var isLoadingCustomerTargets = false
@@ -63,6 +69,7 @@ final class WorkbenchModel: ObservableObject {
     private var broker: RuntimeSessionBrokerClient
     private var resolver: RuntimeURLResolver
     private let bridge = BridgeCommandService()
+    private let macControl = CustomerMacControlClient()
     private var fallbackReloadAttempts: [RuntimeKey: Int] = [:]
 
     init() {
@@ -337,6 +344,7 @@ final class WorkbenchModel: ObservableObject {
         Task { @MainActor in
             defer { isRefreshingBridgeStatus = false }
             bridgeStatusText = await bridge.run(arguments: ["status", "--json"])
+            connectorServiceText = await bridge.run(arguments: ["connector-service", "status", "--json"])
             customerMacStatusText = await bridge.run(arguments: ["customer-mac", "status", "--json"])
             iPhoneMirroringStatusText = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
             screenSharingStatusText = await bridge.run(arguments: ["customer-mac", "screen-sharing", "status", "--json"])
@@ -344,7 +352,128 @@ final class WorkbenchModel: ObservableObject {
             bridgeCapabilitiesText = await bridge.run(arguments: ["capabilities", "--json"])
             customerMacCapabilitiesText = await bridge.run(arguments: ["customer-mac", "capabilities", "--json"])
             bridgeAuditText = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
+            await refreshMacPairing()
         }
+    }
+
+    func startConnectorService() {
+        Task { @MainActor in
+            connectorServiceText = await bridge.run(arguments: ["connector-service", "start", "--json"])
+            refreshBridgeStatus()
+        }
+    }
+
+    func stopConnectorService() {
+        Task { @MainActor in
+            connectorServiceText = await bridge.run(arguments: ["connector-service", "stop", "--json"])
+            refreshBridgeStatus()
+        }
+    }
+
+    func createMacEnrollment() {
+        guard !isPairingMac else { return }
+        isPairingMac = true
+        pairingText = "Creating a short-lived pairing grant..."
+        Task { @MainActor in
+            defer { isPairingMac = false }
+            do {
+                let response = try await macControl.createEnrollment(
+                    desktopSession: session,
+                    customerId: sanitizedCustomerId,
+                    deviceName: Host.current().localizedName ?? "Customer Mac",
+                    screenSharingOptIn: false
+                )
+                enrollmentCode = response.enrollmentCode
+                enrollmentExpiresAt = response.enrollmentExpiresAt
+                var nextPairingText = "Pairing code \(response.enrollmentCode) is ready. Use it after the connector is running and Tailscale/Headscale is connected."
+                if let key = response.headscale?.preauthKey, !key.isEmpty {
+                    nextPairingText += "\nHeadscale key: \(key)"
+                } else if let mode = response.headscale?.mode {
+                    nextPairingText += "\nHeadscale: \(mode)"
+                }
+                pairingText = nextPairingText
+                await refreshMacPairing()
+            } catch {
+                pairingText = "Pairing failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func completeLocalMacEnrollment() {
+        guard let enrollmentCode, !enrollmentCode.isEmpty, !isPairingMac else { return }
+        isPairingMac = true
+        pairingText = "Completing this Mac enrollment..."
+        Task { @MainActor in
+            defer { isPairingMac = false }
+            do {
+                _ = try await macControl.completeEnrollment(
+                    enrollmentCode: enrollmentCode,
+                    deviceName: Host.current().localizedName ?? "Customer Mac",
+                    deviceIdentifier: localDeviceIdentifier,
+                    tailnetIp: connectorTailnetIp,
+                    capabilities: [
+                        "connector": "evaos-desktop-bridge",
+                        "openclaw_tools": "enabled",
+                        "iphone_mirroring": "named_actions"
+                    ],
+                    permissionState: [
+                        "accessibility": "check_required",
+                        "screen_recording": "check_required"
+                    ]
+                )
+                self.enrollmentCode = nil
+                self.enrollmentExpiresAt = nil
+                pairingText = "This Mac is paired. Refresh status, then run Test Agent Access."
+                await refreshMacPairing()
+            } catch {
+                pairingText = "Enrollment completion failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func revokeFirstPairedMac() {
+        guard let device = pairedDevices.first, !isPairingMac else { return }
+        isPairingMac = true
+        pairingText = "Revoking \(device.deviceName ?? "Customer Mac")..."
+        Task { @MainActor in
+            defer { isPairingMac = false }
+            do {
+                _ = try await macControl.revoke(
+                    desktopSession: session,
+                    deviceId: device.id,
+                    customerId: sanitizedCustomerId
+                )
+                pairingText = "Mac pairing revoked. VM agents can no longer use this connector grant."
+                await refreshMacPairing()
+            } catch {
+                pairingText = "Revoke failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func testAgentAccess() {
+        Task { @MainActor in
+            let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
+            let localStatus = await bridge.run(arguments: ["customer-mac", "status", "--json"])
+            let iphone = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
+            connectorServiceText = service
+            customerMacStatusText = localStatus
+            iPhoneMirroringStatusText = iphone
+            pairingText = "Local smoke finished. For VM proof, run evaos-support mac-connector smoke --targets \(sanitizedCustomerId)."
+        }
+    }
+
+    func openAccessibilitySettings() {
+        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    }
+
+    func openScreenRecordingSettings() {
+        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+    }
+
+    func openIPhoneMirroring() {
+        let appURL = URL(fileURLWithPath: "/System/Applications/iPhone Mirroring.app")
+        NSWorkspace.shared.open(appURL)
     }
 
     func applyOpenDesignURLSetting(_ value: String) {
@@ -362,6 +491,60 @@ final class WorkbenchModel: ObservableObject {
         guard ["http", "https", "file"].contains(scheme) else { return nil }
         return url
     }
+
+    private var localDeviceIdentifier: String {
+        let key = "EvaDesktop.localDeviceIdentifier"
+        if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
+            return existing
+        }
+        let next = "mac-\(UUID().uuidString.lowercased())"
+        UserDefaults.standard.set(next, forKey: key)
+        return next
+    }
+
+    private var connectorTailnetIp: String? {
+        guard let data = connectorServiceText.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object["tailnet_ip"] as? String,
+              !value.isEmpty
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private func refreshMacPairing() async {
+        guard isSignedIn else {
+            pairedDevices = []
+            return
+        }
+        do {
+            let response = try await macControl.list(desktopSession: session)
+            pairedDevices = response.devices.filter { $0.status != "revoked" }
+            let audit = try await macControl.auditTail(desktopSession: session, limit: 10)
+            if !audit.events.isEmpty {
+                let summary = audit.events.prefix(5).map { event in
+                    "\(event.createdAt.map { Self.shortDateFormatter.string(from: $0) } ?? "-") \(event.action) \(event.outcome)"
+                }.joined(separator: "\n")
+                bridgeAuditText = summary
+            }
+        } catch {
+            pairedDevices = []
+            pairingText = "Pairing status unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    private func openSystemSettings(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private static let shortDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter
+    }()
 
     private func loadConfiguredOpenDesign(targetCustomerId: String, force: Bool) {
         guard let url = configuredOpenDesignURL else {
@@ -649,6 +832,9 @@ struct BridgeCommandService {
         bridgeKey(["status", "--json"]),
         bridgeKey(["capabilities", "--json"]),
         bridgeKey(["audit-tail", "--json", "--limit", "12"]),
+        bridgeKey(["connector-service", "status", "--json"]),
+        bridgeKey(["connector-service", "start", "--json"]),
+        bridgeKey(["connector-service", "stop", "--json"]),
         bridgeKey(["customer-mac", "status", "--json"]),
         bridgeKey(["customer-mac", "capabilities", "--json"]),
         bridgeKey(["customer-mac", "iphone-mirroring", "status", "--json"]),

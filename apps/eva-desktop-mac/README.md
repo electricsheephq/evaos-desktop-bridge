@@ -131,11 +131,14 @@ stored in Keychain or app model state.
 
 ## Bridge Model
 
-The `Desktop Bridge` panel is a status and revocation surface in the canary. It
-can show bridge status, customer Mac status, iPhone Mirroring status, Screen
-Sharing status, capabilities, and audit tail by calling fixed
-`evaos-desktop-bridge` commands after the user clicks refresh. It does not expose
-local-control action buttons or a generic command runner.
+The `Desktop Bridge` panel is a guided setup surface in the canary. It walks the
+user through Connect This Mac, Enable Permissions, Pair with evaOS VM, Connect
+iPhone, Test Agent Access, and Revoke / Disconnect. The app can start/check the
+LaunchAgent-backed connector, create short-lived pairing grants through
+dashboard/Supabase, and complete the local Mac device record once the connector
+and Headscale client are ready. It still does not expose live local-control
+buttons or a generic command runner; actual actions run through audited
+OpenClaw/Hermes tools.
 
 ## OpenDesign
 

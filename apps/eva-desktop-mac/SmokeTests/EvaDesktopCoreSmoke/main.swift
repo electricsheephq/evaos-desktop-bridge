@@ -20,6 +20,8 @@ precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenC
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
+let macControl = CustomerMacControlClient()
+precondition(macControl.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/customer-mac-control")
 
 let smokeKeychain = KeychainSessionStore(service: "com.electricsheephq.EvaDesktop.smoke.\(UUID().uuidString)")
 precondition((try? smokeKeychain.load(allowUserInteraction: false)) == nil)
@@ -38,6 +40,12 @@ precondition(targetsRequestJSON.contains("\"action\":\"list_customer_targets\"")
 let encodedRevoke = try JSONEncoder().encode(DesktopSessionRevokeRequest())
 let revokeJSON = try JSONSerialization.jsonObject(with: encodedRevoke) as? [String: String]
 precondition(revokeJSON?["action"] == "revoke_desktop_session")
+
+let encodedPairing = try JSONEncoder().encode(CustomerMacActionRequest(action: "create_enrollment", customerId: "golden", deviceName: "Test Mac", screenSharingOptIn: false))
+let pairingJSON = String(data: encodedPairing, encoding: .utf8) ?? ""
+precondition(pairingJSON.contains("\"action\":\"create_enrollment\""))
+precondition(pairingJSON.contains("\"customer_id\":\"golden\""))
+precondition(pairingJSON.contains("\"screen_sharing_opt_in\":false"))
 
 let fractionalResponse = """
 {"launch_url":"https://browser-golden.ecs.electricsheephq.com/auth/callback?session=test","expires_at":"2026-05-20T10:48:51.123Z"}
