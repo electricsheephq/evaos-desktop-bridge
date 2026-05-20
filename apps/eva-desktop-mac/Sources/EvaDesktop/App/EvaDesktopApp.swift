@@ -1,3 +1,4 @@
+import EvaDesktopCore
 import SwiftUI
 
 @main
@@ -5,7 +6,7 @@ struct EvaDesktopApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("Eva Desktop") {
+        WindowGroup(AppBrand.visibleName) {
             ContentView()
                 .frame(minWidth: 1120, minHeight: 720)
         }
@@ -25,4 +26,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 }
-

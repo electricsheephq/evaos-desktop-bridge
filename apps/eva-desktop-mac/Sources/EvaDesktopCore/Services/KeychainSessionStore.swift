@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 public enum KeychainSessionStoreError: Error {
@@ -23,14 +24,17 @@ public final class KeychainSessionStore: Sendable {
         decoder.dateDecodingStrategy = .iso8601
     }
 
-    public func load() throws -> DesktopSession? {
+    public func load(allowUserInteraction: Bool = true) throws -> DesktopSession? {
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        if !allowUserInteraction {
+            query[kSecUseAuthenticationContext as String] = nonInteractiveAuthenticationContext()
+        }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound {
+        if status == errSecItemNotFound || status == errSecInteractionNotAllowed || status == errSecAuthFailed {
             return nil
         }
         guard status == errSecSuccess else {
@@ -69,9 +73,14 @@ public final class KeychainSessionStore: Sendable {
         }
     }
 
-    public func clear() throws {
-        let status = SecItemDelete(baseQuery() as CFDictionary)
-        if status == errSecItemNotFound || status == errSecSuccess {
+    public func clear(allowUserInteraction: Bool = true) throws {
+        var query = baseQuery()
+        if !allowUserInteraction {
+            query[kSecUseAuthenticationContext as String] = nonInteractiveAuthenticationContext()
+        }
+
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecItemNotFound || status == errSecSuccess || status == errSecInteractionNotAllowed || status == errSecAuthFailed {
             return
         }
         throw KeychainSessionStoreError.unexpectedStatus(status)
@@ -84,5 +93,10 @@ public final class KeychainSessionStore: Sendable {
             kSecAttrAccount as String: account
         ]
     }
-}
 
+    private func nonInteractiveAuthenticationContext() -> LAContext {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return context
+    }
+}

@@ -16,8 +16,9 @@ struct RuntimeDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             RuntimeToolbar(model: model, definition: definition)
-                .padding()
-                .background(.regularMaterial)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .background(.bar)
 
             Divider()
 
@@ -76,28 +77,12 @@ private struct RuntimeToolbar: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: definition.systemImage)
-                .font(.title2)
-                .frame(width: 34, height: 34)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            RuntimeIconBadge(systemImage: definition.systemImage, tint: toolbarTint)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(definition.title)
-                    .font(.headline)
-                Text(model.session?.userEmail.map { "Signed in as \($0)" } ?? definition.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text(definition.title)
+                .font(.headline)
 
             Spacer()
-
-            TextField("Customer", text: $model.customerId)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 180)
-                .onSubmit {
-                    model.loadSelectedRuntime()
-                }
-                .help("Preview/admin target. The runtime session broker remains the authority for customer and runtime access.")
 
             Button {
                 model.reconnectSelectedRuntime()
@@ -121,6 +106,13 @@ private struct RuntimeToolbar: View {
             .disabled(!model.isSignedIn || definition.availability != .enabled || model.runtimeURLs[definition.key] == nil)
         }
     }
+
+    private var toolbarTint: Color {
+        if definition.availability != .enabled {
+            return .secondary
+        }
+        return definition.requiresAdmin ? .electricSheepAmber : .electricSheepCyan
+    }
 }
 
 private struct RuntimeSignInView: View {
@@ -131,12 +123,12 @@ private struct RuntimeSignInView: View {
         VStack(spacing: 18) {
             Image(systemName: "person.crop.circle.badge.checkmark")
                 .font(.system(size: 44))
-                .foregroundStyle(.teal)
+                .foregroundStyle(Color.electricSheepCyan)
                 .frame(width: 72, height: 72)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
 
             VStack(spacing: 6) {
-                Text("Sign in once to open Eva Desktop")
+                Text("Sign in once to open \(AppBrand.visibleName)")
                     .font(.title3.weight(.semibold))
                 Text("Login opens in a secure ElectricSheep popup, then this tab loads \(definition.title) directly. The app stores only an opaque desktop session in Keychain.")
                     .foregroundStyle(.secondary)
@@ -167,7 +159,7 @@ private struct RuntimeLaunchView: View {
         VStack(spacing: 16) {
             Image(systemName: definition.systemImage)
                 .font(.system(size: 38))
-                .foregroundStyle(.teal)
+                .foregroundStyle(Color.electricSheepCyan)
                 .frame(width: 68, height: 68)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
 
@@ -180,7 +172,7 @@ private struct RuntimeLaunchView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 560)
             } else {
-                Text("Ready to open an authenticated runtime session.")
+                Text("Ready to open an authenticated gateway session.")
                     .foregroundStyle(.secondary)
             }
 
@@ -208,7 +200,7 @@ private struct RuntimeLoadingView: View {
                 .controlSize(.large)
             Text("Opening \(definition.title)...")
                 .font(.headline)
-            Text("Requesting a short-lived runtime session.")
+            Text("Requesting a short-lived gateway session.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

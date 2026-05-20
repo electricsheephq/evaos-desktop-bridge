@@ -7,23 +7,29 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
-            Section("Workspaces") {
+            Section(AppBrand.runtimeSectionTitle) {
                 ForEach(model.runtimes) { runtime in
                     RuntimeSidebarRow(runtime: runtime)
                         .tag(SidebarSelection.runtime(runtime.key))
                 }
             }
 
-            Section("Local Bridge") {
+            Section(AppBrand.bridgeSectionTitle) {
                 Label("Status & Audit", systemImage: "shield.lefthalf.filled")
                     .tag(SidebarSelection.bridge)
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Eva Desktop")
+        .navigationTitle("")
+        .safeAreaInset(edge: .top, spacing: 0) {
+            SidebarBrandHeader()
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(model.isSignedIn ? (model.session?.userEmail ?? "Signed in") : "Sign in to launch runtimes")
+                Text(model.isSignedIn ? (model.session?.userEmail ?? "Signed in") : AppBrand.signedOutStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -47,6 +53,14 @@ struct SidebarView: View {
     }
 }
 
+private struct SidebarBrandHeader: View {
+    var body: some View {
+        BrandWordmark()
+            .frame(maxWidth: 170, minHeight: 28, maxHeight: 34, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct RuntimeSidebarRow: View {
     let runtime: RuntimeDefinition
 
@@ -56,15 +70,8 @@ private struct RuntimeSidebarRow: View {
                 .foregroundStyle(rowColor)
                 .frame(width: 18)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(runtime.title)
-                    .lineLimit(1)
-
-                Text(runtime.requiresAdmin ? "Admin pilot" : runtime.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text(runtime.title)
+                .lineLimit(1)
         }
     }
 
@@ -72,6 +79,6 @@ private struct RuntimeSidebarRow: View {
         if runtime.availability != .enabled {
             return .secondary
         }
-        return runtime.requiresAdmin ? .orange : .secondary
+        return runtime.requiresAdmin ? .electricSheepAmber : .secondary
     }
 }

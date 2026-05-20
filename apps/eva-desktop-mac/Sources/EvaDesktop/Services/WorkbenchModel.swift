@@ -59,9 +59,9 @@ final class WorkbenchModel: ObservableObject {
                 self?.handleRuntimeNavigationEvent(runtime, event: event)
             }
         }
-        session = try? keychain.load()
+        session = try? keychain.load(allowUserInteraction: false)
         if session?.isExpired == true {
-            try? keychain.clear()
+            try? keychain.clear(allowUserInteraction: false)
             session = nil
         }
     }
@@ -285,7 +285,7 @@ final class WorkbenchModel: ObservableObject {
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
         clearLocalSessionState()
         runtimeErrors[runtime] = status == 401
-            ? "Your Eva Desktop session expired or was revoked. Sign in again to open runtimes."
+            ? "Your evaOS Workbench session expired or was revoked. Sign in again to open gateways."
             : "This account is not authorized for that runtime or customer. Sign in with the right account or switch customer."
     }
 

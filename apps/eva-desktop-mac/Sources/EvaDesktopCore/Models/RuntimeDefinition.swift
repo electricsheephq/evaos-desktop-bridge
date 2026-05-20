@@ -47,13 +47,13 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
     public static let all: [RuntimeDefinition] = [
         RuntimeDefinition(
             key: .openclaw,
-            title: "evaOS / OpenClaw",
+            title: "evaOS (OpenClaw)",
             subtitle: "Main Eva agent dashboard and chat runtime.",
             systemImage: "bubble.left.and.bubble.right"
         ),
         RuntimeDefinition(
             key: .hermes,
-            title: "evaOS / Hermes",
+            title: "evaOS (Hermes)",
             subtitle: "Hermes agent workspace on the same evaOS VM.",
             systemImage: "sparkles"
         ),

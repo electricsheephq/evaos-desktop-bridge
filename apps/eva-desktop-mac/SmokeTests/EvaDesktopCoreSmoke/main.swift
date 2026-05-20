@@ -3,6 +3,11 @@ import Foundation
 
 let resolver = RuntimeURLResolver()
 
+precondition(AppBrand.visibleName == "evaOS Workbench")
+precondition(AppBrand.runtimeSectionTitle == "Gateways")
+precondition(AppBrand.signedOutStatus == "Sign in to launch evaOS gateways")
+precondition(AppBrand.bundleDisplayName == "evaOS Workbench")
+
 precondition(resolver.sanitizedCustomerId(" Jackie David ") == "jackie-david")
 precondition(resolver.sanitizedCustomerId("David_Poku!") == "david-poku")
 precondition(resolver.sanitizedCustomerId("") == "golden")
@@ -11,9 +16,13 @@ precondition(RuntimeDefinition.isBrokeredRuntime(.openclaw))
 precondition(RuntimeDefinition.isBrokeredRuntime(.terminal))
 precondition(!RuntimeDefinition.isBrokeredRuntime(.openDesign))
 precondition(RuntimeDefinition.definition(for: .openDesign).availability == .comingSoon)
+precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
+
+let smokeKeychain = KeychainSessionStore(service: "com.electricsheephq.EvaDesktop.smoke.\(UUID().uuidString)")
+precondition((try? smokeKeychain.load(allowUserInteraction: false)) == nil)
 
 let encodedLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .liveBrowser))
 let launchJSON = String(data: encodedLaunch, encoding: .utf8) ?? ""

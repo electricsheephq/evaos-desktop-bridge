@@ -1,3 +1,4 @@
+import EvaDesktopCore
 import SwiftUI
 
 struct SettingsView: View {
@@ -6,10 +7,13 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            TextField("Dashboard URL", text: $dashboardBaseURL)
-            TextField("Runtime domain", text: $runtimeBaseDomain)
+            Text(AppBrand.visibleName)
+                .font(.headline)
 
-            Text("These settings are read when a new Workbench window is opened. Existing windows rebuild runtime clients when changed from the main toolbar in a later sprint.")
+            TextField("Dashboard URL", text: $dashboardBaseURL)
+            TextField("Gateway domain", text: $runtimeBaseDomain)
+
+            Text("These settings are read when a new Workbench window is opened. Existing windows rebuild gateway clients when changed from the main toolbar in a later sprint.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
