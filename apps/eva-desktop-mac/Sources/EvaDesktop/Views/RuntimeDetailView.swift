@@ -231,6 +231,14 @@ private struct RuntimeSignInView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(model.isSigningIn)
+
+            Button {
+                model.resetLocalSession()
+            } label: {
+                Label("Reset Local Session", systemImage: "key.slash")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()

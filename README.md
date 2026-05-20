@@ -42,6 +42,7 @@ Architecture and sprint docs:
 - [ADR: Eva Desktop Workbench Lives In evaos-desktop-bridge](docs/eva-desktop-workbench-adr.md)
 - [Eva Desktop Workbench MVP Sprint](docs/eva-desktop-workbench-sprint.md)
 - [Eva Desktop Packaging And Notarization](docs/eva-desktop-packaging.md)
+- [evaOS Workbench Beta Release](docs/evaos-workbench-beta-release.md)
 - [Customer Mac Connector V1](docs/customer-mac-connector.md)
 - [Support VM Mac/iPhone/Codex Canary Runbook](docs/support-vm-mac-iphone-codex-canary.md)
 

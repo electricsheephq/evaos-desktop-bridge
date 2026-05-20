@@ -8,8 +8,11 @@ created: 2026-05-20
 
 ## Distribution Default
 
-Ship Eva Desktop outside the Mac App Store first as a Developer ID signed,
-hardened-runtime, notarized app.
+Current beta: ship outside the Mac App Store as an internal/friendly beta using
+Apple Development signing when available, otherwise ad-hoc signing.
+
+Public GA target: ship outside the Mac App Store as a Developer ID signed,
+hardened-runtime, notarized app after Apple approval.
 
 ## MVP Entitlements
 
@@ -30,7 +33,17 @@ expose a generic command runner or local-control action surface.
 
 ## Validation
 
-Before release:
+Before beta:
+
+```bash
+cd apps/eva-desktop-mac
+swift build
+swift run EvaDesktopCoreSmoke
+./script/build_and_run.sh --package-beta
+codesign --verify --deep --strict dist/EvaDesktop.app
+```
+
+Before public GA:
 
 ```bash
 codesign --verify --deep --strict dist/EvaDesktop.app

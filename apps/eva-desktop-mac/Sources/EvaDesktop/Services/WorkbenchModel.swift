@@ -268,10 +268,14 @@ final class WorkbenchModel: ObservableObject {
 
     func signOut() {
         let sessionToRevoke = session
-        clearLocalSessionState()
+        clearLocalSessionState(allowKeychainInteraction: true)
         Task {
             await broker.revoke(desktopSession: sessionToRevoke)
         }
+    }
+
+    func resetLocalSession() {
+        clearLocalSessionState(allowKeychainInteraction: false)
     }
 
     func handleAuthCallback(_ url: URL) {
@@ -309,7 +313,7 @@ final class WorkbenchModel: ObservableObject {
             isOperatorSession = response.isOperator
             applyDefaultCustomerIfNeeded(response)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-            clearLocalSessionState()
+            clearLocalSessionState(allowKeychainInteraction: false)
             customerTargetError = "Your evaOS Workbench session expired. Sign in again."
         } catch {
             customerTargets = []
@@ -400,8 +404,8 @@ final class WorkbenchModel: ObservableObject {
         webViewRefreshToken = UUID()
     }
 
-    private func clearLocalSessionState() {
-        try? keychain.clear()
+    private func clearLocalSessionState(allowKeychainInteraction: Bool) {
+        try? keychain.clear(allowUserInteraction: allowKeychainInteraction)
         session = nil
         customerTargets = []
         isOperatorSession = false
@@ -432,7 +436,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
-        clearLocalSessionState()
+        clearLocalSessionState(allowKeychainInteraction: false)
         runtimeErrors[runtime] = status == 401
             ? "Your evaOS Workbench session expired or was revoked. Sign in again to open gateways."
             : "This account is not authorized for that runtime or customer. Sign in with the right account or switch customer."
@@ -648,7 +652,8 @@ struct BridgeCommandService {
         bridgeKey(["customer-mac", "status", "--json"]),
         bridgeKey(["customer-mac", "capabilities", "--json"]),
         bridgeKey(["customer-mac", "iphone-mirroring", "status", "--json"]),
-        bridgeKey(["customer-mac", "screen-sharing", "status", "--json"])
+        bridgeKey(["customer-mac", "screen-sharing", "status", "--json"]),
+        bridgeKey(["codex", "app-server", "remote-control-status", "--json"])
     ]
 
     func run(arguments: [String]) async -> String {
