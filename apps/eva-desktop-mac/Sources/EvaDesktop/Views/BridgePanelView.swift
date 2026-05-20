@@ -28,9 +28,6 @@ struct BridgePanelView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task {
-            model.refreshBridgeStatus()
-        }
     }
 }
 
@@ -54,4 +51,3 @@ private struct BridgeOutputCard: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 }
-

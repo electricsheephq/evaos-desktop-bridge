@@ -21,8 +21,12 @@ Keep entitlements narrow:
 - User-selected downloads/files only if runtime export requires it.
 
 Do not request Accessibility, Screen Recording, Full Disk Access, Apple Events,
-Input Monitoring, microphone, camera, local shell, or iMessage permissions in the
-Workbench MVP.
+Input Monitoring, microphone, camera, arbitrary local shell, or iMessage
+permissions in the Workbench MVP.
+
+The Bridge Status panel may invoke fixed read-only `evaos-desktop-bridge` CLI
+commands from a pinned install path after the user clicks refresh. It must not
+expose a generic command runner or local-control action surface.
 
 ## Validation
 
@@ -41,4 +45,3 @@ identity and release artifact path.
 OpenClaw's Mac app packaging/update surfaces are a useful reference for Sparkle,
 appcast, and helper-tool patterns. Eva Desktop should borrow patterns, not take a
 runtime dependency on the OpenClaw app.
-

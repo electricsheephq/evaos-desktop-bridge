@@ -22,11 +22,24 @@ public struct RuntimeSessionBrokerClient: Sendable {
     public let urlSession: URLSession
 
     public init(
-        endpoint: URL = URL(string: "https://www.electricsheephq.com/api/desktop/runtime-session")!,
+        endpoint: URL,
         urlSession: URLSession = .shared
     ) {
         self.endpoint = endpoint
         self.urlSession = urlSession
+    }
+
+    public init(
+        dashboardBaseURL: URL = URL(string: "https://www.electricsheephq.com")!,
+        urlSession: URLSession = .shared
+    ) {
+        self.init(
+            endpoint: dashboardBaseURL
+                .appendingPathComponent("api")
+                .appendingPathComponent("desktop")
+                .appendingPathComponent("runtime-session"),
+            urlSession: urlSession
+        )
     }
 
     public func launchURL(

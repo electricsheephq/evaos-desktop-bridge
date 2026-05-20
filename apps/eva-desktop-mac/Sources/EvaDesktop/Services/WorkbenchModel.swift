@@ -6,9 +6,23 @@ import WebKit
 
 @MainActor
 final class WorkbenchModel: ObservableObject {
+    @Published var dashboardBaseURLString: String = UserDefaults.standard.string(forKey: "EvaDesktop.dashboardBaseURL") ?? "https://www.electricsheephq.com" {
+        didSet {
+            UserDefaults.standard.set(dashboardBaseURLString, forKey: "EvaDesktop.dashboardBaseURL")
+            rebuildClients()
+        }
+    }
+    @Published var runtimeBaseDomain: String = UserDefaults.standard.string(forKey: "EvaDesktop.runtimeBaseDomain") ?? "ecs.electricsheephq.com" {
+        didSet {
+            UserDefaults.standard.set(runtimeBaseDomain, forKey: "EvaDesktop.runtimeBaseDomain")
+            rebuildClients()
+        }
+    }
     @Published var customerId: String = UserDefaults.standard.string(forKey: "EvaDesktop.customerId") ?? "golden" {
         didSet {
             UserDefaults.standard.set(customerId, forKey: "EvaDesktop.customerId")
+            reloadFallbackURLs()
+            webViewRefreshToken = UUID()
         }
     }
     @Published var selectedRuntime: RuntimeKey = .openclaw
@@ -19,24 +33,32 @@ final class WorkbenchModel: ObservableObject {
     @Published var bridgeStatusText = "Bridge status has not been checked yet."
     @Published var bridgeCapabilitiesText = "Bridge capabilities have not been checked yet."
     @Published var bridgeAuditText = "Bridge audit trail has not been checked yet."
+    @Published var webViewRefreshToken = UUID()
 
     let runtimes = RuntimeDefinition.all
     let webViews = WebViewStore()
 
     private let keychain = KeychainSessionStore()
-    private let broker = RuntimeSessionBrokerClient()
-    private let resolver = RuntimeURLResolver()
+    private var broker: RuntimeSessionBrokerClient
+    private var resolver: RuntimeURLResolver
     private let bridge = BridgeCommandService()
 
     init() {
+        let dashboardBaseURL = URL(string: UserDefaults.standard.string(forKey: "EvaDesktop.dashboardBaseURL") ?? "https://www.electricsheephq.com")
+            ?? URL(string: "https://www.electricsheephq.com")!
+        let runtimeBaseDomain = UserDefaults.standard.string(forKey: "EvaDesktop.runtimeBaseDomain") ?? "ecs.electricsheephq.com"
+        broker = RuntimeSessionBrokerClient(dashboardBaseURL: dashboardBaseURL)
+        resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
         session = try? keychain.load()
-        for runtime in RuntimeDefinition.all {
-            runtimeURLs[runtime.key] = resolver.fallbackURL(for: runtime.key, customerId: customerId)
-        }
+        reloadFallbackURLs()
     }
 
     var selectedRuntimeDefinition: RuntimeDefinition {
         RuntimeDefinition.definition(for: selectedRuntime)
+    }
+
+    var sanitizedCustomerId: String {
+        resolver.sanitizedCustomerId(customerId)
     }
 
     func loadSelectedRuntime() {
@@ -82,7 +104,7 @@ final class WorkbenchModel: ObservableObject {
 
     func signIn() {
         Task {
-            let coordinator = DesktopAuthCoordinator()
+            let coordinator = DesktopAuthCoordinator(dashboardBaseURL: resolver.dashboardBaseURL)
             do {
                 let newSession = try await coordinator.signIn()
                 try keychain.save(newSession)
@@ -98,9 +120,8 @@ final class WorkbenchModel: ObservableObject {
         try? keychain.clear()
         session = nil
         webViews.reset()
-        for runtime in RuntimeDefinition.all {
-            runtimeURLs[runtime.key] = resolver.fallbackURL(for: runtime.key, customerId: customerId)
-        }
+        reloadFallbackURLs()
+        webViewRefreshToken = UUID()
     }
 
     func refreshBridgeStatus() {
@@ -108,6 +129,25 @@ final class WorkbenchModel: ObservableObject {
             bridgeStatusText = await bridge.run(arguments: ["status", "--json"])
             bridgeCapabilitiesText = await bridge.run(arguments: ["capabilities", "--json"])
             bridgeAuditText = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
+        }
+    }
+
+    private func rebuildClients() {
+        guard let dashboardBaseURL = URL(string: dashboardBaseURLString) else {
+            runtimeErrors[selectedRuntime] = "Dashboard URL is invalid."
+            return
+        }
+
+        broker = RuntimeSessionBrokerClient(dashboardBaseURL: dashboardBaseURL)
+        resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
+        webViews.reset()
+        reloadFallbackURLs()
+        webViewRefreshToken = UUID()
+    }
+
+    private func reloadFallbackURLs() {
+        for runtime in RuntimeDefinition.all {
+            runtimeURLs[runtime.key] = resolver.fallbackURL(for: runtime.key, customerId: customerId)
         }
     }
 }
@@ -133,15 +173,26 @@ final class WebViewStore {
     }
 
     func reset() {
+        for webView in webViews.values {
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+        }
         webViews.removeAll()
     }
 }
 
 final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var authSession: ASWebAuthenticationSession?
+    private let dashboardBaseURL: URL
+
+    init(dashboardBaseURL: URL) {
+        self.dashboardBaseURL = dashboardBaseURL
+    }
 
     func signIn() async throws -> DesktopSession {
-        let authURL = URL(string: "https://www.electricsheephq.com/dashboard?desktop_app=1")!
+        var components = URLComponents(url: dashboardBaseURL.appendingPathComponent("dashboard"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "desktop_app", value: "1")]
+        let authURL = components.url!
 
         return try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
@@ -163,15 +214,21 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
 
                 let items = components.queryItems ?? []
                 let token = items.first(where: { $0.name == "desktop_session" })?.value
-                    ?? items.first(where: { $0.name == "access_token" })?.value
                 let email = items.first(where: { $0.name == "email" })?.value
+                let expiresAtValue = items.first(where: { $0.name == "desktop_session_expires_at" })?.value
+                    ?? items.first(where: { $0.name == "expires_at" })?.value
 
-                guard let token, !token.isEmpty else {
+                guard
+                    let token,
+                    !token.isEmpty,
+                    let expiresAtValue,
+                    let expiresAt = ISO8601DateFormatter().date(from: expiresAtValue)
+                else {
                     continuation.resume(throwing: RuntimeSessionBrokerError.invalidResponse)
                     return
                 }
 
-                continuation.resume(returning: DesktopSession(accessToken: token, userEmail: email))
+                continuation.resume(returning: DesktopSession(accessToken: token, userEmail: email, expiresAt: expiresAt))
             }
 
             session.presentationContextProvider = self
@@ -187,11 +244,27 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
 }
 
 struct BridgeCommandService {
+    private static let allowedCommands: Set<String> = [
+        "status",
+        "capabilities",
+        "audit-tail"
+    ]
+
     func run(arguments: [String]) async -> String {
         await Task.detached {
+            guard
+                let command = arguments.first,
+                Self.allowedCommands.contains(command)
+            else {
+                return "Blocked unsupported bridge command."
+            }
+            guard let bridgeURL = Self.resolveBridgeExecutable() else {
+                return "evaos-desktop-bridge was not found at /opt/homebrew/bin/evaos-desktop-bridge or /usr/local/bin/evaos-desktop-bridge. Install the bridge CLI before refreshing local status."
+            }
+
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["evaos-desktop-bridge"] + arguments
+            process.executableURL = bridgeURL
+            process.arguments = arguments
 
             let pipe = Pipe()
             let errorPipe = Pipe()
@@ -210,5 +283,16 @@ struct BridgeCommandService {
             let output = stdout.isEmpty ? stderr : stdout
             return output.trimmingCharacters(in: .whitespacesAndNewlines)
         }.value
+    }
+
+    private static func resolveBridgeExecutable() -> URL? {
+        let paths = [
+            "/opt/homebrew/bin/evaos-desktop-bridge",
+            "/usr/local/bin/evaos-desktop-bridge"
+        ]
+        for path in paths where FileManager.default.isExecutableFile(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+        return nil
     }
 }

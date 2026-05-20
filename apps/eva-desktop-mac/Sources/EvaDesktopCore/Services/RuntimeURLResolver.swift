@@ -25,9 +25,9 @@ public struct RuntimeURLResolver: Sendable {
         case .liveBrowser:
             return URL(string: "https://browser-\(slug).\(runtimeBaseDomain)/")!
         case .terminal:
-            return dashboardURL(path: "/dashboard/workspace", customerId: slug, runtime: "terminal")
+            return dashboardURL(path: "dashboard/workspace", customerId: slug, runtime: "terminal")
         case .openDesign:
-            return dashboardURL(path: "/dashboard/opendesign", customerId: slug, runtime: "opendesign")
+            return dashboardURL(path: "dashboard/opendesign", customerId: slug, runtime: "opendesign")
         }
     }
 
@@ -44,7 +44,10 @@ public struct RuntimeURLResolver: Sendable {
     }
 
     private func dashboardURL(path: String, customerId: String, runtime: String) -> URL {
-        var components = URLComponents(url: dashboardBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        let url = path.split(separator: "/").reduce(dashboardBaseURL) { partial, component in
+            partial.appendingPathComponent(String(component))
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "customer_id", value: customerId),
             URLQueryItem(name: "runtime", value: runtime)
@@ -52,4 +55,3 @@ public struct RuntimeURLResolver: Sendable {
         return components.url!
     }
 }
-

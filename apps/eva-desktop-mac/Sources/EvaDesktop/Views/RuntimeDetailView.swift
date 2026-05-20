@@ -18,7 +18,8 @@ struct RuntimeDetailView: View {
             Divider()
 
             if let url = model.runtimeURLs[runtime] {
-                RuntimeWebView(webView: model.webViews.webView(for: runtime, customerId: RuntimeURLResolver().sanitizedCustomerId(model.customerId)))
+                RuntimeWebView(webView: model.webViews.webView(for: runtime, customerId: model.sanitizedCustomerId))
+                    .id("\(runtime.rawValue)-\(model.sanitizedCustomerId)-\(model.webViewRefreshToken)")
                     .overlay(alignment: .topLeading) {
                         if let error = model.runtimeErrors[runtime] {
                             Text(error)
@@ -31,7 +32,7 @@ struct RuntimeDetailView: View {
                     }
                     .task(id: url) {
                         model.webViews
-                            .webView(for: runtime, customerId: RuntimeURLResolver().sanitizedCustomerId(model.customerId))
+                            .webView(for: runtime, customerId: model.sanitizedCustomerId)
                             .load(URLRequest(url: url))
                     }
             } else {
@@ -68,6 +69,7 @@ private struct RuntimeToolbar: View {
                 .onSubmit {
                     model.loadSelectedRuntime()
                 }
+                .help("Preview/admin target. The runtime session broker remains the authority for customer and runtime access.")
 
             Button {
                 model.loadSelectedRuntime()
@@ -89,4 +91,3 @@ private struct RuntimeToolbar: View {
         }
     }
 }
-

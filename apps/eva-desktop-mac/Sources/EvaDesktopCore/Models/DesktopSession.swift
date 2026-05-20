@@ -12,7 +12,7 @@ public struct DesktopSession: Codable, Equatable, Sendable {
     }
 
     public var isExpired: Bool {
-        guard let expiresAt else { return false }
+        guard let expiresAt else { return true }
         return expiresAt <= Date()
     }
 }
@@ -41,4 +41,3 @@ public struct RuntimeLaunchResponse: Codable, Equatable, Sendable {
         case expiresAt = "expires_at"
     }
 }
-

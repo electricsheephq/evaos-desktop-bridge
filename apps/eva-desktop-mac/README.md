@@ -45,8 +45,13 @@ patterns as a preview/fallback so the shell remains usable during development.
 The app does not store raw VM secrets, runtime backend tokens, auth headers, or
 cookies in app model state.
 
+Desktop login must return a broker-minted `desktop_session` with explicit
+expiry. Generic OAuth authorization codes or provider `access_token` values are
+not accepted as durable desktop sessions.
+
 ## Bridge Model
 
 The `Desktop Bridge` panel is read-only in MVP. It can show bridge status,
-capabilities, and audit tail by calling `evaos-desktop-bridge`, but it does not
-expose local-control actions.
+capabilities, and audit tail by calling fixed `evaos-desktop-bridge` commands
+after the user clicks refresh, but it does not expose local-control actions or a
+generic command runner.

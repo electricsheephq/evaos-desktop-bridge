@@ -42,12 +42,13 @@ desktop app session material in Keychain.
 - No prompt sending or approval clicking through Codex/OpenClaw desktop surfaces.
 - No raw VM secrets, runtime backend tokens, auth headers, or session database
   reads in the desktop app.
-- No Accessibility, Screen Recording, Full Disk Access, Apple Events, or shell
-  execution permissions in the first workbench MVP.
+- No generic shell execution, arbitrary local subprocess runner, Accessibility,
+  Screen Recording, Full Disk Access, or Apple Events permissions in the first
+  workbench MVP. The Bridge Status panel may run fixed read-only
+  `evaos-desktop-bridge` CLI commands after an explicit user refresh.
 
 ## Future Split Criteria
 
 Create a separate product repo only if the Mac app grows independent release
 cadence, installer infrastructure, or platform scope that makes the bridge
 policy layer hard to review in one repository.
-
