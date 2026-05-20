@@ -16,6 +16,7 @@ from evaos_desktop_bridge.adapters.codex_app_server import (
     JsonRpcResponse,
     JsonRpcTransport,
     LoopbackWebSocketTransport,
+    build_app_server_argv,
     classify_app_server_method,
     extract_generated_protocol_methods,
 )
@@ -276,6 +277,20 @@ def test_json_rpc_client_preserves_empty_result_payload() -> None:
 def test_loopback_websocket_transport_rejects_non_loopback_urls() -> None:
     with pytest.raises(ValueError):
         LoopbackWebSocketTransport("ws://example.com:9999")
+
+
+def test_app_server_argv_supports_proxy_transport() -> None:
+    assert build_app_server_argv(codex_bin="/bin/codex", transport_mode="stdio") == [
+        "/bin/codex",
+        "app-server",
+        "--listen",
+        "stdio://",
+    ]
+    assert build_app_server_argv(codex_bin="/bin/codex", transport_mode="proxy") == [
+        "/bin/codex",
+        "app-server",
+        "proxy",
+    ]
 
 
 def test_app_server_controller_dry_run_does_not_call_rpc() -> None:

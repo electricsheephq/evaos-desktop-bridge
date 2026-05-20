@@ -2,6 +2,10 @@
 
 The app-server adapter is read-only by default and uses `codex app-server` over stdio or a loopback websocket configured with `EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_WS`.
 
+By default the bridge prefers the Codex Desktop bundled CLI at `/Applications/Codex.app/Contents/Resources/codex` when present, because Desktop may ship newer app-server protocol support than a Homebrew or npm `codex` on `PATH`. Override with `EVAOS_DESKTOP_BRIDGE_CODEX_BIN=/path/to/codex` when needed.
+
+Set `EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT=proxy` to attach through `codex app-server proxy` to a running managed daemon/control socket instead of launching a fresh stdio app-server. This is the transport to use for live Desktop remote-control smokes once the local Codex remote-control daemon is bootstrapped.
+
 ## Allowed Methods
 
 - `initialize`

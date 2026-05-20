@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import select
+import shutil
 import socket
 import subprocess
 from dataclasses import dataclass
@@ -20,7 +21,11 @@ from ..types import CommandResult
 from .codex_macos import RunnerResult, run_command
 
 APP_SERVER_WS_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_WS"
+APP_SERVER_TRANSPORT_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT"
+APP_SERVER_PROXY_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_PROXY"
+CODEX_BIN_ENV = "EVAOS_DESKTOP_BRIDGE_CODEX_BIN"
 APP_SERVER_CLIENT_INFO = {"name": "evaos-desktop-bridge", "version": "0.1.0"}
+DESKTOP_CODEX_BIN = "/Applications/Codex.app/Contents/Resources/codex"
 
 ALLOWED_APP_SERVER_METHODS = frozenset(
     {
@@ -104,9 +109,9 @@ class JsonRpcTransport:
 
 
 class LineProcessTransport(JsonRpcTransport):
-    def __init__(self, argv: list[str] | None = None) -> None:
+    def __init__(self, argv: list[str] | None = None, *, codex_bin: str | None = None) -> None:
         self.process = subprocess.Popen(
-            argv or ["codex", "app-server", "--listen", "stdio://"],
+            argv or build_app_server_argv(codex_bin=codex_bin),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -332,14 +337,16 @@ class CodexAppServerObserver:
         runner: Callable[[list[str], float], RunnerResult] = run_command,
         rpc_client: Callable[[str, dict[str, Any]], JsonRpcResponse] | None = None,
         subscription_client: Callable[[str, int, int, int], JsonRpcResponse] | None = None,
+        codex_bin: str | None = None,
     ) -> None:
         self.runner = runner
+        self.codex_bin = codex_bin or resolve_codex_bin()
         self.rpc_client = rpc_client or self._client_rpc
         self.subscription_client = subscription_client or self._client_subscribe
 
     def status(self) -> CommandResult:
-        version = self.runner(["codex", "--version"], 5.0)
-        help_result = self.runner(["codex", "app-server", "--help"], 5.0)
+        version = self.runner([self.codex_bin, "--version"], 5.0)
+        help_result = self.runner([self.codex_bin, "app-server", "--help"], 5.0)
         available = version.returncode == 0 and help_result.returncode == 0
         warnings: list[str] = []
         if not available:
@@ -349,7 +356,7 @@ class CodexAppServerObserver:
             data={
                 "available": available,
                 "codex_version": redact_value(version.stdout.strip()) if version.returncode == 0 else None,
-                "transport": "stdio",
+                "transport": app_server_transport_mode(),
                 "allowed_methods": sorted(ALLOWED_APP_SERVER_METHODS),
                 "controller_methods": sorted(CONTROLLER_APP_SERVER_METHODS),
                 "forbidden_methods": sorted(FORBIDDEN_APP_SERVER_METHODS),
@@ -361,7 +368,7 @@ class CodexAppServerObserver:
 
     def connections_status(self, *, desktop_status: CommandResult | None = None) -> CommandResult:
         status = self.status()
-        features = self.runner(["codex", "features", "list"], 5.0)
+        features = self.runner([self.codex_bin, "features", "list"], 5.0)
         desktop = self.runner(["pgrep", "-x", "Codex"], 5.0)
         help_text = json.dumps(status.data)
         feature_state = self._feature_state(features.stdout, "remote_control") if features.returncode == 0 else None
@@ -378,9 +385,11 @@ class CodexAppServerObserver:
                 "available": bool(status.data.get("available")),
                 "codex_version": status.data.get("codex_version"),
                 "stdio_supported": True,
-                "websocket_listen_supported": "ws://IP:PORT" in (self.runner(["codex", "app-server", "--help"], 5.0).stdout),
+                "proxy_supported": "proxy" in (self.runner([self.codex_bin, "app-server", "--help"], 5.0).stdout),
+                "websocket_listen_supported": "ws://IP:PORT" in (self.runner([self.codex_bin, "app-server", "--help"], 5.0).stdout),
                 "loopback_websocket_configured": bool(websocket_env),
                 "loopback_websocket_url": redact_value(websocket_env) if websocket_env else None,
+                "transport_mode": app_server_transport_mode(),
                 "allowlist_size": len(ALLOWED_APP_SERVER_METHODS),
                 "controller_size": len(CONTROLLER_APP_SERVER_METHODS),
             },
@@ -596,7 +605,7 @@ class CodexAppServerObserver:
         websocket_url = os.environ.get(APP_SERVER_WS_ENV)
         if websocket_url:
             return LoopbackWebSocketTransport(websocket_url)
-        return LineProcessTransport()
+        return LineProcessTransport(codex_bin=self.codex_bin)
 
     def _safe_thread(self, row: Any, index: int) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -714,3 +723,29 @@ class CodexAppServerObserver:
 
     def _notification_warning(self, notifications: list[dict[str, Any]] | None) -> str:
         return f"Codex app-server returned {len(notifications or [])} notification(s) before the requested response."
+
+
+def resolve_codex_bin() -> str:
+    configured = os.environ.get(CODEX_BIN_ENV)
+    if configured:
+        return configured
+    if os.path.isfile(DESKTOP_CODEX_BIN):
+        return DESKTOP_CODEX_BIN
+    return shutil.which("codex") or "codex"
+
+
+def app_server_transport_mode() -> str:
+    mode = (os.environ.get(APP_SERVER_TRANSPORT_ENV) or "").strip().lower()
+    if mode:
+        return mode
+    if os.environ.get(APP_SERVER_PROXY_ENV) in {"1", "true", "yes"}:
+        return "proxy"
+    return "stdio"
+
+
+def build_app_server_argv(*, codex_bin: str | None = None, transport_mode: str | None = None) -> list[str]:
+    bin_path = codex_bin or resolve_codex_bin()
+    mode = (transport_mode or app_server_transport_mode()).strip().lower()
+    if mode == "proxy":
+        return [bin_path, "app-server", "proxy"]
+    return [bin_path, "app-server", "--listen", "stdio://"]
