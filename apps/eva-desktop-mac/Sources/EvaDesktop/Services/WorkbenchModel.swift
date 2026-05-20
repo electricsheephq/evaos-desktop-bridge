@@ -46,6 +46,7 @@ final class WorkbenchModel: ObservableObject {
     private var broker: RuntimeSessionBrokerClient
     private var resolver: RuntimeURLResolver
     private let bridge = BridgeCommandService()
+    private var fallbackReloadAttempts: [RuntimeKey: Int] = [:]
 
     init() {
         let dashboardBaseURL = URL(string: UserDefaults.standard.string(forKey: "EvaDesktop.dashboardBaseURL") ?? "https://www.electricsheephq.com")
@@ -67,6 +68,10 @@ final class WorkbenchModel: ObservableObject {
 
     var selectedRuntimeDefinition: RuntimeDefinition {
         RuntimeDefinition.definition(for: selectedRuntime)
+    }
+
+    var loadedRuntimeKeys: [RuntimeKey] {
+        runtimes.map(\.key).filter { runtimeURLs[$0] != nil }
     }
 
     var sanitizedCustomerId: String {
@@ -93,6 +98,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func reconnectSelectedRuntime() {
+        fallbackReloadAttempts[selectedRuntime] = nil
         loadSelectedRuntime(force: true)
     }
 
@@ -248,6 +254,7 @@ final class WorkbenchModel: ObservableObject {
         loadingRuntimePages.removeAll()
         runtimeURLs.removeAll()
         runtimeErrors.removeAll()
+        fallbackReloadAttempts.removeAll()
         webViewRefreshToken = UUID()
     }
 
@@ -259,6 +266,7 @@ final class WorkbenchModel: ObservableObject {
         loadingRuntimePages.removeAll()
         runtimeURLs.removeAll()
         runtimeErrors.removeAll()
+        fallbackReloadAttempts.removeAll()
         webViewRefreshToken = UUID()
     }
 
@@ -270,6 +278,7 @@ final class WorkbenchModel: ObservableObject {
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()
         runtimeURLs.removeAll()
+        fallbackReloadAttempts.removeAll()
         webViewRefreshToken = UUID()
     }
 
@@ -287,6 +296,7 @@ final class WorkbenchModel: ObservableObject {
             runtimeErrors[runtime] = nil
         case .finished:
             loadingRuntimePages.remove(runtime)
+            fallbackReloadAttempts[runtime] = nil
         case .failed(let message):
             loadingRuntimePages.remove(runtime)
             runtimeErrors[runtime] = message
@@ -294,6 +304,19 @@ final class WorkbenchModel: ObservableObject {
             loadingRuntimePages.remove(runtime)
             let suffix = url.map { " at \($0.absoluteString)" } ?? ""
             runtimeErrors[runtime] = "Runtime page returned HTTP \(status)\(suffix)."
+        case .fallbackDetected(let label):
+            loadingRuntimePages.remove(runtime)
+            let attempts = fallbackReloadAttempts[runtime, default: 0]
+            guard attempts < 1, isSignedIn else {
+                runtimeErrors[runtime] = "\(label). Reconnect this runtime to refresh the authenticated session."
+                return
+            }
+            fallbackReloadAttempts[runtime] = attempts + 1
+            runtimeErrors[runtime] = "\(label). Reconnecting..."
+            runtimeURLs[runtime] = nil
+            Task {
+                await loadRuntime(runtime, force: true)
+            }
         }
     }
 }
@@ -303,6 +326,7 @@ enum RuntimeNavigationEvent {
     case finished
     case failed(String)
     case httpStatus(Int, URL?)
+    case fallbackDetected(String)
 }
 
 final class WebViewStore {
@@ -320,10 +344,10 @@ final class WebViewStore {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.applicationNameForUserAgent = "EvaDesktop/0.1"
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
-        webView.customUserAgent = "EvaDesktop/0.1 WKWebView"
         let delegate = RuntimeNavigationObserver(runtime: runtime) { [weak self] runtime, event in
             self?.onNavigationEvent?(runtime, event)
         }
@@ -357,7 +381,29 @@ final class RuntimeNavigationObserver: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        onEvent(runtime, .finished)
+        guard runtime == .openclaw else {
+            onEvent(runtime, .finished)
+            return
+        }
+
+        let script = """
+        (() => {
+          const title = String(document.title || '').toLowerCase();
+          const text = String(document.body ? document.body.innerText || '' : '').toLowerCase().slice(0, 4000);
+          return title.includes('gateway dashboard') ||
+            text.includes('gateway dashboard') ||
+            (text.includes('websocket') && text.includes('connect') && text.includes('token'));
+        })()
+        """
+
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            guard let self else { return }
+            if (result as? Bool) == true {
+                self.onEvent(self.runtime, .fallbackDetected("OpenClaw loaded its gateway connect screen"))
+            } else {
+                self.onEvent(self.runtime, .finished)
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

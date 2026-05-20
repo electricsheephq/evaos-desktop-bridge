@@ -9,6 +9,10 @@ struct RuntimeDetailView: View {
         RuntimeDefinition.definition(for: runtime)
     }
 
+    private var activeRuntimeForDeck: RuntimeKey {
+        model.loadedRuntimeKeys.contains(runtime) ? runtime : (model.loadedRuntimeKeys.first ?? runtime)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             RuntimeToolbar(model: model, definition: definition)
@@ -17,38 +21,50 @@ struct RuntimeDetailView: View {
 
             Divider()
 
-            if definition.availability != .enabled {
-                RuntimeUnavailableView(definition: definition)
-            } else if !model.isSignedIn {
-                RuntimeSignInView(model: model, definition: definition)
-            } else if model.isRuntimeLoading(runtime) && model.runtimeURLs[runtime] == nil {
-                RuntimeLoadingView(definition: definition)
-            } else if model.runtimeURLs[runtime] != nil {
-                RuntimeWebView(webView: model.webViews.webView(for: runtime, customerId: model.sanitizedCustomerId))
-                    .id("\(runtime.rawValue)-\(model.sanitizedCustomerId)-\(model.webViewRefreshToken)")
-                    .overlay(alignment: .topLeading) {
-                        if model.isRuntimePageLoading(runtime) {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Loading \(definition.title)...")
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(10)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            .padding()
-                        } else if let error = model.runtimeErrors[runtime] {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(10)
-                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                                .padding()
-                        }
+            ZStack {
+                if !model.loadedRuntimeKeys.isEmpty {
+                    RuntimeWebViewDeck(
+                        store: model.webViews,
+                        customerId: model.sanitizedCustomerId,
+                        loadedRuntimes: model.loadedRuntimeKeys,
+                        activeRuntime: activeRuntimeForDeck
+                    )
+                }
+
+                if definition.availability != .enabled {
+                    RuntimeUnavailableView(definition: definition)
+                        .background(.background)
+                } else if !model.isSignedIn {
+                    RuntimeSignInView(model: model, definition: definition)
+                        .background(.background)
+                } else if model.isRuntimeLoading(runtime) && model.runtimeURLs[runtime] == nil {
+                    RuntimeLoadingView(definition: definition)
+                        .background(.regularMaterial)
+                } else if model.runtimeURLs[runtime] == nil {
+                    RuntimeLaunchView(model: model, definition: definition)
+                        .background(.background)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if model.runtimeURLs[runtime] != nil && model.isRuntimePageLoading(runtime) {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading \(definition.title)...")
                     }
-            } else {
-                RuntimeLaunchView(model: model, definition: definition)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .padding()
+                } else if let error = model.runtimeErrors[runtime] {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .padding()
+                }
             }
         }
     }
