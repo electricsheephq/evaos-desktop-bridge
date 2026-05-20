@@ -181,9 +181,12 @@ function controllerFlags(params: BridgeParams): string[] {
   if (params.dry_run !== false) {
     return ["--dry-run"];
   }
+  if (params.confirmed !== true) {
+    throw new Error("confirmed=true is required when dry_run is false");
+  }
   return [
     "--live",
-    ...(params.confirmed === true ? ["--confirm"] : []),
+    "--confirm",
     "--source-audit-id",
     requiredString(params.source_audit_id, "source_audit_id"),
   ];

@@ -13,7 +13,8 @@ type ToolDefinition = {
 export default definePluginEntry({
   id: "evaos-desktop-bridge",
   name: "EvaOS Desktop Bridge",
-  description: "Read-only bridge from OpenClaw to visible Codex Desktop state.",
+  description:
+    "Bridge from OpenClaw to visible Codex Desktop state with guarded queue appends, visible selection, and remote turn-control tools.",
   kind: "tool",
   register(api: any) {
     for (const bridgeTool of bridgeTools()) {

@@ -73,7 +73,7 @@ EXPECTED_APP_SERVER_NOTIFICATIONS = frozenset(
 @dataclass
 class JsonRpcResponse:
     ok: bool
-    payload: dict[str, Any] | None = None
+    payload: Any | None = None
     error: str | None = None
     notifications: list[dict[str, Any]] | None = None
 
@@ -318,7 +318,8 @@ class CodexJsonRpcClient:
             if payload.get("id") == request_id:
                 if "error" in payload:
                     return JsonRpcResponse(ok=False, error=str(redact_value(payload["error"])), notifications=notifications)
-                return JsonRpcResponse(ok=True, payload=payload.get("result") or payload, notifications=notifications)
+                result_payload = payload["result"] if "result" in payload else payload
+                return JsonRpcResponse(ok=True, payload=result_payload, notifications=notifications)
             if "method" in payload and "id" not in payload:
                 notifications.append(payload)
         return JsonRpcResponse(ok=False, error="Timed out waiting for Codex app-server response", notifications=notifications)
@@ -526,7 +527,7 @@ class CodexAppServerObserver:
                 data={"would_steer_turn": True, "steered": False, "thread_id": thread_id, "turn_id": turn_id, "method": "turn/steer", "params_preview": redact_value(params), "message_preview": preview, "message_truncated": truncated},
                 provenance={"source": "app_server_controller", "app_server_method": "turn/steer", "dry_run": True, "thread_id": thread_id, "turn_id": turn_id, "source_audit_id": source_audit_id},
             )
-        gate = self._controller_gate(source_audit_id=source_audit_id, confirmed=confirmed, turn_id=turn_id)
+        gate = self._controller_gate(source_audit_id=source_audit_id, confirmed=confirmed, turn_id=turn_id or "")
         if gate is not None:
             return gate
         rpc = self.rpc_client("turn/steer", params)
@@ -554,7 +555,7 @@ class CodexAppServerObserver:
                 data={"would_interrupt_turn": True, "interrupted": False, "thread_id": thread_id, "turn_id": turn_id, "method": "turn/interrupt", "params_preview": redact_value(params)},
                 provenance={"source": "app_server_controller", "app_server_method": "turn/interrupt", "dry_run": True, "thread_id": thread_id, "turn_id": turn_id, "source_audit_id": source_audit_id},
             )
-        gate = self._controller_gate(source_audit_id=source_audit_id, confirmed=confirmed, turn_id=turn_id)
+        gate = self._controller_gate(source_audit_id=source_audit_id, confirmed=confirmed, turn_id=turn_id or "")
         if gate is not None:
             return gate
         rpc = self.rpc_client("turn/interrupt", params)
@@ -676,7 +677,7 @@ class CodexAppServerObserver:
                 ],
                 provenance={"source": "app_server_controller", "dry_run": False, "source_audit_id": source_audit_id},
             )
-        if turn_id == "":
+        if turn_id is not None and (not isinstance(turn_id, str) or not turn_id.strip()):
             return CommandResult(
                 ok=False,
                 errors=[

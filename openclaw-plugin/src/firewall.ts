@@ -15,13 +15,33 @@ type HookDecision =
       approvalReason?: string;
     };
 
-const READ_ONLY_TOOL_PREFIX = "desktop_bridge_";
+const READ_ONLY_TOOL_NAMES = new Set([
+  "desktop_bridge_status",
+  "desktop_bridge_capabilities",
+  "desktop_bridge_latest",
+  "desktop_bridge_audit_tail",
+  "desktop_bridge_queue_list",
+  "desktop_bridge_codex_frontmost",
+  "desktop_bridge_codex_windows",
+  "desktop_bridge_codex_threads",
+  "desktop_bridge_codex_snapshot",
+  "desktop_bridge_codex_inspect",
+  "desktop_bridge_codex_ax_tree",
+  "desktop_bridge_codex_connections_status",
+  "desktop_bridge_codex_app_server_status",
+  "desktop_bridge_codex_app_server_threads",
+  "desktop_bridge_codex_live_status",
+]);
 
 const CONTROLLER_TOOL_NAMES = new Set([
   "desktop_bridge_codex_remote_start_turn",
   "desktop_bridge_codex_remote_steer_turn",
   "desktop_bridge_codex_remote_interrupt_turn",
 ]);
+
+const GUARDED_VISIBLE_TOOL_NAMES = new Set(["desktop_bridge_codex_select_thread"]);
+
+const QUEUE_MUTATION_TOOL_NAMES = new Set(["desktop_bridge_queue_append"]);
 
 const DANGEROUS_TOOL_NAMES = [
   "exec",
@@ -92,7 +112,19 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
       approvalReason: "Live Codex Desktop remote-control actions can start, steer, or interrupt a Desktop-owned turn.",
     };
   }
-  if (toolName.startsWith(READ_ONLY_TOOL_PREFIX)) {
+  if (GUARDED_VISIBLE_TOOL_NAMES.has(toolName) && parsedArgs.dry_run === false) {
+    return {
+      requireApproval: true,
+      approvalReason: "Live Codex Desktop visible-selection actions can change the Desktop UI focus.",
+    };
+  }
+  if (QUEUE_MUTATION_TOOL_NAMES.has(toolName)) {
+    return {
+      requireApproval: true,
+      approvalReason: "Eva/OpenClaw queue append writes a local bridge event and must carry source audit provenance.",
+    };
+  }
+  if (READ_ONLY_TOOL_NAMES.has(toolName) || (CONTROLLER_TOOL_NAMES.has(toolName) && parsedArgs.dry_run !== false) || (GUARDED_VISIBLE_TOOL_NAMES.has(toolName) && parsedArgs.dry_run !== false)) {
     return undefined;
   }
 
@@ -103,7 +135,7 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
     return {
       block: true,
       blockReason:
-        `desktop-bridge firewall blocked ${toolName}: ${matchedPattern} is outside the read-only passive observer boundary.`,
+        `desktop-bridge firewall blocked ${toolName}: ${matchedPattern} is outside the desktop bridge safety boundary.`,
     };
   }
 

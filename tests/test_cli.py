@@ -418,6 +418,31 @@ def test_app_server_start_turn_live_requires_confirmation(tmp_path: Path) -> Non
     assert payload["errors"][0]["code"] == "controller_confirmation_required"
 
 
+def test_app_server_controller_flags_are_mutually_exclusive(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+    exit_code = main(
+        [
+            "codex",
+            "app-server",
+            "start-turn",
+            "--json",
+            "--thread-id",
+            "thread-1",
+            "--message",
+            "continue",
+            "--dry-run",
+            "--live",
+        ],
+        observer_factory=lambda: FakeObserver(),
+        app_server_factory=lambda: FakeAppServer(),
+        stdout=stdout,
+        state_dir=tmp_path,
+    )
+
+    assert exit_code == 2
+    assert stdout.getvalue() == ""
+
+
 def test_app_server_start_turn_live_with_confirmation(tmp_path: Path) -> None:
     payload = run_cli(
         [

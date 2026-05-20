@@ -249,6 +249,17 @@ def test_json_rpc_client_serializes_requests_and_buffers_notifications() -> None
     assert transport.closed is True
 
 
+def test_json_rpc_client_preserves_empty_result_payload() -> None:
+    transport = FakeTransport([{"id": 1, "result": {}}])
+
+    with CodexJsonRpcClient(transport_factory=lambda: transport, request_timeout=0.1) as client:
+        response = client.request("thread/list", {"limit": 1})
+
+    assert response.ok is True
+    assert response.payload == {}
+    assert transport.closed is True
+
+
 def test_loopback_websocket_transport_rejects_non_loopback_urls() -> None:
     with pytest.raises(ValueError):
         LoopbackWebSocketTransport("ws://example.com:9999")
@@ -311,6 +322,33 @@ def test_app_server_controller_live_calls_guarded_method_with_capped_message() -
     assert calls[0][1]["input"][0]["text"].startswith(str(Path.home()))
     assert str(Path.home()) not in json.dumps(result.data)
     assert result.data["message_truncated"] is True
+
+
+def test_app_server_steer_and_interrupt_live_require_turn_id() -> None:
+    def fail_rpc(method: str, params: dict) -> JsonRpcResponse:
+        raise AssertionError(f"unexpected rpc call: {method}")
+
+    observer = CodexAppServerObserver(rpc_client=fail_rpc)
+    steer = observer.steer_turn(
+        thread_id="thread-1",
+        turn_id=None,
+        message="adjust",
+        dry_run=False,
+        source_audit_id="audit-123",
+        confirmed=True,
+    )
+    interrupt = observer.interrupt_turn(
+        thread_id="thread-1",
+        turn_id=None,
+        dry_run=False,
+        source_audit_id="audit-123",
+        confirmed=True,
+    )
+
+    assert steer.ok is False
+    assert steer.errors[0]["code"] == "active_turn_required"
+    assert interrupt.ok is False
+    assert interrupt.errors[0]["code"] == "active_turn_required"
 
 
 def test_app_server_subscribe_sanitizes_notifications() -> None:

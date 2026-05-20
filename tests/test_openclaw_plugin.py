@@ -10,9 +10,15 @@ PLUGIN = ROOT / "openclaw-plugin"
 
 def test_openclaw_plugin_manifest_points_to_entrypoint() -> None:
     manifest = json.loads((PLUGIN / "package.json").read_text(encoding="utf-8"))
+    source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
 
     assert manifest["openclaw"]["extensions"] == ["./index.ts"]
     assert manifest["type"] == "module"
+    assert "Read-only" not in manifest["description"]
+    assert "guarded queue/remote-control tools" in manifest["description"]
+    assert "Read-only bridge" not in source
+    assert "guarded queue appends" in source
+    assert "remote turn-control" in source
 
 
 def test_openclaw_plugin_registers_named_tools_only() -> None:
@@ -66,6 +72,7 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "codexAppServerStartTurn" in source
     assert "codexAppServerSteerTurn" in source
     assert "codexAppServerInterruptTurn" in source
+    assert 'throw new Error("confirmed=true is required when dry_run is false")' in source
 
 
 def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
@@ -90,4 +97,8 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
     assert "block: true" in source
     assert "requireApproval: true" in source
     assert "desktop_bridge_codex_remote_start_turn" in source
+    assert "READ_ONLY_TOOL_PREFIX" not in source
+    assert "READ_ONLY_TOOL_NAMES" in source
+    assert "desktop_bridge_queue_append" in source
+    assert "desktop_bridge_codex_select_thread" in source
     assert "before_tool_call" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
