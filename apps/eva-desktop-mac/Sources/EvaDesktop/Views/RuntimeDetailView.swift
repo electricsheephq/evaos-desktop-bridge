@@ -21,13 +21,24 @@ struct RuntimeDetailView: View {
                 RuntimeUnavailableView(definition: definition)
             } else if !model.isSignedIn {
                 RuntimeSignInView(model: model, definition: definition)
-            } else if model.isLoadingRuntime && model.runtimeURLs[runtime] == nil {
+            } else if model.isRuntimeLoading(runtime) && model.runtimeURLs[runtime] == nil {
                 RuntimeLoadingView(definition: definition)
-            } else if let url = model.runtimeURLs[runtime] {
+            } else if model.runtimeURLs[runtime] != nil {
                 RuntimeWebView(webView: model.webViews.webView(for: runtime, customerId: model.sanitizedCustomerId))
                     .id("\(runtime.rawValue)-\(model.sanitizedCustomerId)-\(model.webViewRefreshToken)")
                     .overlay(alignment: .topLeading) {
-                        if let error = model.runtimeErrors[runtime] {
+                        if model.isRuntimePageLoading(runtime) {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Loading \(definition.title)...")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(10)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .padding()
+                        } else if let error = model.runtimeErrors[runtime] {
                             Text(error)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -35,11 +46,6 @@ struct RuntimeDetailView: View {
                                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
                                 .padding()
                         }
-                    }
-                    .task(id: url) {
-                        model.webViews
-                            .webView(for: runtime, customerId: model.sanitizedCustomerId)
-                            .load(URLRequest(url: url))
                     }
             } else {
                 RuntimeLaunchView(model: model, definition: definition)
@@ -78,11 +84,11 @@ private struct RuntimeToolbar: View {
                 .help("Preview/admin target. The runtime session broker remains the authority for customer and runtime access.")
 
             Button {
-                model.loadSelectedRuntime()
+                model.reconnectSelectedRuntime()
             } label: {
-                Label("Load", systemImage: "arrow.clockwise")
+                Label("Reconnect", systemImage: "arrow.clockwise")
             }
-            .disabled(!model.isSignedIn || definition.availability != .enabled || model.isLoadingRuntime)
+            .disabled(!model.isSignedIn || definition.availability != .enabled || model.isRuntimeLoading(definition.key))
 
             Button {
                 model.reloadSelectedRuntime()
@@ -170,7 +176,7 @@ private struct RuntimeLaunchView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(model.isLoadingRuntime)
+            .disabled(model.isRuntimeLoading(definition.key))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
