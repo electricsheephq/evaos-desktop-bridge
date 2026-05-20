@@ -30,7 +30,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var selectedRuntime: RuntimeKey = .openclaw
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
-    @Published var isLoadingRuntime = false
+    @Published var loadingRuntimes: Set<RuntimeKey> = []
+    @Published var loadingRuntimePages: Set<RuntimeKey> = []
     @Published var runtimeURLs: [RuntimeKey: URL] = [:]
     @Published var runtimeErrors: [RuntimeKey: String] = [:]
     @Published var bridgeStatusText = "Bridge status has not been checked yet."
@@ -52,6 +53,11 @@ final class WorkbenchModel: ObservableObject {
         let runtimeBaseDomain = UserDefaults.standard.string(forKey: "EvaDesktop.runtimeBaseDomain") ?? "ecs.electricsheephq.com"
         broker = RuntimeSessionBrokerClient()
         resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
+        webViews.onNavigationEvent = { [weak self] runtime, event in
+            Task { @MainActor in
+                self?.handleRuntimeNavigationEvent(runtime, event: event)
+            }
+        }
         session = try? keychain.load()
         if session?.isExpired == true {
             try? keychain.clear()
@@ -72,13 +78,27 @@ final class WorkbenchModel: ObservableObject {
         return !session.isExpired
     }
 
-    func loadSelectedRuntime() {
+    func isRuntimeLoading(_ runtime: RuntimeKey) -> Bool {
+        loadingRuntimes.contains(runtime)
+    }
+
+    func isRuntimePageLoading(_ runtime: RuntimeKey) -> Bool {
+        loadingRuntimePages.contains(runtime)
+    }
+
+    func loadSelectedRuntime(force: Bool = false) {
         Task {
-            await loadRuntime(selectedRuntime)
+            await loadRuntime(selectedRuntime, force: force)
         }
     }
 
-    func loadRuntime(_ runtime: RuntimeKey) async {
+    func reconnectSelectedRuntime() {
+        loadSelectedRuntime(force: true)
+    }
+
+    func loadRuntime(_ runtime: RuntimeKey, force: Bool = false) async {
+        let targetCustomerId = resolver.sanitizedCustomerId(customerId)
+
         guard RuntimeDefinition.isBrokeredRuntime(runtime) else {
             runtimeURLs[runtime] = nil
             runtimeErrors[runtime] = "OpenDesign is reserved for the next desktop integration pass."
@@ -91,29 +111,48 @@ final class WorkbenchModel: ObservableObject {
             return
         }
 
-        isLoadingRuntime = true
+        if !force, runtimeURLs[runtime] != nil {
+            return
+        }
+
+        guard !loadingRuntimes.contains(runtime) else {
+            return
+        }
+
+        loadingRuntimes.insert(runtime)
         runtimeErrors[runtime] = nil
+        defer {
+            loadingRuntimes.remove(runtime)
+        }
 
         do {
             let response = try await broker.launchURL(
-                customerId: resolver.sanitizedCustomerId(customerId),
+                customerId: targetCustomerId,
                 runtime: runtime,
                 desktopSession: session
             )
+            guard targetCustomerId == resolver.sanitizedCustomerId(customerId) else {
+                return
+            }
             runtimeURLs[runtime] = response.launchUrl
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
+            handleBrokerAuthorizationFailure(status, runtime: runtime)
         } catch {
             runtimeURLs[runtime] = nil
             runtimeErrors[runtime] = "Session broker failed: \(error.localizedDescription)."
         }
 
         if let url = runtimeURLs[runtime] {
-            webViews.webView(for: runtime, customerId: resolver.sanitizedCustomerId(customerId)).load(URLRequest(url: url))
+            webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: url))
         }
-        isLoadingRuntime = false
     }
 
     func reloadSelectedRuntime() {
         guard isSignedIn else {
+            loadSelectedRuntime()
+            return
+        }
+        guard runtimeURLs[selectedRuntime] != nil else {
             loadSelectedRuntime()
             return
         }
@@ -122,8 +161,31 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func openSelectedRuntimeExternally() {
-        guard let url = runtimeURLs[selectedRuntime] else { return }
-        NSWorkspace.shared.open(url)
+        let runtime = selectedRuntime
+        let targetCustomerId = resolver.sanitizedCustomerId(customerId)
+        guard RuntimeDefinition.isBrokeredRuntime(runtime), isSignedIn else { return }
+        guard !loadingRuntimes.contains(runtime) else { return }
+
+        loadingRuntimes.insert(runtime)
+        runtimeErrors[runtime] = nil
+        Task { @MainActor in
+            defer {
+                loadingRuntimes.remove(runtime)
+            }
+
+            do {
+                let response = try await broker.launchURL(
+                    customerId: targetCustomerId,
+                    runtime: runtime,
+                    desktopSession: session
+                )
+                NSWorkspace.shared.open(response.launchUrl)
+            } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
+                handleBrokerAuthorizationFailure(status, runtime: runtime)
+            } catch {
+                runtimeErrors[runtime] = "External runtime launch failed: \(error.localizedDescription)."
+            }
+        }
     }
 
     func signIn() {
@@ -137,7 +199,7 @@ final class WorkbenchModel: ObservableObject {
             do {
                 let newSession = try await coordinator.signIn()
                 try saveAuthenticatedSession(newSession)
-                await loadRuntime(selectedRuntime)
+                await loadRuntime(selectedRuntime, force: true)
             } catch {
                 runtimeErrors[selectedRuntime] = "Desktop sign-in failed or was cancelled: \(error.localizedDescription)"
             }
@@ -146,12 +208,7 @@ final class WorkbenchModel: ObservableObject {
 
     func signOut() {
         let sessionToRevoke = session
-        try? keychain.clear()
-        session = nil
-        webViews.reset()
-        runtimeURLs.removeAll()
-        runtimeErrors.removeAll()
-        webViewRefreshToken = UUID()
+        clearLocalSessionState()
         Task {
             await broker.revoke(desktopSession: sessionToRevoke)
         }
@@ -160,6 +217,9 @@ final class WorkbenchModel: ObservableObject {
     func handleAuthCallback(_ url: URL) {
         do {
             let newSession = try DesktopSessionCallbackParser.parse(url)
+            if session?.accessToken == newSession.accessToken {
+                return
+            }
             try saveAuthenticatedSession(newSession)
             loadSelectedRuntime()
         } catch {
@@ -184,6 +244,19 @@ final class WorkbenchModel: ObservableObject {
         broker = RuntimeSessionBrokerClient()
         resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
         webViews.reset()
+        loadingRuntimes.removeAll()
+        loadingRuntimePages.removeAll()
+        runtimeURLs.removeAll()
+        runtimeErrors.removeAll()
+        webViewRefreshToken = UUID()
+    }
+
+    private func clearLocalSessionState() {
+        try? keychain.clear()
+        session = nil
+        webViews.reset()
+        loadingRuntimes.removeAll()
+        loadingRuntimePages.removeAll()
         runtimeURLs.removeAll()
         runtimeErrors.removeAll()
         webViewRefreshToken = UUID()
@@ -194,13 +267,49 @@ final class WorkbenchModel: ObservableObject {
         session = newSession
         runtimeErrors.removeAll()
         webViews.reset()
+        loadingRuntimes.removeAll()
+        loadingRuntimePages.removeAll()
         runtimeURLs.removeAll()
         webViewRefreshToken = UUID()
     }
+
+    private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
+        clearLocalSessionState()
+        runtimeErrors[runtime] = status == 401
+            ? "Your Eva Desktop session expired or was revoked. Sign in again to open runtimes."
+            : "This account is not authorized for that runtime or customer. Sign in with the right account or switch customer."
+    }
+
+    private func handleRuntimeNavigationEvent(_ runtime: RuntimeKey, event: RuntimeNavigationEvent) {
+        switch event {
+        case .started:
+            loadingRuntimePages.insert(runtime)
+            runtimeErrors[runtime] = nil
+        case .finished:
+            loadingRuntimePages.remove(runtime)
+        case .failed(let message):
+            loadingRuntimePages.remove(runtime)
+            runtimeErrors[runtime] = message
+        case .httpStatus(let status, let url):
+            loadingRuntimePages.remove(runtime)
+            let suffix = url.map { " at \($0.absoluteString)" } ?? ""
+            runtimeErrors[runtime] = "Runtime page returned HTTP \(status)\(suffix)."
+        }
+    }
+}
+
+enum RuntimeNavigationEvent {
+    case started
+    case finished
+    case failed(String)
+    case httpStatus(Int, URL?)
 }
 
 final class WebViewStore {
     private var webViews: [String: WKWebView] = [:]
+    private var delegates: [String: RuntimeNavigationObserver] = [:]
+
+    var onNavigationEvent: ((RuntimeKey, RuntimeNavigationEvent) -> Void)?
 
     func webView(for runtime: RuntimeKey, customerId: String) -> WKWebView {
         let key = "\(customerId)::\(runtime.rawValue)"
@@ -215,6 +324,11 @@ final class WebViewStore {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.customUserAgent = "EvaDesktop/0.1 WKWebView"
+        let delegate = RuntimeNavigationObserver(runtime: runtime) { [weak self] runtime, event in
+            self?.onNavigationEvent?(runtime, event)
+        }
+        webView.navigationDelegate = delegate
+        delegates[key] = delegate
         webViews[key] = webView
         return webView
     }
@@ -225,6 +339,51 @@ final class WebViewStore {
             webView.loadHTMLString("", baseURL: nil)
         }
         webViews.removeAll()
+        delegates.removeAll()
+    }
+}
+
+final class RuntimeNavigationObserver: NSObject, WKNavigationDelegate {
+    private let runtime: RuntimeKey
+    private let onEvent: (RuntimeKey, RuntimeNavigationEvent) -> Void
+
+    init(runtime: RuntimeKey, onEvent: @escaping (RuntimeKey, RuntimeNavigationEvent) -> Void) {
+        self.runtime = runtime
+        self.onEvent = onEvent
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        onEvent(runtime, .started)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        onEvent(runtime, .finished)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        onEvent(runtime, .failed("Runtime page failed to load: \(error.localizedDescription)."))
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        onEvent(runtime, .failed("Runtime page failed to start loading: \(error.localizedDescription)."))
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        onEvent(runtime, .failed("Runtime web content stopped unexpectedly. Reconnect this runtime to continue."))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        if
+            let response = navigationResponse.response as? HTTPURLResponse,
+            response.statusCode >= 400
+        {
+            onEvent(runtime, .httpStatus(response.statusCode, response.url))
+        }
+        decisionHandler(.allow)
     }
 }
 
