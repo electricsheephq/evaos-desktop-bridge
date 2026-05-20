@@ -67,7 +67,8 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
             key: .openDesign,
             title: "OpenDesign",
             subtitle: "Design workspace and visual product building.",
-            systemImage: "paintpalette"
+            systemImage: "paintpalette",
+            availability: .comingSoon
         ),
         RuntimeDefinition(
             key: .liveBrowser,
@@ -87,5 +88,13 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
     public static func definition(for key: RuntimeKey) -> RuntimeDefinition {
         all.first { $0.key == key } ?? all[0]
     }
-}
 
+    public static func isBrokeredRuntime(_ key: RuntimeKey) -> Bool {
+        switch key {
+        case .openclaw, .hermes, .missionControl, .liveBrowser, .terminal:
+            return true
+        case .openDesign:
+            return false
+        }
+    }
+}

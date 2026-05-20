@@ -38,12 +38,18 @@ swift run EvaDesktopCoreSmoke
 ## Session Model
 
 The app uses `ASWebAuthenticationSession` and Keychain for desktop login state.
-Desktop login opens `https://www.electricsheephq.com/desktop-auth`, which
-returns an opaque `desktop_session` through the `evaos://auth/callback` URL
-scheme. Runtime launch URLs come from the Supabase Edge Function broker at
+Desktop login opens `https://www.electricsheephq.com/desktop-auth` in a secure
+system popup, then returns an opaque `desktop_session` through the
+`evaos://auth/callback` URL scheme. Runtime launch URLs come from the Supabase
+Edge Function broker at
 `https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session`.
-If no desktop session is present, the app uses the existing public runtime host
-patterns as a preview/fallback so the shell remains usable during development.
+If no desktop session is present, runtime tabs show a native sign-in prompt
+instead of loading public website or dashboard routes inside the workbench.
+
+For local auth testing, launch the bundled app with `./script/build_and_run.sh`.
+The raw `swift run EvaDesktop` executable does not register the `evaos://` URL
+scheme with Launch Services, so the browser callback cannot reliably return to
+the app in that mode.
 
 The app does not store raw VM secrets, runtime backend tokens, auth headers, or
 cookies in app model state.
