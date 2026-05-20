@@ -38,7 +38,10 @@ swift run EvaDesktopCoreSmoke
 ## Session Model
 
 The app uses `ASWebAuthenticationSession` and Keychain for desktop login state.
-Runtime launch URLs should come from the Electric Sheep backend session broker.
+Desktop login opens `https://www.electricsheephq.com/desktop-auth`, which
+returns an opaque `desktop_session` through the `evaos://auth/callback` URL
+scheme. Runtime launch URLs come from the Supabase Edge Function broker at
+`https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session`.
 If no desktop session is present, the app uses the existing public runtime host
 patterns as a preview/fallback so the shell remains usable during development.
 
@@ -48,6 +51,10 @@ cookies in app model state.
 Desktop login must return a broker-minted `desktop_session` with explicit
 expiry. Generic OAuth authorization codes or provider `access_token` values are
 not accepted as durable desktop sessions.
+
+Sign-out clears Keychain and best-effort revokes the opaque desktop session in
+Supabase. VM runtime cookies are still minted by `evaos-ws-proxy`; they are not
+stored in Keychain or app model state.
 
 ## Bridge Model
 

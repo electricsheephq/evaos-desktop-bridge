@@ -47,7 +47,7 @@ final class WorkbenchModel: ObservableObject {
         let dashboardBaseURL = URL(string: UserDefaults.standard.string(forKey: "EvaDesktop.dashboardBaseURL") ?? "https://www.electricsheephq.com")
             ?? URL(string: "https://www.electricsheephq.com")!
         let runtimeBaseDomain = UserDefaults.standard.string(forKey: "EvaDesktop.runtimeBaseDomain") ?? "ecs.electricsheephq.com"
-        broker = RuntimeSessionBrokerClient(dashboardBaseURL: dashboardBaseURL)
+        broker = RuntimeSessionBrokerClient()
         resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
         session = try? keychain.load()
         reloadFallbackURLs()
@@ -117,11 +117,15 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func signOut() {
+        let sessionToRevoke = session
         try? keychain.clear()
         session = nil
         webViews.reset()
         reloadFallbackURLs()
         webViewRefreshToken = UUID()
+        Task {
+            await broker.revoke(desktopSession: sessionToRevoke)
+        }
     }
 
     func refreshBridgeStatus() {
@@ -138,7 +142,7 @@ final class WorkbenchModel: ObservableObject {
             return
         }
 
-        broker = RuntimeSessionBrokerClient(dashboardBaseURL: dashboardBaseURL)
+        broker = RuntimeSessionBrokerClient()
         resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
         webViews.reset()
         reloadFallbackURLs()
@@ -190,7 +194,7 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
     }
 
     func signIn() async throws -> DesktopSession {
-        var components = URLComponents(url: dashboardBaseURL.appendingPathComponent("dashboard"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: dashboardBaseURL.appendingPathComponent("desktop-auth"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "desktop_app", value: "1")]
         let authURL = components.url!
 
@@ -222,7 +226,7 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
                     let token,
                     !token.isEmpty,
                     let expiresAtValue,
-                    let expiresAt = ISO8601DateFormatter().date(from: expiresAtValue)
+                    let expiresAt = EvaDesktopISO8601.parse(expiresAtValue)
                 else {
                     continuation.resume(throwing: RuntimeSessionBrokerError.invalidResponse)
                     return

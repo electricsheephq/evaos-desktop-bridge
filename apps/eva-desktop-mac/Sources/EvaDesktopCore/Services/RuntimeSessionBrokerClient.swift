@@ -18,6 +18,8 @@ public enum RuntimeSessionBrokerError: Error, LocalizedError {
 }
 
 public struct RuntimeSessionBrokerClient: Sendable {
+    public static let productionEndpoint = URL(string: "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")!
+
     public let endpoint: URL
     public let urlSession: URLSession
 
@@ -30,16 +32,17 @@ public struct RuntimeSessionBrokerClient: Sendable {
     }
 
     public init(
-        dashboardBaseURL: URL = URL(string: "https://www.electricsheephq.com")!,
+        projectFunctionEndpoint: URL = RuntimeSessionBrokerClient.productionEndpoint,
         urlSession: URLSession = .shared
     ) {
-        self.init(
-            endpoint: dashboardBaseURL
-                .appendingPathComponent("api")
-                .appendingPathComponent("desktop")
-                .appendingPathComponent("runtime-session"),
-            urlSession: urlSession
-        )
+        self.init(endpoint: projectFunctionEndpoint, urlSession: urlSession)
+    }
+
+    public init(
+        dashboardBaseURL _: URL,
+        urlSession: URLSession = .shared
+    ) {
+        self.init(endpoint: RuntimeSessionBrokerClient.productionEndpoint, urlSession: urlSession)
     }
 
     public func launchURL(
@@ -65,12 +68,25 @@ public struct RuntimeSessionBrokerClient: Sendable {
             throw RuntimeSessionBrokerError.httpStatus(httpResponse.statusCode)
         }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         do {
-            return try decoder.decode(RuntimeLaunchResponse.self, from: data)
+            return try EvaDesktopISO8601.decoder().decode(RuntimeLaunchResponse.self, from: data)
         } catch {
             throw RuntimeSessionBrokerError.invalidResponse
         }
+    }
+
+    public func revoke(desktopSession: DesktopSession?) async {
+        guard let desktopSession else { return }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+        guard let body = try? JSONEncoder().encode(DesktopSessionRevokeRequest()) else {
+            return
+        }
+        request.httpBody = body
+
+        _ = try? await urlSession.data(for: request)
     }
 }
