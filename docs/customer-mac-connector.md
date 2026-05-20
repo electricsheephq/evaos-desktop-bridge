@@ -139,19 +139,43 @@ EVAOS_SUPPORT_CANARY_CONTROLS=1 \
   evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 ```
 
+If the Mac is not joined to the same Headscale mesh as the support VM, use a
+temporary reverse SSH tunnel for the canary instead of changing the Mac's active
+VPN profile:
+
+```bash
+EVAOS_SUPPORT_CANARY_CONTROLS=1 \
+  .venv/bin/python -m evaos_desktop_bridge.cli serve --host 127.0.0.1 --port 8766
+
+ssh -N -R 127.0.0.1:8766:127.0.0.1:8766 root@<support-vm-public-ip>
+```
+
+Then set `EVAOS_DESKTOP_BRIDGE_URL=http://127.0.0.1:8766` on the support VM.
+The connector CLI commands are local-first; remote support-shell tests should
+use `/v1/commands` directly or the OpenClaw plugin remote mode.
+
 Recommended smoke order:
 
 ```bash
-evaos-desktop-bridge customer-mac status --json
-evaos-desktop-bridge codex app-server remote-control-status --json
-evaos-desktop-bridge customer-mac iphone-mirroring status --json
-evaos-desktop-bridge customer-mac iphone-mirroring open-app --json --app-name Bumble --dry-run
-evaos-desktop-bridge customer-mac iphone-mirroring swipe-left --json --dry-run
-evaos-desktop-bridge customer-mac iphone-mirroring send-approved-message \
-  --json \
-  --text "exact approved text" \
-  --recipient-context "exact human-approved Bumble/context note" \
-  --dry-run
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${EVAOS_DESKTOP_BRIDGE_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacStatus","params":{}}'
+
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${EVAOS_DESKTOP_BRIDGE_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"codexAppServerRemoteControlStatus","params":{}}'
+
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${EVAOS_DESKTOP_BRIDGE_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringStatus","params":{}}'
+
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${EVAOS_DESKTOP_BRIDGE_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringOpenApp","params":{"app_name":"Bumble","dry_run":true}}'
 ```
 
 For any live action, rerun the exact same command with `dry_run=false` implied

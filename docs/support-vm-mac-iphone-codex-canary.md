@@ -35,6 +35,24 @@ EVAOS_SUPPORT_CANARY_CONTROLS=1 \
   evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 ```
 
+If the operator Mac is on a different tailnet than the support VM, keep the
+connector loopback-only and use a temporary SSH reverse tunnel from the Mac to
+the support VM instead:
+
+```bash
+EVAOS_SUPPORT_CANARY_CONTROLS=1 \
+  .venv/bin/python -m evaos_desktop_bridge.cli serve --host 127.0.0.1 --port 8766
+
+ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -R 127.0.0.1:8766:127.0.0.1:8766 \
+  root@<support-vm-public-ip>
+```
+
+The reverse tunnel requires `AllowTcpForwarding yes` on the support VM. Keep it
+limited to the support canary and restore the previous sshd setting afterward if
+the VM should not retain tunnel support.
+
 Token:
 
 ```bash
@@ -51,13 +69,35 @@ export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
 export EVAOS_DESKTOP_BRIDGE_TOKEN=<connector-token>
 ```
 
+The OpenClaw plugin reads those environment variables directly. The bridge CLI
+itself is local-first; when testing from a bare support shell, call the
+connector HTTP endpoint:
+
+```bash
+TOKEN="$(cat /root/.evaos-desktop-bridge-connector.token)"
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacStatus","params":{}}'
+```
+
 Readiness:
 
 ```bash
-evaos-desktop-bridge customer-mac status --json
-evaos-desktop-bridge codex app-server remote-control-status --json
-evaos-desktop-bridge customer-mac iphone-mirroring status --json
-evaos-desktop-bridge audit-tail --json --limit 10
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacStatus","params":{}}'
+
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"codexAppServerRemoteControlStatus","params":{}}'
+
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringStatus","params":{}}'
 ```
 
 The Workbench Bridge panel should show:
@@ -86,11 +126,10 @@ Preferred path:
 Fallback path:
 
 ```bash
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  evaos-desktop-bridge codex continue-thread \
-  --json \
-  --title "SDK Docs" \
-  --dry-run
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"codexContinueThread","params":{"title":"SDK Docs","dry_run":true}}'
 ```
 
 If the dry-run identifies exactly one visible thread and the human approves,
@@ -107,26 +146,29 @@ flow if prompted.
 Dry-run open Bumble:
 
 ```bash
-evaos-desktop-bridge customer-mac iphone-mirroring open-app \
-  --json \
-  --app-name Bumble \
-  --dry-run
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringOpenApp","params":{"app_name":"Bumble","dry_run":true}}'
 ```
 
 Dry-run gestures:
 
 ```bash
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  evaos-desktop-bridge customer-mac iphone-mirroring swipe-left --json --dry-run
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringSwipeLeft","params":{"dry_run":true}}'
 
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  evaos-desktop-bridge customer-mac iphone-mirroring swipe-right --json --dry-run
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringSwipeRight","params":{"dry_run":true}}'
 
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  evaos-desktop-bridge customer-mac iphone-mirroring scroll \
-  --json \
-  --direction down \
-  --dry-run
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringScroll","params":{"direction":"down","dry_run":true}}'
 ```
 
 Live gesture: rerun the same command without `--dry-run` and include the
@@ -135,12 +177,10 @@ matching `--approval-audit-id`.
 Approved message send:
 
 ```bash
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  evaos-desktop-bridge customer-mac iphone-mirroring send-approved-message \
-  --json \
-  --text "exact same-turn-approved message" \
-  --recipient-context "exact same-turn-approved Bumble recipient/context" \
-  --dry-run
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"customerMacIphoneMirroringSendApprovedMessage","params":{"text":"exact same-turn-approved message","recipient_context":"exact same-turn-approved Bumble recipient/context","dry_run":true}}'
 ```
 
 Only after the human approves the exact recipient/context and exact text, rerun
@@ -160,7 +200,10 @@ Blocked without separate approval:
 Save the final audit tail:
 
 ```bash
-evaos-desktop-bridge audit-tail --json --limit 30
+curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"auditTail","params":{"limit":30}}'
 ```
 
 Evidence must include:
@@ -180,4 +223,3 @@ Evidence must include:
 - Revoke iPhone Mirroring access from the Mac or iPhone if the test is complete.
 - Rotate/remove the connector token if the support VM pairing is no longer
   needed.
-
