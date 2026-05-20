@@ -83,6 +83,11 @@ class FakeObserver:
             return CommandResult(ok=True, data={"selected": False, "would_select": True, "thread_id": thread_id})
         return CommandResult(ok=True, data={"selected": True, "thread_id": thread_id})
 
+    def continue_thread(self, *, title: str, prompt: str = "continue", dry_run: bool = False) -> CommandResult:
+        if title != "SDK Docs":
+            return CommandResult(ok=False, data={"submitted": False}, errors=[{"code": "codex_thread_title_not_unique", "message": "missing", "guidance": "rerun threads"}])
+        return CommandResult(ok=True, data={"submitted": not dry_run, "would_submit": dry_run, "title": title, "prompt_preview": prompt})
+
     def snapshot(self, *, max_chars: int) -> CommandResult:
         return CommandResult(
             ok=True,
@@ -171,10 +176,8 @@ class FakeCustomerMac:
     def iphone_mirroring_focus(self, *, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"focused": not dry_run, "would_focus": dry_run, "app_name": "iPhone Mirroring"})
 
-    def iphone_mirroring_action(self, *, action: str, text: str | None = None, app_name: str | None = None, target_label: str | None = None, dry_run: bool = False) -> CommandResult:
-        if action == "scroll":
-            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[{"code": "iphone_action_disabled_pending_evidence", "message": "disabled", "guidance": "use supported actions"}])
-        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "action": action, "text_preview": text, "app_name": app_name, "target_label": target_label})
+    def iphone_mirroring_action(self, *, action: str, text: str | None = None, app_name: str | None = None, target_label: str | None = None, direction: str | None = None, recipient_context: str | None = None, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "action": action, "text_preview": text, "app_name": app_name, "target_label": target_label, "direction": direction, "recipient_context": recipient_context})
 
     def screen_sharing_status(self) -> CommandResult:
         return CommandResult(ok=True, data={"enabled": self.mode == "screen_sharing_enabled", "bridge_can_enable": False, "approval_required_to_enable": True})
@@ -191,6 +194,9 @@ class FakeAppServer:
         if self.mode != "ok":
             return CommandResult(ok=False, errors=[{"code": "app_server_unavailable", "message": "offline", "guidance": "start app-server"}])
         return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Thread 1", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items})
+
+    def remote_control_status(self) -> CommandResult:
+        return CommandResult(ok=True, data={"preferred_path": "codex_native_remote_control", "safety": {"read_only_probe": True}})
 
 
 def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
@@ -311,6 +317,20 @@ def test_select_thread_dry_run_is_audited_visible_action(tmp_path: Path) -> None
     assert payload["data"]["would_select"] is True
 
 
+def test_continue_thread_support_fallback_requires_matching_dry_run_audit(tmp_path: Path) -> None:
+    rejected = run_cli(["codex", "continue-thread", "--json", "--title", "SDK Docs"], FakeObserver(), tmp_path)
+
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "approval_audit_required"
+
+    dry_run = run_cli(["codex", "continue-thread", "--json", "--title", "SDK Docs", "--dry-run"], FakeObserver(), tmp_path)
+    approved = run_cli(["codex", "continue-thread", "--json", "--title", "SDK Docs", "--approval-audit-id", dry_run["audit_id"]], FakeObserver(), tmp_path)
+
+    assert approved["_exit_code"] == 0
+    assert approved["command"] == "codex.continue_thread"
+    assert approved["data"]["submitted"] is True
+
+
 def test_focus_permission_error_is_graceful_json(tmp_path: Path) -> None:
     payload = run_cli(
         ["codex", "focus", "--json"],
@@ -375,6 +395,14 @@ def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.app_server.threads"
     assert payload["data"]["threads"][0]["source"] == "app_server"
+
+
+def test_app_server_remote_control_status_is_read_only(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "app-server", "remote-control-status", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.app_server.remote_control_status"
+    assert payload["data"]["safety"]["read_only_probe"] is True
 
 
 def test_customer_mac_status_reports_device_and_safety(tmp_path: Path) -> None:
@@ -459,11 +487,44 @@ def test_customer_mac_iphone_mirroring_named_actions(tmp_path: Path) -> None:
     assert payload["data"]["app_name"] == "Calculator"
 
 
-def test_customer_mac_iphone_mirroring_scroll_is_disabled(tmp_path: Path) -> None:
-    payload = run_cli(["customer-mac", "iphone-mirroring", "scroll", "--json"], FakeObserver(), tmp_path)
+def test_customer_mac_iphone_mirroring_scroll_requires_approval_for_live(tmp_path: Path) -> None:
+    rejected = run_cli(["customer-mac", "iphone-mirroring", "scroll", "--json"], FakeObserver(), tmp_path)
 
-    assert payload["_exit_code"] == 2
-    assert payload["errors"][0]["code"] == "iphone_action_disabled_pending_evidence"
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "approval_audit_required"
+
+    dry_run = run_cli(["customer-mac", "iphone-mirroring", "scroll", "--json", "--direction", "down", "--dry-run"], FakeObserver(), tmp_path)
+    approved = run_cli(["customer-mac", "iphone-mirroring", "scroll", "--json", "--direction", "down", "--approval-audit-id", dry_run["audit_id"]], FakeObserver(), tmp_path)
+
+    assert approved["_exit_code"] == 0
+    assert approved["data"]["action"] == "scroll"
+    assert approved["data"]["direction"] == "down"
+
+
+def test_customer_mac_iphone_mirroring_send_approved_message_is_guarded(tmp_path: Path) -> None:
+    rejected = run_cli(
+        ["customer-mac", "iphone-mirroring", "send-approved-message", "--json", "--text", "Hello", "--recipient-context", "Bumble canary profile"],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "approval_audit_required"
+
+    dry_run = run_cli(
+        ["customer-mac", "iphone-mirroring", "send-approved-message", "--json", "--text", "Hello", "--recipient-context", "Bumble canary profile", "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+    approved = run_cli(
+        ["customer-mac", "iphone-mirroring", "send-approved-message", "--json", "--text", "Hello", "--recipient-context", "Bumble canary profile", "--approval-audit-id", dry_run["audit_id"]],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert approved["_exit_code"] == 0
+    assert approved["data"]["action"] == "send_approved_message"
+    assert approved["data"]["recipient_context"] == "Bumble canary profile"
 
 
 def test_customer_mac_screen_sharing_status_cannot_enable(tmp_path: Path) -> None:

@@ -45,6 +45,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var customerMacStatusText = "Customer Mac connector status has not been checked yet."
     @Published var iPhoneMirroringStatusText = "iPhone Mirroring status has not been checked yet."
     @Published var screenSharingStatusText = "Screen Sharing status has not been checked yet."
+    @Published var codexRemoteControlStatusText = "Codex remote-control readiness has not been checked yet."
     @Published var bridgeCapabilitiesText = "Bridge capabilities have not been checked yet."
     @Published var customerMacCapabilitiesText = "Customer Mac capabilities have not been checked yet."
     @Published var bridgeAuditText = "Bridge audit trail has not been checked yet."
@@ -335,6 +336,7 @@ final class WorkbenchModel: ObservableObject {
             customerMacStatusText = await bridge.run(arguments: ["customer-mac", "status", "--json"])
             iPhoneMirroringStatusText = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
             screenSharingStatusText = await bridge.run(arguments: ["customer-mac", "screen-sharing", "status", "--json"])
+            codexRemoteControlStatusText = await bridge.run(arguments: ["codex", "app-server", "remote-control-status", "--json"])
             bridgeCapabilitiesText = await bridge.run(arguments: ["capabilities", "--json"])
             customerMacCapabilitiesText = await bridge.run(arguments: ["customer-mac", "capabilities", "--json"])
             bridgeAuditText = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])

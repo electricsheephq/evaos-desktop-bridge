@@ -8,16 +8,19 @@ new SwiftUI app under `apps/eva-desktop-mac/` is the customer-facing cockpit for
 OpenClaw, Hermes, Mission Control, OpenDesign, Live Browser, and Terminal.
 
 The workbench MVP is intentionally view-first. The canary bridge now includes a
-customer-Mac connector for named, audited observations and guarded actions, but
-it still does not add broad local Mac control, iMessage, prompt sending, hidden
-shell access, public VNC/SSH, or arbitrary coordinates.
+customer-Mac connector for named, audited observations and guarded actions. A
+support-VM-only canary can also enable live iPhone Mirroring gestures and one
+approved message flow with `EVAOS_SUPPORT_CANARY_CONTROLS=1`; customer
+connectors leave that unset. The bridge still does not add broad local Mac
+control, iMessage automation, hidden shell access, public VNC/SSH, or arbitrary
+coordinates.
 
 The Mac app may call fixed read-only `evaos-desktop-bridge` status commands
 from its Bridge panel after an explicit refresh. It shows connector/iPhone
 status and audit context, but it does not expose arbitrary local commands or
 local-control action buttons.
 
-The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. The next canary adds customer-Mac and iPhone Mirroring status plus named actions with dry-run/approval gates. It does not send prompts, type into Codex, click send/approval controls, call mutation RPCs, hijack stdio, or read Codex session databases.
+The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. The support canary adds a read-only Codex native remote-control readiness probe and an exact `continue` GUI fallback for a visible thread such as `SDK Docs`. It does not expose generic prompt sending, arbitrary Codex RPCs, hidden mutation sockets, stdio hijacking, or Codex session database reads.
 
 ## Eva Desktop Workbench
 
@@ -40,6 +43,7 @@ Architecture and sprint docs:
 - [Eva Desktop Workbench MVP Sprint](docs/eva-desktop-workbench-sprint.md)
 - [Eva Desktop Packaging And Notarization](docs/eva-desktop-packaging.md)
 - [Customer Mac Connector V1](docs/customer-mac-connector.md)
+- [Support VM Mac/iPhone/Codex Canary Runbook](docs/support-vm-mac-iphone-codex-canary.md)
 
 ## Architecture
 
@@ -148,9 +152,21 @@ Returns a capped Accessibility tree with `role` and `name` only. It omits values
 ```bash
 evaos-desktop-bridge codex app-server status --json
 evaos-desktop-bridge codex app-server threads --json --max-items 50
+evaos-desktop-bridge codex app-server remote-control-status --json
 ```
 
-The app-server adapter uses a hard allowlist for read methods only. It can report status and attempt capped thread reads, but it blocks turn starts, steering, interrupts, injection, shell commands, file writes, config writes, plugin installs, login/logout, and other mutations.
+The app-server adapter uses a hard allowlist for read methods only. It can report status, probe native remote-control readiness, and attempt capped thread reads, but it blocks turn starts, steering, interrupts, injection, shell commands, file writes, config writes, plugin installs, login/logout, and other mutations.
+
+Support-only Codex visible fallback:
+
+```bash
+EVAOS_SUPPORT_CANARY_CONTROLS=1 \
+  evaos-desktop-bridge codex continue-thread --json --title "SDK Docs" --dry-run
+```
+
+Live use requires rerunning the exact same command without `--dry-run` and with
+the matching `--approval-audit-id`. The prompt is fixed to `continue`; anything
+richer belongs in Codex's native remote-control path, not this GUI fallback.
 
 ### Announcement Queue
 
@@ -179,6 +195,24 @@ The connector exposes named actions only. Dry-run is the default for guarded
 actions. Sensitive Mac/iPhone apps, dangerous target labels, arbitrary
 coordinates, generic shell, AppleScript passthrough, and Screen Sharing
 enablement are blocked.
+
+Support-only live iPhone canary controls:
+
+```bash
+EVAOS_SUPPORT_CANARY_CONTROLS=1 \
+  evaos-desktop-bridge customer-mac iphone-mirroring swipe-left --json --dry-run
+
+EVAOS_SUPPORT_CANARY_CONTROLS=1 \
+  evaos-desktop-bridge customer-mac iphone-mirroring send-approved-message \
+    --json \
+    --text "exact approved text" \
+    --recipient-context "exact human-approved Bumble/context note" \
+    --dry-run
+```
+
+These commands are for the support VM canary only. Live sends require the exact
+same-turn recipient/context and exact text approval, plus a matching
+`approval_audit_id`.
 
 For paired-VM canaries, run the connector server on the Mac:
 
@@ -209,7 +243,9 @@ The `openclaw-plugin/` package exposes fixed read-only tools for OpenClaw:
 - `desktop_bridge_codex_inspect`
 - `desktop_bridge_codex_ax_tree`
 - `desktop_bridge_codex_app_server_status`
+- `desktop_bridge_codex_app_server_remote_control_status`
 - `desktop_bridge_codex_app_server_threads`
+- `desktop_bridge_codex_continue_thread`
 - `customer_mac_status`
 - `customer_mac_capabilities`
 - `customer_mac_snapshot`
@@ -226,6 +262,12 @@ The `openclaw-plugin/` package exposes fixed read-only tools for OpenClaw:
 - `customer_mac_iphone_mirroring_open_app`
 - `customer_mac_iphone_mirroring_tap_named_target`
 - `customer_mac_iphone_mirroring_scroll`
+- `customer_mac_iphone_mirroring_swipe_left`
+- `customer_mac_iphone_mirroring_swipe_right`
+- `customer_mac_iphone_mirroring_swipe_up`
+- `customer_mac_iphone_mirroring_swipe_down`
+- `customer_mac_iphone_mirroring_type_approved_text`
+- `customer_mac_iphone_mirroring_send_approved_message`
 - `customer_mac_screen_sharing_status`
 
 The plugin calls `evaos-desktop-bridge` through fixed argv mappings, or the
@@ -258,7 +300,7 @@ Live focus and Accessibility-tree reads require Accessibility permission. Screen
 - No full internal control socket.
 - No hidden mutation backdoor.
 - No mutation-capable Codex app-server calls.
-- No prompt/message/turn sending.
+- No generic or unapproved prompt/message/turn sending.
 - No generic OpenClaw shell passthrough through the plugin.
 - No public VNC/SSH/CDP access to the Mac.
 - No generic coordinates or arbitrary AppleScript passthrough.

@@ -29,11 +29,13 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_frontmost",
         "desktop_bridge_codex_windows",
         "desktop_bridge_codex_threads",
+        "desktop_bridge_codex_continue_thread",
         "desktop_bridge_codex_select_thread",
         "desktop_bridge_codex_snapshot",
         "desktop_bridge_codex_inspect",
         "desktop_bridge_codex_ax_tree",
         "desktop_bridge_codex_app_server_status",
+        "desktop_bridge_codex_app_server_remote_control_status",
         "desktop_bridge_codex_app_server_threads",
         "customer_mac_status",
         "customer_mac_capabilities",
@@ -50,6 +52,12 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "customer_mac_iphone_mirroring_open_app",
         "customer_mac_iphone_mirroring_tap_named_target",
         "customer_mac_iphone_mirroring_scroll",
+        "customer_mac_iphone_mirroring_swipe_left",
+        "customer_mac_iphone_mirroring_swipe_right",
+        "customer_mac_iphone_mirroring_swipe_up",
+        "customer_mac_iphone_mirroring_swipe_down",
+        "customer_mac_iphone_mirroring_type_approved_text",
+        "customer_mac_iphone_mirroring_send_approved_message",
         "customer_mac_screen_sharing_status",
     ]
     for tool_name in expected_tools:
@@ -80,6 +88,7 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert '"app-server"' in source
     assert '"customer-mac"' in source
     assert "customerMacIphoneMirroringOpenApp" in source
+    assert "customerMacIphoneMirroringSendApprovedMessage" in source
     assert "turn/start" not in source
     assert "session.db" not in source
 

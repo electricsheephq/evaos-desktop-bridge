@@ -39,7 +39,9 @@ desktop app session material in Keychain.
 - No broad local Mac control.
 - No iPhone Mirroring automation.
 - No iMessage read/send integration.
-- No prompt sending or approval clicking through Codex/OpenClaw desktop surfaces.
+- No generic prompt sending or approval clicking through Codex/OpenClaw desktop
+  surfaces; support-only exact `continue` fallback is tracked in the canary
+  runbook, not the Workbench MVP.
 - No raw VM secrets, runtime backend tokens, auth headers, or session database
   reads in the desktop app.
 - No generic shell execution, arbitrary local subprocess runner, Accessibility,

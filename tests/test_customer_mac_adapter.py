@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sys
 from pathlib import Path
 
 from evaos_desktop_bridge.adapters import customer_mac
@@ -68,6 +70,83 @@ def test_iphone_tap_named_target_blocks_dangerous_labels_during_dry_run(monkeypa
     assert result.ok is False
     assert result.errors[0]["code"] == "target_label_not_allowed"
     assert_no_mutation_commands(observer.runner.commands)
+
+
+def test_iphone_support_canary_swipe_requires_env(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    monkeypatch.delenv("EVAOS_SUPPORT_CANARY_CONTROLS", raising=False)
+    observer = CustomerMacObserver(
+        runner=FakeRunner({("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr="")}),
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.iphone_mirroring_action(action="swipe_left", dry_run=True)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "support_canary_controls_not_enabled"
+    assert_no_mutation_commands(observer.runner.commands)
+
+
+def test_iphone_support_canary_swipe_dry_run_is_named_and_non_mutating(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    monkeypatch.setenv("EVAOS_SUPPORT_CANARY_CONTROLS", "1")
+    observer = CustomerMacObserver(
+        runner=FakeRunner({("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr="")}),
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.iphone_mirroring_action(action="swipe_left", dry_run=True)
+
+    assert result.ok is True
+    assert result.data["would_perform"] is True
+    assert result.data["support_canary"] is True
+    assert_no_mutation_commands(observer.runner.commands)
+
+
+def test_iphone_support_canary_message_requires_recipient_context(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    monkeypatch.setenv("EVAOS_SUPPORT_CANARY_CONTROLS", "1")
+    observer = CustomerMacObserver(
+        runner=FakeRunner({("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr="")}),
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.iphone_mirroring_action(action="send_approved_message", text="hello", dry_run=True)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "recipient_context_required"
+    assert_no_mutation_commands(observer.runner.commands)
+
+
+def test_iphone_support_canary_live_swipe_uses_internal_gesture_not_generic_coordinates(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    monkeypatch.setenv("EVAOS_SUPPORT_CANARY_CONTROLS", "1")
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            ("open", "-a", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="", stderr=""),
+            (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "vector": {"dx": -900, "dy": 0}}), stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(
+        runner=runner,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.iphone_mirroring_action(action="swipe_left", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["gesture"] == "scroll_wheel"
+    assert result.data["vector"] == {"dx": -900, "dy": 0}
+    assert_no_keystroke_commands(runner.commands)
 
 
 def test_iphone_safe_open_app_dry_run_stays_named_and_non_mutating(monkeypatch, tmp_path: Path) -> None:

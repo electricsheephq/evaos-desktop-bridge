@@ -30,6 +30,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.ax_tree",
         "codex.app_server.status",
         "codex.app_server.threads",
+        "codex.app_server.remote_control_status",
         "customer_mac.status",
         "customer_mac.capabilities",
         "customer_mac.snapshot",
@@ -41,6 +42,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
 
 GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "codex.select_thread": ("thread_id",),
+    "codex.continue_thread": ("title", "prompt"),
     "customer_mac.app_focus": ("app_name",),
     "customer_mac.local_site_open": ("url",),
     "customer_mac.local_site_action": ("action",),
@@ -51,6 +53,13 @@ GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "customer_mac.iphone_mirroring_type_spotlight": ("text",),
     "customer_mac.iphone_mirroring_open_app": ("app_name",),
     "customer_mac.iphone_mirroring_tap_named_target": ("target_label",),
+    "customer_mac.iphone_mirroring_scroll": ("direction",),
+    "customer_mac.iphone_mirroring_swipe_left": (),
+    "customer_mac.iphone_mirroring_swipe_right": (),
+    "customer_mac.iphone_mirroring_swipe_up": (),
+    "customer_mac.iphone_mirroring_swipe_down": (),
+    "customer_mac.iphone_mirroring_type_approved_text": ("text",),
+    "customer_mac.iphone_mirroring_send_approved_message": ("text", "recipient_context", "target_label"),
 }
 
 
@@ -131,6 +140,14 @@ def build_parser() -> argparse.ArgumentParser:
     select_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     select_parser.set_defaults(command_id="codex.select_thread", target="codex")
 
+    continue_parser = codex_subparsers.add_parser("continue-thread", help="Support-only visible fallback: select a visible Codex thread by title and submit the exact prompt 'continue'.")
+    continue_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    continue_parser.add_argument("--title", required=True, help="Visible Codex thread title query, for example SDK Docs.")
+    continue_parser.add_argument("--prompt", default="continue", help="Must be exactly 'continue'.")
+    continue_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without selecting/submitting.")
+    continue_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
+    continue_parser.set_defaults(command_id="codex.continue_thread", target="codex")
+
     snapshot_parser = codex_subparsers.add_parser("snapshot", help="Capture safe visible Codex Desktop state.")
     snapshot_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     snapshot_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum visible text chars.")
@@ -157,6 +174,10 @@ def build_parser() -> argparse.ArgumentParser:
     app_server_threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     app_server_threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum app-server thread summaries to return.")
     app_server_threads_parser.set_defaults(command_id="codex.app_server.threads", target="codex")
+
+    app_server_remote_parser = app_server_subparsers.add_parser("remote-control-status", help="Probe Codex native remote-control readiness without enabling or mutating it.")
+    app_server_remote_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_remote_parser.set_defaults(command_id="codex.app_server.remote_control_status", target="codex")
 
     customer_mac_parser = subparsers.add_parser("customer-mac", help="Customer Mac connector commands.")
     customer_mac_subparsers = customer_mac_parser.add_subparsers(dest="customer_mac_command")
@@ -220,13 +241,31 @@ def build_parser() -> argparse.ArgumentParser:
         ("home", "customer_mac.iphone_mirroring_home", "Send the iPhone Mirroring Home named action."),
         ("app-switcher", "customer_mac.iphone_mirroring_app_switcher", "Send the iPhone Mirroring App Switcher named action."),
         ("spotlight", "customer_mac.iphone_mirroring_spotlight", "Send the iPhone Mirroring Spotlight named action."),
-        ("scroll", "customer_mac.iphone_mirroring_scroll", "Report that scroll is disabled pending evidence."),
     ]:
         parser_for_action = iphone_subparsers.add_parser(subcommand, help=help_text)
         parser_for_action.add_argument("--json", action="store_true", help="Emit JSON.")
         parser_for_action.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
         parser_for_action.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
         parser_for_action.set_defaults(command_id=command_id, target="customer_mac")
+
+    iphone_scroll_parser = iphone_subparsers.add_parser("scroll", help="Support-only canary action: scroll the focused iPhone Mirroring window by named direction.")
+    iphone_scroll_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    iphone_scroll_parser.add_argument("--direction", choices=["up", "down"], default="down", help="Named scroll direction.")
+    iphone_scroll_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
+    iphone_scroll_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
+    iphone_scroll_parser.set_defaults(command_id="customer_mac.iphone_mirroring_scroll", target="customer_mac")
+
+    for subcommand, command_id, help_text in [
+        ("swipe-left", "customer_mac.iphone_mirroring_swipe_left", "Support-only canary action: swipe left in the focused iPhone Mirroring window."),
+        ("swipe-right", "customer_mac.iphone_mirroring_swipe_right", "Support-only canary action: swipe right in the focused iPhone Mirroring window."),
+        ("swipe-up", "customer_mac.iphone_mirroring_swipe_up", "Support-only canary action: swipe up in the focused iPhone Mirroring window."),
+        ("swipe-down", "customer_mac.iphone_mirroring_swipe_down", "Support-only canary action: swipe down in the focused iPhone Mirroring window."),
+    ]:
+        swipe_parser = iphone_subparsers.add_parser(subcommand, help=help_text)
+        swipe_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+        swipe_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
+        swipe_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
+        swipe_parser.set_defaults(command_id=command_id, target="customer_mac")
 
     iphone_type_parser = iphone_subparsers.add_parser("type-spotlight", help="Type short disposable/search text into iPhone Spotlight.")
     iphone_type_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -248,6 +287,22 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_tap_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without pressing.")
     iphone_tap_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_tap_parser.set_defaults(command_id="customer_mac.iphone_mirroring_tap_named_target", target="customer_mac")
+
+    iphone_type_approved_parser = iphone_subparsers.add_parser("type-approved-text", help="Support-only canary action: type exact same-turn-approved text into the focused iPhone Mirroring window.")
+    iphone_type_approved_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    iphone_type_approved_parser.add_argument("--text", required=True, help="Exact same-turn-approved text, capped at 240 chars.")
+    iphone_type_approved_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without typing.")
+    iphone_type_approved_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
+    iphone_type_approved_parser.set_defaults(command_id="customer_mac.iphone_mirroring_type_approved_text", target="customer_mac")
+
+    iphone_send_parser = iphone_subparsers.add_parser("send-approved-message", help="Support-only canary action: type and send one exact same-turn-approved message.")
+    iphone_send_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    iphone_send_parser.add_argument("--text", required=True, help="Exact same-turn-approved message text, capped at 240 chars.")
+    iphone_send_parser.add_argument("--recipient-context", required=True, help="Short human-approved recipient/context for audit evidence.")
+    iphone_send_parser.add_argument("--target-label", default="Send", help="Exact visible send control label.")
+    iphone_send_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without sending.")
+    iphone_send_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
+    iphone_send_parser.set_defaults(command_id="customer_mac.iphone_mirroring_send_approved_message", target="customer_mac")
 
     screen_sharing_parser = customer_mac_subparsers.add_parser("screen-sharing", help="Screen Sharing/Remote Management status commands.")
     screen_sharing_subparsers = screen_sharing_parser.add_subparsers(dest="screen_sharing_command")
@@ -405,6 +460,8 @@ def _run_command(
         return observer.focus(dry_run=args.dry_run)
     if command_id == "codex.select_thread":
         return observer.select_thread(thread_id=args.thread_id, dry_run=args.dry_run)
+    if command_id == "codex.continue_thread":
+        return observer.continue_thread(title=args.title, prompt=args.prompt, dry_run=args.dry_run)
     if command_id == "codex.snapshot":
         return observer.snapshot(max_chars=args.max_chars)
     if command_id == "codex.inspect":
@@ -415,6 +472,8 @@ def _run_command(
         return app_server.status()
     if command_id == "codex.app_server.threads":
         return app_server.threads(max_items=args.max_items)
+    if command_id == "codex.app_server.remote_control_status":
+        return app_server.remote_control_status()
     if command_id == "customer_mac.status":
         return customer_mac.status()
     if command_id == "customer_mac.capabilities":
@@ -446,7 +505,19 @@ def _run_command(
     if command_id == "customer_mac.iphone_mirroring_tap_named_target":
         return customer_mac.iphone_mirroring_action(action="tap_named_target", target_label=args.target_label, dry_run=args.dry_run)
     if command_id == "customer_mac.iphone_mirroring_scroll":
-        return customer_mac.iphone_mirroring_action(action="scroll", dry_run=args.dry_run)
+        return customer_mac.iphone_mirroring_action(action="scroll", direction=args.direction, dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_mirroring_swipe_left":
+        return customer_mac.iphone_mirroring_action(action="swipe_left", dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_mirroring_swipe_right":
+        return customer_mac.iphone_mirroring_action(action="swipe_right", dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_mirroring_swipe_up":
+        return customer_mac.iphone_mirroring_action(action="swipe_up", dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_mirroring_swipe_down":
+        return customer_mac.iphone_mirroring_action(action="swipe_down", dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_mirroring_type_approved_text":
+        return customer_mac.iphone_mirroring_action(action="type_approved_text", text=args.text, dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_mirroring_send_approved_message":
+        return customer_mac.iphone_mirroring_action(action="send_approved_message", text=args.text, recipient_context=args.recipient_context, target_label=args.target_label, dry_run=args.dry_run)
     if command_id == "customer_mac.screen_sharing_status":
         return customer_mac.screen_sharing_status()
     raise PolicyError(command_id)
@@ -515,11 +586,13 @@ def _capabilities() -> dict[str, object]:
                 "codex.threads",
                 "codex.focus",
                 "codex.select_thread",
+                "codex.continue_thread",
                 "codex.snapshot",
                 "codex.inspect",
                 "codex.ax_tree",
                 "codex.app_server.status",
                 "codex.app_server.threads",
+                "codex.app_server.remote_control_status",
                 "customer_mac.status",
                 "customer_mac.capabilities",
                 "customer_mac.snapshot",
@@ -536,6 +609,12 @@ def _capabilities() -> dict[str, object]:
                 "customer_mac.iphone_mirroring_open_app",
                 "customer_mac.iphone_mirroring_tap_named_target",
                 "customer_mac.iphone_mirroring_scroll",
+                "customer_mac.iphone_mirroring_swipe_left",
+                "customer_mac.iphone_mirroring_swipe_right",
+                "customer_mac.iphone_mirroring_swipe_up",
+                "customer_mac.iphone_mirroring_swipe_down",
+                "customer_mac.iphone_mirroring_type_approved_text",
+                "customer_mac.iphone_mirroring_send_approved_message",
                 "customer_mac.screen_sharing_status",
             ]
         ],

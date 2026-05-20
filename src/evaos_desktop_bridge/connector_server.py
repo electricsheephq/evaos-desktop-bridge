@@ -17,6 +17,7 @@ CommandRunner = Callable[[list[str]], tuple[int, str]]
 GUARDED_REMOTE_COMMANDS = frozenset(
     {
         "codexSelectThread",
+        "codexContinueThread",
         "customerMacAppFocus",
         "customerMacLocalSiteOpen",
         "customerMacLocalSiteAction",
@@ -27,11 +28,19 @@ GUARDED_REMOTE_COMMANDS = frozenset(
         "customerMacIphoneMirroringTypeSpotlight",
         "customerMacIphoneMirroringOpenApp",
         "customerMacIphoneMirroringTapNamedTarget",
+        "customerMacIphoneMirroringScroll",
+        "customerMacIphoneMirroringSwipeLeft",
+        "customerMacIphoneMirroringSwipeRight",
+        "customerMacIphoneMirroringSwipeUp",
+        "customerMacIphoneMirroringSwipeDown",
+        "customerMacIphoneMirroringTypeApprovedText",
+        "customerMacIphoneMirroringSendApprovedMessage",
     }
 )
 
 CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "codexSelectThread": ("codex.select_thread", ("thread_id",)),
+    "codexContinueThread": ("codex.continue_thread", ("title", "prompt")),
     "customerMacAppFocus": ("customer_mac.app_focus", ("app_name",)),
     "customerMacLocalSiteOpen": ("customer_mac.local_site_open", ("url",)),
     "customerMacLocalSiteAction": ("customer_mac.local_site_action", ("action",)),
@@ -42,6 +51,13 @@ CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "customerMacIphoneMirroringTypeSpotlight": ("customer_mac.iphone_mirroring_type_spotlight", ("text",)),
     "customerMacIphoneMirroringOpenApp": ("customer_mac.iphone_mirroring_open_app", ("app_name",)),
     "customerMacIphoneMirroringTapNamedTarget": ("customer_mac.iphone_mirroring_tap_named_target", ("target_label",)),
+    "customerMacIphoneMirroringScroll": ("customer_mac.iphone_mirroring_scroll", ("direction",)),
+    "customerMacIphoneMirroringSwipeLeft": ("customer_mac.iphone_mirroring_swipe_left", ()),
+    "customerMacIphoneMirroringSwipeRight": ("customer_mac.iphone_mirroring_swipe_right", ()),
+    "customerMacIphoneMirroringSwipeUp": ("customer_mac.iphone_mirroring_swipe_up", ()),
+    "customerMacIphoneMirroringSwipeDown": ("customer_mac.iphone_mirroring_swipe_down", ()),
+    "customerMacIphoneMirroringTypeApprovedText": ("customer_mac.iphone_mirroring_type_approved_text", ("text",)),
+    "customerMacIphoneMirroringSendApprovedMessage": ("customer_mac.iphone_mirroring_send_approved_message", ("text", "recipient_context", "target_label")),
 }
 
 
@@ -54,6 +70,7 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         "codexFrontmost": ["codex", "frontmost", "--json"],
         "codexWindows": ["codex", "windows", "--json"],
         "codexAppServerStatus": ["codex", "app-server", "status", "--json"],
+        "codexAppServerRemoteControlStatus": ["codex", "app-server", "remote-control-status", "--json"],
         "customerMacStatus": ["customer-mac", "status", "--json"],
         "customerMacCapabilities": ["customer-mac", "capabilities", "--json"],
         "customerMacIphoneMirroringStatus": ["customer-mac", "iphone-mirroring", "status", "--json"],
@@ -87,6 +104,18 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
             "--json",
             "--thread-id",
             _required_string(params, "thread_id"),
+            *_dry_run_arg(params),
+            *_approval_arg(params),
+        ]
+    if command == "codexContinueThread":
+        return [
+            "codex",
+            "continue-thread",
+            "--json",
+            "--title",
+            _required_string(params, "title"),
+            "--prompt",
+            str(params.get("prompt") or "continue"),
             *_dry_run_arg(params),
             *_approval_arg(params),
         ]
@@ -132,7 +161,32 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
             *_approval_arg(params),
         ]
     if command == "customerMacIphoneMirroringScroll":
-        return ["customer-mac", "iphone-mirroring", "scroll", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "scroll", "--json", "--direction", str(params.get("direction") or "down"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "customerMacIphoneMirroringSwipeLeft":
+        return ["customer-mac", "iphone-mirroring", "swipe-left", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "customerMacIphoneMirroringSwipeRight":
+        return ["customer-mac", "iphone-mirroring", "swipe-right", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "customerMacIphoneMirroringSwipeUp":
+        return ["customer-mac", "iphone-mirroring", "swipe-up", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "customerMacIphoneMirroringSwipeDown":
+        return ["customer-mac", "iphone-mirroring", "swipe-down", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "customerMacIphoneMirroringTypeApprovedText":
+        return ["customer-mac", "iphone-mirroring", "type-approved-text", "--json", "--text", _required_string(params, "text"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "customerMacIphoneMirroringSendApprovedMessage":
+        return [
+            "customer-mac",
+            "iphone-mirroring",
+            "send-approved-message",
+            "--json",
+            "--text",
+            _required_string(params, "text"),
+            "--recipient-context",
+            _required_string(params, "recipient_context"),
+            "--target-label",
+            str(params.get("target_label") or "Send"),
+            *_dry_run_arg(params),
+            *_approval_arg(params),
+        ]
     raise ValueError(f"Unsupported connector command: {command}")
 
 

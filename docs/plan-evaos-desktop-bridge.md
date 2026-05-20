@@ -17,7 +17,7 @@ MVP target: **Codex Desktop only**. Claude Desktop comes later through the same 
 ## Architecture
 Three-part system:
 1. **Eyes adapter (read-only first):** per-desktop-app adapter that exposes stable state JSON: app installed/running, windows, visible threads/sessions, workspace metadata, permissions, warnings. For Codex Desktop, prefer the app-server seam (`app-server proxy --sock ...`) when safely attachable; otherwise fall back to passive local-state/process inspection and, later, AX tree reads.
-2. **Hands harness:** a CLI-Anything-style harness for explicit guarded actions only. Initial actions should be narrow: focus/select visible thread, bring window frontmost, maybe click a known control. No prompt typing, no send/approve, no hidden background mutation in MVP.
+2. **Hands harness:** a CLI-Anything-style harness for explicit guarded actions only. Initial actions should be narrow: focus/select visible thread, bring window frontmost, maybe click a known control. No generic prompt typing, no send/approve, no hidden background mutation in MVP; support-only canary fallbacks must stay exact and audited.
 3. **Brain + announcement queue:** Eva/OpenClaw consumes normalized snapshots, reasons over relevance/risk, and emits suggestions, alerts, or approval requests into an announcement queue. Desktop bridge should support “observe → summarize → propose” before “act.”
 
 ## Security boundaries

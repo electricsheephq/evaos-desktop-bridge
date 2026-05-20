@@ -20,7 +20,9 @@ named and approval-gated.
 - `desktop_bridge_codex_inspect`
 - `desktop_bridge_codex_ax_tree`
 - `desktop_bridge_codex_app_server_status`
+- `desktop_bridge_codex_app_server_remote_control_status`
 - `desktop_bridge_codex_app_server_threads`
+- `desktop_bridge_codex_continue_thread`
 - `customer_mac_status`
 - `customer_mac_capabilities`
 - `customer_mac_snapshot`
@@ -37,11 +39,20 @@ named and approval-gated.
 - `customer_mac_iphone_mirroring_open_app`
 - `customer_mac_iphone_mirroring_tap_named_target`
 - `customer_mac_iphone_mirroring_scroll`
+- `customer_mac_iphone_mirroring_swipe_left`
+- `customer_mac_iphone_mirroring_swipe_right`
+- `customer_mac_iphone_mirroring_swipe_up`
+- `customer_mac_iphone_mirroring_swipe_down`
+- `customer_mac_iphone_mirroring_type_approved_text`
+- `customer_mac_iphone_mirroring_send_approved_message`
 - `customer_mac_screen_sharing_status`
 
 The plugin deliberately does not expose generic click, type, prompt-send,
 mutation app-server, session database, arbitrary coordinates, Screen Sharing
 enablement, or arbitrary shell tools. Guarded actions default to dry-run.
+Support-only iPhone live gestures/messages require
+`EVAOS_SUPPORT_CANARY_CONTROLS=1` on the Mac connector, and the exact
+same-turn approval flow before live execution.
 
 ## Local Setup
 

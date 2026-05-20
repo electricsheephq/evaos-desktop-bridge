@@ -24,6 +24,11 @@ OpenClaw tool on customer VM
 
 The VM never receives public VNC, SSH, CDP, or generic shell access to the Mac.
 
+Support-only canary note: live iPhone gestures and approved message sends are
+disabled unless the Mac connector process is launched with
+`EVAOS_SUPPORT_CANARY_CONTROLS=1`. Customer connectors must leave that variable
+unset.
+
 ## Local Connector Server
 
 Run locally for development:
@@ -109,6 +114,10 @@ Guarded actions:
 - iPhone Home, App Switcher, Spotlight;
 - open a non-sensitive iPhone app;
 - tap an exact visible iPhone Mirroring target label.
+- support-only iPhone scroll/swipe gestures when
+  `EVAOS_SUPPORT_CANARY_CONTROLS=1`;
+- support-only exact approved text entry and one-message send when the human has
+  approved the recipient/context and exact text in the same flow.
 
 Rules:
 
@@ -118,6 +127,37 @@ Rules:
 - Sensitive Mac/iPhone apps and dangerous target labels are blocked.
 - Generic coordinates, arbitrary shell, AppleScript passthrough, Screen Sharing
   enablement, and app-server mutation passthrough are blocked.
+- Support-only gesture/message commands also require `approval_audit_id`; without
+  `EVAOS_SUPPORT_CANARY_CONTROLS=1` they fail closed even for dry-runs.
+
+## Support VM Live Canary Commands
+
+Start the connector on the Mac for the support VM only:
+
+```bash
+EVAOS_SUPPORT_CANARY_CONTROLS=1 \
+  evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
+```
+
+Recommended smoke order:
+
+```bash
+evaos-desktop-bridge customer-mac status --json
+evaos-desktop-bridge codex app-server remote-control-status --json
+evaos-desktop-bridge customer-mac iphone-mirroring status --json
+evaos-desktop-bridge customer-mac iphone-mirroring open-app --json --app-name Bumble --dry-run
+evaos-desktop-bridge customer-mac iphone-mirroring swipe-left --json --dry-run
+evaos-desktop-bridge customer-mac iphone-mirroring send-approved-message \
+  --json \
+  --text "exact approved text" \
+  --recipient-context "exact human-approved Bumble/context note" \
+  --dry-run
+```
+
+For any live action, rerun the exact same command with `dry_run=false` implied
+by omitting `--dry-run` and add the matching `--approval-audit-id`. Never send a
+message unless the human approved the recipient/context and exact message text
+inside the same test flow.
 
 ## Workbench Surface
 
@@ -134,3 +174,5 @@ ACLs and connector-token rotation.
 - Headscale ACL provisioning and revocation runbook.
 - Friendly external Mac canary with token rotation evidence.
 - Codex Desktop remote-control lane after the generic Mac connector is stable.
+- Promote support-only iPhone controls only after repeated audited canaries; do
+  not include them in customer provisioning by default.

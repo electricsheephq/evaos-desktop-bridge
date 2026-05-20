@@ -19,6 +19,7 @@ from evaos_desktop_bridge.connector_server import (
 def test_connector_builds_fixed_status_argv() -> None:
     assert build_bridge_argv("customerMacStatus") == ["customer-mac", "status", "--json"]
     assert build_bridge_argv("customerMacIphoneMirroringStatus") == ["customer-mac", "iphone-mirroring", "status", "--json"]
+    assert build_bridge_argv("codexAppServerRemoteControlStatus") == ["codex", "app-server", "remote-control-status", "--json"]
 
 
 def test_connector_defaults_guarded_commands_to_dry_run() -> None:
@@ -40,6 +41,12 @@ def test_connector_allows_live_argv_only_when_requested_by_server_policy() -> No
         "--app-name",
         "Safari",
     ]
+    assert build_bridge_argv("customerMacIphoneMirroringSwipeLeft", {"dry_run": False}) == [
+        "customer-mac",
+        "iphone-mirroring",
+        "swipe-left",
+        "--json",
+    ]
 
 
 def test_connector_clamps_caps_and_rejects_missing_required_values() -> None:
@@ -55,12 +62,36 @@ def test_connector_clamps_caps_and_rejects_missing_required_values() -> None:
 
 def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> None:
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": False}) is True
+    assert _live_guarded_without_approval("customerMacIphoneMirroringSwipeLeft", {"dry_run": False}) is True
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": True}) is False
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"}) is False
     assert _live_guarded_without_approval("customerMacStatus", {}) is False
     argv = build_bridge_argv("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"})
     assert "--approval-audit-id" in argv
     assert "audit-1" in argv
+
+
+def test_connector_support_canary_message_requires_matching_dry_run_audit(tmp_path: Path) -> None:
+    dry_run_audit = append_audit(
+        command="customer_mac.iphone_mirroring_send_approved_message",
+        target="customer_mac",
+        args={"text": "Hello", "recipient_context": "Bumble canary", "target_label": "Send", "dry_run": True, "json": True, "approval_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+
+    assert _live_guarded_approval_error(
+        "customerMacIphoneMirroringSendApprovedMessage",
+        {"text": "Hello", "recipient_context": "Bumble canary", "target_label": "Send", "dry_run": False, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) is None
+    assert _live_guarded_approval_error(
+        "customerMacIphoneMirroringSendApprovedMessage",
+        {"text": "Different", "recipient_context": "Bumble canary", "target_label": "Send", "dry_run": False, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) == "approval_audit_id does not match text."
 
 
 def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tmp_path: Path) -> None:

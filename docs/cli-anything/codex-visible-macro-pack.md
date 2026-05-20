@@ -73,7 +73,9 @@ Recommended first macros:
 - `focus` is the only allowed mutation in the first pack.
 - No hidden app-server attach.
 - No session DB reads.
-- No prompt typing, send, approve, or generic click actions.
+- No generic prompt typing, send, approve, or generic click actions. The
+  support-only exact `continue` fallback lives in the connector canary, not this
+  first macro pack.
 - Keep audit logs enabled.
 
 ## Example macro skeleton

@@ -34,6 +34,7 @@ struct BridgePanelView: View {
                     BridgeOutputCard(title: "Desktop Bridge", text: model.bridgeStatusText)
                     BridgeOutputCard(title: "Customer Mac", text: model.customerMacStatusText)
                     BridgeOutputCard(title: "iPhone Mirroring", text: model.iPhoneMirroringStatusText)
+                    BridgeOutputCard(title: "Codex Remote Control", text: model.codexRemoteControlStatusText)
                     BridgeOutputCard(title: "Screen Sharing", text: model.screenSharingStatusText)
                 }
 

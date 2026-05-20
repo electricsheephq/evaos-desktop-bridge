@@ -24,6 +24,7 @@ type HookDecision =
 const SAFE_TOOL_PREFIXES = ["desktop_bridge_", "customer_mac_"];
 const APPROVAL_GATED_TOOL_PREFIXES = [
   "desktop_bridge_codex_select_thread",
+  "desktop_bridge_codex_continue_thread",
   "customer_mac_app_focus",
   "customer_mac_local_site_",
   "customer_mac_iphone_mirroring_focus",
@@ -34,7 +35,19 @@ const APPROVAL_GATED_TOOL_PREFIXES = [
   "customer_mac_iphone_mirroring_open_app",
   "customer_mac_iphone_mirroring_tap_named_target",
   "customer_mac_iphone_mirroring_scroll",
+  "customer_mac_iphone_mirroring_swipe_",
+  "customer_mac_iphone_mirroring_type_approved_text",
+  "customer_mac_iphone_mirroring_send_approved_message",
 ];
+
+const SUPPORT_CANARY_TOOL_NAMES = new Set([
+  "customer_mac_iphone_mirroring_swipe_left",
+  "customer_mac_iphone_mirroring_swipe_right",
+  "customer_mac_iphone_mirroring_swipe_up",
+  "customer_mac_iphone_mirroring_swipe_down",
+]);
+
+const SUPPORT_CANARY_ALLOWED_MATCHES = new Set(["swipe"]);
 
 const DANGEROUS_TOOL_NAMES = [
   "exec",
@@ -115,7 +128,11 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
   }).toLowerCase();
   const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern.toLowerCase()));
   if (SAFE_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
-    if (matchedPattern) {
+    const allowedSupportCanaryMatch =
+      matchedPattern !== undefined &&
+      SUPPORT_CANARY_TOOL_NAMES.has(toolName) &&
+      SUPPORT_CANARY_ALLOWED_MATCHES.has(matchedPattern);
+    if (matchedPattern && !allowedSupportCanaryMatch) {
       return {
         block: true,
         blockReason:

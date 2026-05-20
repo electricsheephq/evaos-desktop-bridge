@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -23,6 +24,7 @@ SCREEN_RECORDING_GUIDANCE = (
     "Open System Settings > Privacy & Security > Screen Recording and enable the terminal "
     "or app running evaos-desktop-bridge, then rerun the command."
 )
+SUPPORT_CANARY_ENV = "EVAOS_SUPPORT_CANARY_CONTROLS"
 
 
 @dataclass
@@ -490,6 +492,105 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             provenance={"source": "ax", "dry_run": False, "selected_visible_target_id": thread_id},
         )
 
+    def continue_thread(self, *, title: str, prompt: str = "continue", dry_run: bool = False) -> CommandResult:
+        if not self._support_canary_enabled():
+            return CommandResult(
+                ok=False,
+                data={"would_submit": dry_run, "submitted": False, "title": redact_value(title)},
+                errors=[
+                    make_error(
+                        code="support_canary_controls_not_enabled",
+                        message="Codex visible continue fallback is support-VM-only and is disabled on this host.",
+                        guidance=f"Enable {SUPPORT_CANARY_ENV}=1 only on the support canary Mac connector.",
+                    )
+                ],
+                provenance={"source": "codex_visible_fallback", "dry_run": dry_run, "support_only": True},
+            )
+        if prompt.strip().lower() != "continue":
+            return CommandResult(
+                ok=False,
+                data={"would_submit": dry_run, "submitted": False, "title": redact_value(title), "prompt_preview": self._safe_prompt_preview(prompt)},
+                errors=[
+                    make_error(
+                        code="codex_continue_prompt_not_allowed",
+                        message="The support canary Codex fallback only allows the exact prompt 'continue'.",
+                        guidance="Use Codex native remote-control for richer thread steering; do not expose generic prompt submission through this bridge.",
+                    )
+                ],
+                provenance={"source": "codex_visible_fallback", "dry_run": dry_run, "support_only": True},
+            )
+        inventory = self.threads(max_items=200)
+        if not inventory.ok:
+            inventory.provenance.update({"source": "codex_visible_fallback", "dry_run": dry_run, "support_only": True})
+            return inventory
+        query = title.strip().lower()
+        matches = [
+            item
+            for item in inventory.data.get("threads", [])
+            if query and query in str(item.get("title") or "").strip().lower()
+        ]
+        if len(matches) != 1:
+            return CommandResult(
+                ok=False,
+                data={"would_submit": dry_run, "submitted": False, "title": redact_value(title), "match_count": len(matches), "matches": matches[:10]},
+                errors=[
+                    make_error(
+                        code="codex_thread_title_not_unique",
+                        message="The requested Codex thread title did not resolve to exactly one visible thread.",
+                        guidance="Use `codex threads --json` to get current visible candidates, then narrow the title.",
+                    )
+                ],
+                provenance={"source": "codex_visible_fallback", "dry_run": dry_run, "support_only": True},
+            )
+        target = matches[0]
+        if dry_run:
+            return CommandResult(
+                ok=True,
+                data={
+                    "would_select": True,
+                    "would_submit": True,
+                    "submitted": False,
+                    "title": redact_value(title),
+                    "prompt_preview": self._safe_prompt_preview(prompt),
+                    "target": target,
+                },
+                provenance={"source": "codex_visible_fallback", "dry_run": True, "support_only": True},
+            )
+        selected = self.select_thread(thread_id=str(target["visible_id"]), dry_run=False)
+        if not selected.ok:
+            selected.provenance.update({"source": "codex_visible_fallback", "dry_run": False, "support_only": True})
+            return selected
+        type_result = self.runner(
+            [
+                "osascript",
+                "-e",
+                f'tell application "System Events" to keystroke "{self._escape_applescript(prompt.strip())}"',
+                "-e",
+                'tell application "System Events" to key code 36',
+            ],
+            5.0,
+        )
+        if type_result.returncode != 0:
+            return CommandResult(
+                ok=False,
+                data={"would_submit": False, "submitted": False, "title": redact_value(title), "target": target},
+                errors=[
+                    make_error(
+                        code="codex_continue_submit_failed",
+                        message="macOS refused the support canary Codex visible continue fallback.",
+                        guidance=ACCESSIBILITY_GUIDANCE,
+                        permission="accessibility",
+                    )
+                ],
+                warnings=[str(redact_value(type_result.stderr.strip()))] if type_result.stderr.strip() else [],
+                provenance={"source": "codex_visible_fallback", "dry_run": False, "support_only": True},
+            )
+        return CommandResult(
+            ok=True,
+            data={"submitted": True, "title": redact_value(title), "prompt_preview": self._safe_prompt_preview(prompt), "target": target},
+            provenance={"source": "codex_visible_fallback", "dry_run": False, "support_only": True},
+        )
+
     def inspect(self, *, max_nodes: int) -> CommandResult:
         status = self.status()
         frontmost = self.frontmost()
@@ -737,3 +838,13 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
     def _visible_thread_id(self, *, index: int, title: str, window_index: Any) -> str:
         digest = hashlib.sha256(f"{window_index}:{index}:{title}".encode("utf-8")).hexdigest()[:12]
         return f"visible-{index}-{digest}"
+
+    def _support_canary_enabled(self) -> bool:
+        return os.environ.get(SUPPORT_CANARY_ENV, "").strip().lower() in {"1", "true", "yes", "support"}
+
+    def _safe_prompt_preview(self, prompt: str) -> str:
+        capped, _ = cap_text(redact_value(prompt.strip()), 80)
+        return capped or ""
+
+    def _escape_applescript(self, value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')

@@ -281,7 +281,17 @@ With `--dry-run`, it returns:
 }
 ```
 
-`codex.app_server.status` returns read-only app-server availability and method allowlists. `codex.app_server.threads` returns capped thread summaries from allowed app-server read methods only.
+`codex.app_server.status` returns read-only app-server availability and method
+allowlists. `codex.app_server.remote_control_status` returns a read-only Codex
+native remote-control readiness probe. `codex.app_server.threads` returns capped
+thread summaries from allowed app-server read methods only.
+
+Support-only canary actions such as `codex.continue_thread`,
+`customer_mac.iphone_mirroring_swipe_left`, and
+`customer_mac.iphone_mirroring_send_approved_message` use the same envelope
+shape. Live use requires a matching dry-run audit id, and support-only iPhone
+live actions also require `EVAOS_SUPPORT_CANARY_CONTROLS=1` on the Mac
+connector process.
 
 `queue.append` returns a local queue event, and `queue.list` returns capped queue events for Eva/OpenClaw announcement routing.
 
