@@ -28,6 +28,9 @@ struct ContentView: View {
         .task {
             model.loadSelectedRuntime()
         }
+        .onOpenURL { url in
+            model.handleAuthCallback(url)
+        }
     }
 }
 
@@ -35,4 +38,3 @@ enum SidebarSelection: Hashable {
     case runtime(RuntimeKey)
     case bridge
 }
-

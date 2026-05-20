@@ -17,6 +17,56 @@ public struct DesktopSession: Codable, Equatable, Sendable {
     }
 }
 
+public enum DesktopSessionCallbackError: Error, LocalizedError, Sendable {
+    case invalidCallback
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidCallback:
+            "The ElectricSheep login callback did not include a valid desktop session."
+        }
+    }
+}
+
+public enum DesktopSessionCallbackParser {
+    public static func parse(_ callbackURL: URL) throws -> DesktopSession {
+        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+            throw DesktopSessionCallbackError.invalidCallback
+        }
+        guard
+            components.scheme == "evaos",
+            components.host == "auth",
+            components.path == "/callback"
+        else {
+            throw DesktopSessionCallbackError.invalidCallback
+        }
+
+        var items = components.queryItems ?? []
+        if
+            let fragment = components.fragment,
+            let fragmentComponents = URLComponents(string: "evaos://auth/callback?\(fragment)")
+        {
+            items.append(contentsOf: fragmentComponents.queryItems ?? [])
+        }
+
+        let token = items.first(where: { $0.name == "desktop_session" })?.value
+        let email = items.first(where: { $0.name == "email" })?.value
+        let expiresAtValue = items.first(where: { $0.name == "desktop_session_expires_at" })?.value
+            ?? items.first(where: { $0.name == "expires_at" })?.value
+
+        guard
+            let token,
+            !token.isEmpty,
+            let expiresAtValue,
+            let expiresAt = EvaDesktopISO8601.parse(expiresAtValue)
+        else {
+            throw DesktopSessionCallbackError.invalidCallback
+        }
+
+        return DesktopSession(accessToken: token, userEmail: email, expiresAt: expiresAt)
+    }
+}
+
 public enum EvaDesktopISO8601 {
     public static func parse(_ value: String) -> Date? {
         let fractional = ISO8601DateFormatter()

@@ -21,12 +21,15 @@ final class WorkbenchModel: ObservableObject {
     @Published var customerId: String = UserDefaults.standard.string(forKey: "EvaDesktop.customerId") ?? "golden" {
         didSet {
             UserDefaults.standard.set(customerId, forKey: "EvaDesktop.customerId")
-            reloadFallbackURLs()
+            webViews.reset()
+            runtimeURLs.removeAll()
+            runtimeErrors.removeAll()
             webViewRefreshToken = UUID()
         }
     }
     @Published var selectedRuntime: RuntimeKey = .openclaw
     @Published var session: DesktopSession?
+    @Published var isSigningIn = false
     @Published var isLoadingRuntime = false
     @Published var runtimeURLs: [RuntimeKey: URL] = [:]
     @Published var runtimeErrors: [RuntimeKey: String] = [:]
@@ -50,7 +53,10 @@ final class WorkbenchModel: ObservableObject {
         broker = RuntimeSessionBrokerClient()
         resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
         session = try? keychain.load()
-        reloadFallbackURLs()
+        if session?.isExpired == true {
+            try? keychain.clear()
+            session = nil
+        }
     }
 
     var selectedRuntimeDefinition: RuntimeDefinition {
@@ -61,6 +67,11 @@ final class WorkbenchModel: ObservableObject {
         resolver.sanitizedCustomerId(customerId)
     }
 
+    var isSignedIn: Bool {
+        guard let session else { return false }
+        return !session.isExpired
+    }
+
     func loadSelectedRuntime() {
         Task {
             await loadRuntime(selectedRuntime)
@@ -68,6 +79,18 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func loadRuntime(_ runtime: RuntimeKey) async {
+        guard RuntimeDefinition.isBrokeredRuntime(runtime) else {
+            runtimeURLs[runtime] = nil
+            runtimeErrors[runtime] = "OpenDesign is reserved for the next desktop integration pass."
+            return
+        }
+
+        guard isSignedIn else {
+            runtimeURLs[runtime] = nil
+            runtimeErrors[runtime] = nil
+            return
+        }
+
         isLoadingRuntime = true
         runtimeErrors[runtime] = nil
 
@@ -78,12 +101,9 @@ final class WorkbenchModel: ObservableObject {
                 desktopSession: session
             )
             runtimeURLs[runtime] = response.launchUrl
-        } catch RuntimeSessionBrokerError.missingSession {
-            runtimeURLs[runtime] = resolver.fallbackURL(for: runtime, customerId: customerId)
-            runtimeErrors[runtime] = "Using the public runtime route until desktop login and broker session are connected."
         } catch {
-            runtimeURLs[runtime] = resolver.fallbackURL(for: runtime, customerId: customerId)
-            runtimeErrors[runtime] = "Session broker failed: \(error.localizedDescription). Showing the fallback route."
+            runtimeURLs[runtime] = nil
+            runtimeErrors[runtime] = "Session broker failed: \(error.localizedDescription)."
         }
 
         if let url = runtimeURLs[runtime] {
@@ -93,6 +113,10 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func reloadSelectedRuntime() {
+        guard isSignedIn else {
+            loadSelectedRuntime()
+            return
+        }
         let sanitized = resolver.sanitizedCustomerId(customerId)
         webViews.webView(for: selectedRuntime, customerId: sanitized).reload()
     }
@@ -103,12 +127,16 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func signIn() {
+        guard !isSigningIn else { return }
+        isSigningIn = true
+
         Task {
             let coordinator = DesktopAuthCoordinator(dashboardBaseURL: resolver.dashboardBaseURL)
+            defer { isSigningIn = false }
+
             do {
                 let newSession = try await coordinator.signIn()
-                try keychain.save(newSession)
-                session = newSession
+                try saveAuthenticatedSession(newSession)
                 await loadRuntime(selectedRuntime)
             } catch {
                 runtimeErrors[selectedRuntime] = "Desktop sign-in failed or was cancelled: \(error.localizedDescription)"
@@ -121,10 +149,21 @@ final class WorkbenchModel: ObservableObject {
         try? keychain.clear()
         session = nil
         webViews.reset()
-        reloadFallbackURLs()
+        runtimeURLs.removeAll()
+        runtimeErrors.removeAll()
         webViewRefreshToken = UUID()
         Task {
             await broker.revoke(desktopSession: sessionToRevoke)
+        }
+    }
+
+    func handleAuthCallback(_ url: URL) {
+        do {
+            let newSession = try DesktopSessionCallbackParser.parse(url)
+            try saveAuthenticatedSession(newSession)
+            loadSelectedRuntime()
+        } catch {
+            runtimeErrors[selectedRuntime] = "Desktop sign-in callback failed: \(error.localizedDescription)"
         }
     }
 
@@ -145,14 +184,18 @@ final class WorkbenchModel: ObservableObject {
         broker = RuntimeSessionBrokerClient()
         resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
         webViews.reset()
-        reloadFallbackURLs()
+        runtimeURLs.removeAll()
+        runtimeErrors.removeAll()
         webViewRefreshToken = UUID()
     }
 
-    private func reloadFallbackURLs() {
-        for runtime in RuntimeDefinition.all {
-            runtimeURLs[runtime.key] = resolver.fallbackURL(for: runtime.key, customerId: customerId)
-        }
+    private func saveAuthenticatedSession(_ newSession: DesktopSession) throws {
+        try keychain.save(newSession)
+        session = newSession
+        runtimeErrors.removeAll()
+        webViews.reset()
+        runtimeURLs.removeAll()
+        webViewRefreshToken = UUID()
     }
 }
 
@@ -208,31 +251,16 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
                     return
                 }
 
-                guard
-                    let callbackURL,
-                    let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
-                else {
+                guard let callbackURL else {
                     continuation.resume(throwing: RuntimeSessionBrokerError.invalidResponse)
                     return
                 }
 
-                let items = components.queryItems ?? []
-                let token = items.first(where: { $0.name == "desktop_session" })?.value
-                let email = items.first(where: { $0.name == "email" })?.value
-                let expiresAtValue = items.first(where: { $0.name == "desktop_session_expires_at" })?.value
-                    ?? items.first(where: { $0.name == "expires_at" })?.value
-
-                guard
-                    let token,
-                    !token.isEmpty,
-                    let expiresAtValue,
-                    let expiresAt = EvaDesktopISO8601.parse(expiresAtValue)
-                else {
+                do {
+                    continuation.resume(returning: try DesktopSessionCallbackParser.parse(callbackURL))
+                } catch {
                     continuation.resume(throwing: RuntimeSessionBrokerError.invalidResponse)
-                    return
                 }
-
-                continuation.resume(returning: DesktopSession(accessToken: token, userEmail: email, expiresAt: expiresAt))
             }
 
             session.presentationContextProvider = self

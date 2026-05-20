@@ -7,18 +7,10 @@ precondition(resolver.sanitizedCustomerId(" Jackie David ") == "jackie-david")
 precondition(resolver.sanitizedCustomerId("David_Poku!") == "david-poku")
 precondition(resolver.sanitizedCustomerId("") == "golden")
 
-let expected: [(RuntimeKey, String)] = [
-    (.openclaw, "https://openclaw-golden.ecs.electricsheephq.com/ui/"),
-    (.hermes, "https://hermes-golden.ecs.electricsheephq.com/"),
-    (.missionControl, "https://paperclip-golden.ecs.electricsheephq.com/"),
-    (.liveBrowser, "https://browser-golden.ecs.electricsheephq.com/"),
-    (.terminal, "https://www.electricsheephq.com/dashboard/workspace?customer_id=golden&runtime=terminal"),
-    (.openDesign, "https://www.electricsheephq.com/dashboard/opendesign?customer_id=golden&runtime=opendesign")
-]
-
-for (runtime, url) in expected {
-    precondition(resolver.fallbackURL(for: runtime, customerId: "golden").absoluteString == url)
-}
+precondition(RuntimeDefinition.isBrokeredRuntime(.openclaw))
+precondition(RuntimeDefinition.isBrokeredRuntime(.terminal))
+precondition(!RuntimeDefinition.isBrokeredRuntime(.openDesign))
+precondition(RuntimeDefinition.definition(for: .openDesign).availability == .comingSoon)
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
@@ -41,5 +33,19 @@ let decodedResponse = try EvaDesktopISO8601.decoder().decode(RuntimeLaunchRespon
 precondition(decodedResponse.expiresAt != nil)
 precondition(EvaDesktopISO8601.parse("2026-05-20T10:48:51.123Z") != nil)
 precondition(EvaDesktopISO8601.parse("2026-05-20T10:48:51Z") != nil)
+
+let callbackURL = URL(string: "evaos://auth/callback?desktop_session=eds_test&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=admin%40100yen.org")!
+let callbackSession = try DesktopSessionCallbackParser.parse(callbackURL)
+precondition(callbackSession.accessToken == "eds_test")
+precondition(callbackSession.userEmail == "admin@100yen.org")
+let expectedCallbackExpiry = EvaDesktopISO8601.parse("2026-05-20T10:48:51.123Z")
+precondition(expectedCallbackExpiry != nil)
+precondition(callbackSession.expiresAt != nil)
+precondition(abs(callbackSession.expiresAt!.timeIntervalSince(expectedCallbackExpiry!)) < 0.001)
+
+let fragmentCallbackURL = URL(string: "evaos://auth/callback#desktop_session=eds_fragment&expires_at=2026-05-20T10:48:51Z")!
+let fragmentCallbackSession = try DesktopSessionCallbackParser.parse(fragmentCallbackURL)
+precondition(fragmentCallbackSession.accessToken == "eds_fragment")
+precondition(fragmentCallbackSession.expiresAt != nil)
 
 print("EvaDesktopCoreSmoke passed")
