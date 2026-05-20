@@ -47,6 +47,18 @@ precondition(pairingJSON.contains("\"action\":\"create_enrollment\""))
 precondition(pairingJSON.contains("\"customer_id\":\"golden\""))
 precondition(pairingJSON.contains("\"screen_sharing_opt_in\":false"))
 
+let encodedCompletion = try JSONEncoder().encode(CustomerMacActionRequest(
+    action: "complete_enrollment",
+    enrollmentCode: "ABC123",
+    deviceIdentifier: "mac-test",
+    tailnetIp: "100.64.1.10",
+    connectorUrl: "http://100.64.1.10:8765",
+    connectorToken: "fixture-token-abcdefghijklmnopqrstuvwxyz"
+))
+let completionJSON = String(data: encodedCompletion, encoding: .utf8) ?? ""
+precondition(completionJSON.contains("\"connector_url\":\"http:\\/\\/100.64.1.10:8765\""))
+precondition(completionJSON.contains("\"connector_token\":\"fixture-token-abcdefghijklmnopqrstuvwxyz\""))
+
 let fractionalResponse = """
 {"launch_url":"https://browser-golden.ecs.electricsheephq.com/auth/callback?session=test","expires_at":"2026-05-20T10:48:51.123Z"}
 """.data(using: .utf8)!

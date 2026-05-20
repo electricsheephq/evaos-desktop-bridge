@@ -191,7 +191,9 @@ inside the same test flow.
 2. **Enable Permissions** opens Accessibility and Screen Recording settings.
 3. **Pair with evaOS VM** creates a short-lived dashboard/Supabase pairing grant
    and completes the Mac device record after the connector and Headscale client
-   are ready.
+   are ready. Completion also sends the connector URL and local connector token
+   to the service-role-only grant secret table so support-control can configure
+   the paired VM without exposing the token to the browser UI.
 4. **Connect iPhone** opens iPhone Mirroring and refreshes readiness.
 5. **Test Agent Access** runs local connector/status smokes and points support
    to the VM-side `evaos-support mac-connector smoke` proof.
@@ -203,6 +205,17 @@ ids remain attached to the agent turn. The local kill switch for the current
 desktop session is the Workbench `Revoke Session` action; paired connector
 revocation is represented in Supabase and completed operationally by Headscale
 ACL/token revocation.
+
+After Workbench reports the Mac is paired, support runs:
+
+```bash
+evaos-support mac-connector configure-vm --targets <customer> --apply --approval-id <id>
+evaos-support mac-connector smoke --targets <customer> --json
+```
+
+`configure-vm` writes `/root/.openclaw/evaos-desktop-bridge.env` on the paired
+VM and restarts `openclaw-gateway`. It redacts connector tokens from stdout and
+JSONL evidence.
 
 ## Follow-Ups
 

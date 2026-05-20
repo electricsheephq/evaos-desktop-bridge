@@ -72,6 +72,8 @@ public struct CustomerMacControlClient: Sendable {
         deviceName: String,
         deviceIdentifier: String?,
         tailnetIp: String?,
+        connectorUrl: String,
+        connectorToken: String,
         capabilities: [String: String],
         permissionState: [String: String]
     ) async throws -> CustomerMacDeviceResponse {
@@ -82,6 +84,8 @@ public struct CustomerMacControlClient: Sendable {
                 enrollmentCode: enrollmentCode,
                 deviceIdentifier: deviceIdentifier,
                 tailnetIp: tailnetIp,
+                connectorUrl: connectorUrl,
+                connectorToken: connectorToken,
                 capabilities: capabilities,
                 permissionState: permissionState
             ),
@@ -134,6 +138,8 @@ public struct CustomerMacActionRequest: Codable, Equatable, Sendable {
     public let enrollmentCode: String?
     public let deviceIdentifier: String?
     public let tailnetIp: String?
+    public let connectorUrl: String?
+    public let connectorToken: String?
     public let capabilities: [String: String]?
     public let permissionState: [String: String]?
     public let limit: Int?
@@ -147,6 +153,8 @@ public struct CustomerMacActionRequest: Codable, Equatable, Sendable {
         enrollmentCode: String? = nil,
         deviceIdentifier: String? = nil,
         tailnetIp: String? = nil,
+        connectorUrl: String? = nil,
+        connectorToken: String? = nil,
         capabilities: [String: String]? = nil,
         permissionState: [String: String]? = nil,
         limit: Int? = nil
@@ -159,6 +167,8 @@ public struct CustomerMacActionRequest: Codable, Equatable, Sendable {
         self.enrollmentCode = enrollmentCode
         self.deviceIdentifier = deviceIdentifier
         self.tailnetIp = tailnetIp
+        self.connectorUrl = connectorUrl
+        self.connectorToken = connectorToken
         self.capabilities = capabilities
         self.permissionState = permissionState
         self.limit = limit
@@ -173,6 +183,8 @@ public struct CustomerMacActionRequest: Codable, Equatable, Sendable {
         case enrollmentCode = "enrollment_code"
         case deviceIdentifier = "device_identifier"
         case tailnetIp = "tailnet_ip"
+        case connectorUrl = "connector_url"
+        case connectorToken = "connector_token"
         case capabilities
         case permissionState = "permission_state"
         case limit
