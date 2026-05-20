@@ -20,7 +20,7 @@ tags:
 
 ## Summary
 
-`evaos-desktop-bridge` uses macOS-visible GUI primitives only. The MVP needs Accessibility for focus and Accessibility-tree reads, and Screen Recording for screenshots.
+`evaos-desktop-bridge` uses macOS-visible GUI primitives only. The MVP needs Accessibility for focus, Accessibility-tree reads, and named iPhone Mirroring actions. Screen Recording is needed for screenshots.
 
 ## Current Status
 
@@ -47,6 +47,9 @@ Required for:
 - `evaos-desktop-bridge codex threads --json --max-items 50`
 - `evaos-desktop-bridge codex select-thread --json --thread-id visible-... --dry-run`
 - `evaos-desktop-bridge codex ax-tree --json --max-nodes 200`
+- `evaos-desktop-bridge customer-mac ax-tree --json --max-nodes 200`
+- `evaos-desktop-bridge customer-mac local-site action --json --action reload --dry-run`
+- `evaos-desktop-bridge customer-mac iphone-mirroring home --json --dry-run`
 - Reading front window titles through System Events.
 
 Setup:
@@ -78,6 +81,7 @@ Graceful failure shape:
 Required for:
 
 - `evaos-desktop-bridge codex snapshot --json --max-chars 4000` when a screenshot artifact is desired.
+- `evaos-desktop-bridge customer-mac snapshot --json --max-chars 4000` when a screenshot artifact is desired.
 
 Setup:
 
@@ -97,6 +101,9 @@ evaos-desktop-bridge codex focus --json --dry-run
 evaos-desktop-bridge codex threads --json --max-items 20
 evaos-desktop-bridge codex snapshot --json --max-chars 4000
 evaos-desktop-bridge codex ax-tree --json --max-nodes 20
+evaos-desktop-bridge customer-mac status --json
+evaos-desktop-bridge customer-mac iphone-mirroring status --json
+evaos-desktop-bridge customer-mac screen-sharing status --json
 ```
 
 Expected behavior:
@@ -106,6 +113,8 @@ Expected behavior:
 - Missing screenshot permission is reported as a warning.
 - No command sends text to Codex Desktop.
 - `select-thread --dry-run` reports the target without clicking.
+- Customer Mac and iPhone Mirroring guarded actions default to dry-run.
+- Screen Sharing status never enables Screen Sharing.
 
 ## Troubleshooting
 

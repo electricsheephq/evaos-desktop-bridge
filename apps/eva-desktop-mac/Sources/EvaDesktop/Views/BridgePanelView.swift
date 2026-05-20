@@ -11,19 +11,34 @@ struct BridgePanelView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(AppBrand.bridgeSectionTitle)
                             .font(.title2.weight(.semibold))
-                        Text("Read-only local bridge status and audit context. Local control is intentionally outside the MVP.")
+                        Text("Connector status, permission readiness, and audit context for supervised local control.")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    Button {
+                        model.signOut()
+                    } label: {
+                        Label("Revoke Session", systemImage: "xmark.shield")
+                    }
+                    .disabled(!model.isSignedIn)
+
                     Button {
                         model.refreshBridgeStatus()
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
+                    .disabled(model.isRefreshingBridgeStatus)
                 }
 
-                BridgeOutputCard(title: "Status", text: model.bridgeStatusText)
-                BridgeOutputCard(title: "Capabilities", text: model.bridgeCapabilitiesText)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14)], spacing: 14) {
+                    BridgeOutputCard(title: "Desktop Bridge", text: model.bridgeStatusText)
+                    BridgeOutputCard(title: "Customer Mac", text: model.customerMacStatusText)
+                    BridgeOutputCard(title: "iPhone Mirroring", text: model.iPhoneMirroringStatusText)
+                    BridgeOutputCard(title: "Screen Sharing", text: model.screenSharingStatusText)
+                }
+
+                BridgeOutputCard(title: "Bridge Capabilities", text: model.bridgeCapabilitiesText)
+                BridgeOutputCard(title: "Customer Mac Capabilities", text: model.customerMacCapabilitiesText)
                 BridgeOutputCard(title: "Audit Tail", text: model.bridgeAuditText)
             }
             .padding(24)

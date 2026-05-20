@@ -17,12 +17,14 @@ packaging the Mac Workbench app under `apps/eva-desktop-mac`.
   `apps/eva-desktop-mac/Sources/EvaDesktopCore/Models/AppBrand.swift`
 - Runtime names, keys, and broker routing:
   `apps/eva-desktop-mac/Sources/EvaDesktopCore/Models/RuntimeDefinition.swift`
+- Configurable OpenDesign route, connector status refresh, Keychain/WebView lifetime:
+  `apps/eva-desktop-mac/Sources/EvaDesktop/Services/WorkbenchModel.swift`
 - Sidebar and gateway launcher UI:
   `apps/eva-desktop-mac/Sources/EvaDesktop/Views/SidebarView.swift`
 - Runtime WebView wrapper and toolbar:
   `apps/eva-desktop-mac/Sources/EvaDesktop/Views/RuntimeDetailView.swift`
-- Auth, Keychain, WebView lifetime, and broker loading:
-  `apps/eva-desktop-mac/Sources/EvaDesktop/Services/WorkbenchModel.swift`
+- Desktop Bridge panel:
+  `apps/eva-desktop-mac/Sources/EvaDesktop/Views/BridgePanelView.swift`
 - Resource bundling and local app verification:
   `apps/eva-desktop-mac/script/build_and_run.sh`
 
@@ -112,6 +114,11 @@ Repair steps:
 - Customer target is not editable on the main runtime surface.
 - Switching gateway tabs preserves existing `WKWebView` instances and does not
   reload unless the user reconnects/reloads.
+- OpenDesign stays unavailable when no URL is configured and loads directly
+  when Settings includes an OpenDesign URL.
+- Desktop Bridge panel refreshes Desktop Bridge, Customer Mac, iPhone
+  Mirroring, Screen Sharing, capabilities, and audit tail without exposing a
+  generic command runner.
 
 ## Release Readiness
 
@@ -124,3 +131,6 @@ Before announcing a build:
 - Desktop auth opens through `ASWebAuthenticationSession`, returns to
   `evaos://auth/callback`, and launches at least OpenClaw, Hermes, Mission
   Control, Live Browser, and Terminal for an admin canary.
+- OpenDesign configured route, if present, opens without a dashboard detour.
+- Connector status can be refreshed locally; paired-Mac control remains behind
+  Headscale ACLs, connector tokens, and OpenClaw approval gates.

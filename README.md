@@ -7,15 +7,17 @@ existing Python bridge remains the guarded local observation/audit layer; the
 new SwiftUI app under `apps/eva-desktop-mac/` is the customer-facing cockpit for
 OpenClaw, Hermes, Mission Control, OpenDesign, Live Browser, and Terminal.
 
-The workbench MVP is intentionally view-first. It does not add broad local Mac
-control, iPhone Mirroring, iMessage, prompt sending, hidden shell access, or
-new Accessibility/Screen Recording permissions.
+The workbench MVP is intentionally view-first. The canary bridge now includes a
+customer-Mac connector for named, audited observations and guarded actions, but
+it still does not add broad local Mac control, iMessage, prompt sending, hidden
+shell access, public VNC/SSH, or arbitrary coordinates.
 
 The Mac app may call fixed read-only `evaos-desktop-bridge` status commands
-from its Bridge panel after an explicit refresh. It does not expose arbitrary
-local commands or local-control actions.
+from its Bridge panel after an explicit refresh. It shows connector/iPhone
+status and audit context, but it does not expose arbitrary local commands or
+local-control action buttons.
 
-The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. It does not send prompts, type text, click send/approval controls, call mutation RPCs, hijack stdio, or read Codex session databases.
+The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. The next canary adds customer-Mac and iPhone Mirroring status plus named actions with dry-run/approval gates. It does not send prompts, type into Codex, click send/approval controls, call mutation RPCs, hijack stdio, or read Codex session databases.
 
 ## Eva Desktop Workbench
 
@@ -37,6 +39,7 @@ Architecture and sprint docs:
 - [ADR: Eva Desktop Workbench Lives In evaos-desktop-bridge](docs/eva-desktop-workbench-adr.md)
 - [Eva Desktop Workbench MVP Sprint](docs/eva-desktop-workbench-sprint.md)
 - [Eva Desktop Packaging And Notarization](docs/eva-desktop-packaging.md)
+- [Customer Mac Connector V1](docs/customer-mac-connector.md)
 
 ## Architecture
 
@@ -44,7 +47,7 @@ Architecture and sprint docs:
 - **Hands:** CLI-Anything-style GUI harnesses that operate visible desktop apps through macOS Accessibility/screenshot/AppleScript primitives.
 - **Brain:** Eva/OpenClaw policy, approvals, audit logging, and announcement queue.
 
-Current implementation covers the Codex Desktop eyes adapter, guarded visible focus/select actions, a read-only app-server adapter, local announcement queue, and OpenClaw plugin wrapper. External relay/mobile push remains a future sink on top of the local queue contract.
+Current implementation covers the Codex Desktop eyes adapter, guarded visible focus/select actions, a read-only app-server adapter, customer Mac connector commands, iPhone Mirroring status/named-action guards, a token-gated connector server, local announcement queue, and OpenClaw plugin wrapper. External relay/mobile push remains a future sink on top of the local queue contract.
 
 ## Install
 
@@ -158,6 +161,36 @@ evaos-desktop-bridge queue list --json --limit 20
 
 The local queue is a JSONL contract for Eva/OpenClaw notifications such as `idle`, `approval_needed`, `done`, `error`, and `attention`. It is local-only and references bridge audit ids for provenance.
 
+### Customer Mac Connector
+
+```bash
+evaos-desktop-bridge customer-mac status --json
+evaos-desktop-bridge customer-mac capabilities --json
+evaos-desktop-bridge customer-mac snapshot --json --max-chars 4000
+evaos-desktop-bridge customer-mac ax-tree --json --max-nodes 200
+evaos-desktop-bridge customer-mac app-focus --json --app-name Safari --dry-run
+evaos-desktop-bridge customer-mac local-site open --json --url http://localhost:3000 --dry-run
+evaos-desktop-bridge customer-mac iphone-mirroring status --json
+evaos-desktop-bridge customer-mac iphone-mirroring open-app --json --app-name Calculator --dry-run
+evaos-desktop-bridge customer-mac screen-sharing status --json
+```
+
+The connector exposes named actions only. Dry-run is the default for guarded
+actions. Sensitive Mac/iPhone apps, dangerous target labels, arbitrary
+coordinates, generic shell, AppleScript passthrough, and Screen Sharing
+enablement are blocked.
+
+For paired-VM canaries, run the connector server on the Mac:
+
+```bash
+evaos-desktop-bridge serve --host 127.0.0.1 --port 8765
+```
+
+The connector self-provisions a per-user bearer token at
+`~/Library/Application Support/evaos-desktop-bridge/connector.token`. Bind to a
+Headscale interface only after ACLs are in place and the paired VM has the
+connector token. See [docs/customer-mac-connector.md](docs/customer-mac-connector.md).
+
 ### OpenClaw plugin wrapper
 
 The `openclaw-plugin/` package exposes fixed read-only tools for OpenClaw:
@@ -177,8 +210,29 @@ The `openclaw-plugin/` package exposes fixed read-only tools for OpenClaw:
 - `desktop_bridge_codex_ax_tree`
 - `desktop_bridge_codex_app_server_status`
 - `desktop_bridge_codex_app_server_threads`
+- `customer_mac_status`
+- `customer_mac_capabilities`
+- `customer_mac_snapshot`
+- `customer_mac_ax_tree`
+- `customer_mac_app_focus`
+- `customer_mac_local_site_open`
+- `customer_mac_local_site_action`
+- `customer_mac_iphone_mirroring_status`
+- `customer_mac_iphone_mirroring_focus`
+- `customer_mac_iphone_mirroring_home`
+- `customer_mac_iphone_mirroring_app_switcher`
+- `customer_mac_iphone_mirroring_spotlight`
+- `customer_mac_iphone_mirroring_type_spotlight`
+- `customer_mac_iphone_mirroring_open_app`
+- `customer_mac_iphone_mirroring_tap_named_target`
+- `customer_mac_iphone_mirroring_scroll`
+- `customer_mac_screen_sharing_status`
 
-The plugin calls `evaos-desktop-bridge` through fixed argv mappings only. It does not expose a generic shell, arbitrary bridge command runner, Codex prompt sender, typer, mutation app-server client, or session database reader. See [docs/openclaw-plugin.md](docs/openclaw-plugin.md).
+The plugin calls `evaos-desktop-bridge` through fixed argv mappings, or the
+paired Mac connector through `EVAOS_DESKTOP_BRIDGE_URL` and
+`EVAOS_DESKTOP_BRIDGE_TOKEN`. It does not expose a generic shell, arbitrary
+bridge command runner, Codex prompt sender, typer, mutation app-server client,
+or session database reader. See [docs/openclaw-plugin.md](docs/openclaw-plugin.md).
 
 ## Local audit log
 
@@ -206,9 +260,11 @@ Live focus and Accessibility-tree reads require Accessibility permission. Screen
 - No mutation-capable Codex app-server calls.
 - No prompt/message/turn sending.
 - No generic OpenClaw shell passthrough through the plugin.
+- No public VNC/SSH/CDP access to the Mac.
+- No generic coordinates or arbitrary AppleScript passthrough.
 - No Codex session database reads.
 - No token, auth-file, or full home-path exposure.
-- Read-only first; visible GUI inspection only.
+- Read-only first; guarded visible actions require dry-run and approval evidence.
 
 Initial visible desktop concurrency cap: 1 session, 2 maximum after measurement.
 

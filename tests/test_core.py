@@ -11,7 +11,7 @@ from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_al
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
 from evaos_desktop_bridge.schema import build_envelope, make_error
-from evaos_desktop_bridge.state import read_audit_tail, read_latest, write_latest
+from evaos_desktop_bridge.state import read_audit_record, read_audit_tail, read_latest, write_latest
 
 
 def test_build_envelope_has_stable_required_fields() -> None:
@@ -44,6 +44,9 @@ def test_policy_allows_only_mvp_commands() -> None:
     assert ensure_allowed("codex.app_server.threads") == "codex.app_server.threads"
     assert ensure_allowed("codex.snapshot") == "codex.snapshot"
     assert ensure_allowed("codex.ax_tree") == "codex.ax_tree"
+    assert ensure_allowed("customer_mac.status") == "customer_mac.status"
+    assert ensure_allowed("customer_mac.iphone_mirroring_home") == "customer_mac.iphone_mirroring_home"
+    assert ensure_allowed("customer_mac.screen_sharing_status") == "customer_mac.screen_sharing_status"
 
     with pytest.raises(PolicyError) as exc:
         ensure_allowed("codex.send_message")
@@ -55,6 +58,8 @@ def test_policy_allows_only_mvp_commands() -> None:
 def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("codex.select_thread")["mode"] == "guarded_visible_action"
     assert command_metadata("codex.app_server.threads")["source"] == "app_server"
+    assert command_metadata("customer_mac.iphone_mirroring_open_app")["requires_approval"] is True
+    assert command_metadata("customer_mac.screen_sharing_status")["bridge_can_enable"] is False
 
 
 def test_redaction_removes_home_paths_and_secret_like_tokens() -> None:
@@ -131,6 +136,20 @@ def test_read_audit_tail_caps_records(tmp_path: Path) -> None:
     records = read_audit_tail(limit=2, state_dir=tmp_path)
 
     assert [record["command"] for record in records] == ["codex.snapshot", "codex.ax_tree"]
+
+
+def test_read_audit_record_returns_matching_record(tmp_path: Path) -> None:
+    audit_id = append_audit(command="customer_mac.app_focus", target="customer_mac", args={"app_name": "Safari"}, ok=True, warnings=[], errors=[], state_dir=tmp_path)
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text(audit_path.read_text(encoding="utf-8") + "{bad json\n", encoding="utf-8")
+
+    record = read_audit_record(audit_id, state_dir=tmp_path)
+
+    assert record is not None
+    assert record["audit_id"] == audit_id
+    assert record["command"] == "customer_mac.app_focus"
+    assert read_audit_record("audit-missing", state_dir=tmp_path) is None
+    assert read_audit_record(123, state_dir=tmp_path) is None  # type: ignore[arg-type]
 
 
 def test_queue_append_and_list_redacts_payload(tmp_path: Path) -> None:
