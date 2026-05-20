@@ -140,7 +140,9 @@ def rect_value(element):
     pos = ax_value(element, AS.kAXPositionAttribute)
     size = ax_value(element, AS.kAXSizeAttribute)
     try:
-        return {"x": int(pos.x), "y": int(pos.y), "width": int(size.width), "height": int(size.height)}
+        _, point = AS.AXValueGetValue(pos, AS.kAXValueCGPointType, None)
+        _, dimensions = AS.AXValueGetValue(size, AS.kAXValueCGSizeType, None)
+        return {"x": int(point.x), "y": int(point.y), "width": int(dimensions.width), "height": int(dimensions.height)}
     except Exception:
         return None
 
@@ -336,8 +338,12 @@ except Exception:
 pos = ax_value(window, AS.kAXPositionAttribute)
 size = ax_value(window, AS.kAXSizeAttribute)
 try:
-    x = int(pos.x + size.width / 2)
-    y = int(pos.y + size.height / 2)
+    ok_pos, point = AS.AXValueGetValue(pos, AS.kAXValueCGPointType, None)
+    ok_size, dimensions = AS.AXValueGetValue(size, AS.kAXValueCGSizeType, None)
+    if not ok_pos or not ok_size:
+        raise ValueError("ax_value_conversion_failed")
+    x = int(point.x + dimensions.width / 2)
+    y = int(point.y + dimensions.height / 2)
 except Exception:
     print(json.dumps({"ok": False, "error": "iphone_mirroring_window_bounds_unavailable"}))
     raise SystemExit(0)
