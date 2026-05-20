@@ -12,7 +12,9 @@ PLUGIN = ROOT / "openclaw-plugin"
 def test_openclaw_plugin_manifest_points_to_entrypoint() -> None:
     manifest = json.loads((PLUGIN / "package.json").read_text(encoding="utf-8"))
 
-    assert manifest["openclaw"]["extensions"] == ["./index.ts"]
+    assert manifest["openclaw"]["extensions"] == ["./dist/index.js"]
+    assert manifest["exports"]["."] == "./dist/index.js"
+    assert (PLUGIN / "dist" / "index.js").exists()
     assert manifest["type"] == "module"
 
 

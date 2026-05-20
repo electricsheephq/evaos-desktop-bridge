@@ -4,12 +4,20 @@
   "private": true,
   "type": "module",
   "description": "Guarded OpenClaw plugin wrapper for evaos-desktop-bridge.",
-  "exports": {
-    ".": "./index.ts"
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
   },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
   "openclaw": {
     "extensions": [
-      "./index.ts"
+      "./dist/index.js"
     ]
   },
   "peerDependencies": {
