@@ -357,6 +357,14 @@ def test_app_server_proxy_mode_uses_configured_unix_socket(monkeypatch: pytest.M
     assert app_server_socket_path() == str(socket_path)
 
 
+def test_app_server_proxy_env_is_normalized(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_WS", raising=False)
+    monkeypatch.delenv("EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_TRANSPORT", raising=False)
+    monkeypatch.setenv("EVAOS_DESKTOP_BRIDGE_CODEX_APP_SERVER_PROXY", " TRUE ")
+
+    assert app_server_transport_mode() == "proxy"
+
+
 def test_app_server_argv_supports_proxy_transport() -> None:
     assert build_app_server_argv(codex_bin="/bin/codex", transport_mode="stdio") == [
         "/bin/codex",

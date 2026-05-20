@@ -816,7 +816,7 @@ def app_server_transport_mode() -> str:
     mode = (os.environ.get(APP_SERVER_TRANSPORT_ENV) or "").strip().lower()
     if mode in {"proxy", "unix", "unix_socket", "unix-socket"}:
         return "proxy"
-    if os.environ.get(APP_SERVER_PROXY_ENV) in {"1", "true", "yes"}:
+    if (os.environ.get(APP_SERVER_PROXY_ENV) or "").strip().lower() in {"1", "true", "yes"}:
         return "proxy"
     return "stdio"
 
