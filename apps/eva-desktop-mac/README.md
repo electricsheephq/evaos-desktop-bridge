@@ -32,6 +32,7 @@ Useful modes:
 ./script/build_and_run.sh --verify
 ./script/build_and_run.sh --logs
 ./script/build_and_run.sh --telemetry
+./script/build_and_run.sh --package-beta
 ```
 
 ## Validate
@@ -65,7 +66,13 @@ Runtime assets live in `Resources/`:
 `script/build_and_run.sh` copies those resources into the app bundle, writes the
 bundle metadata, and signs the final `.app` after `Info.plist` and resources are
 in place. If `EVA_DESKTOP_CODESIGN_IDENTITY` or `CODESIGN_IDENTITY` is set, that
-identity is used. Otherwise the script uses ad-hoc signing for local development.
+identity is used. Otherwise the script uses the first local Apple Development
+identity it can find, falling back to ad-hoc signing for local development.
+
+`./script/build_and_run.sh --package-beta` writes
+`dist/evaOS-Workbench-Beta-0.1.0.zip` with the `.app` and beta install notes.
+That beta packaging path intentionally rejects Developer ID identities until the
+Apple approval/notarization path is ready.
 
 ## Keychain And Signing
 
@@ -80,7 +87,8 @@ the code identity and make macOS ask whether the new build may access the old
 Keychain item.
 
 If a development machine already has a stale prompt-causing item, clear just the
-desktop session item and sign in again:
+desktop session item with the native `Reset Local Session` button on the sign-in
+screen, or run the same cleanup manually and sign in again:
 
 ```bash
 security delete-generic-password \

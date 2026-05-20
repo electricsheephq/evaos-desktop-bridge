@@ -29,3 +29,6 @@ jobs:
       - name: Run core smoke
         working-directory: apps/eva-desktop-mac
         run: swift run EvaDesktopCoreSmoke
+      - name: Package beta artifact
+        working-directory: apps/eva-desktop-mac
+        run: ./script/build_and_run.sh --package-beta

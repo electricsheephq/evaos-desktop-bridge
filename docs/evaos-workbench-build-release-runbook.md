@@ -37,6 +37,7 @@ cd apps/eva-desktop-mac
 swift build
 swift run EvaDesktopCoreSmoke
 ./script/build_and_run.sh --verify
+./script/build_and_run.sh --package-beta
 ```
 
 The raw `swift run EvaDesktop` command is useful for fast compiler feedback but
@@ -48,9 +49,10 @@ auth testing.
 `script/build_and_run.sh` signs the final app bundle after it writes resources
 and `Info.plist`.
 
-For local development without a certificate, the script falls back to ad-hoc
-signing. This is enough to launch and verify the bundle shape, but it is not a
-stable identity for Keychain trust across rebuilds.
+When no explicit identity is provided, the script uses the first local Apple
+Development identity it can find, then falls back to ad-hoc signing. Ad-hoc
+signing is enough to launch and verify the bundle shape, but it is not a stable
+identity for Keychain trust across rebuilds.
 
 For a prompt-free release build, set one of:
 
@@ -71,6 +73,29 @@ spctl --assess --type execute dist/EvaDesktop.app
 If `security find-identity -p codesigning -v` reports zero identities, local
 development can still proceed, but Keychain prompt-free behavior can only be
 fully proven after a stable signing identity is installed.
+
+## Beta Without Developer ID
+
+Until Apple approves the Developer ID certificate, ship only internal/friendly
+beta artifacts:
+
+```bash
+cd apps/eva-desktop-mac
+swift build
+swift run EvaDesktopCoreSmoke
+./script/build_and_run.sh --package-beta
+```
+
+The beta artifact is:
+
+```text
+apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.0.zip
+```
+
+The beta packaging path accepts Apple Development or ad-hoc signing, refuses
+Developer ID identities, and writes install notes that tell beta users to
+right-click and Open if Gatekeeper blocks first launch. Do not ask users to
+disable Gatekeeper globally.
 
 ## Keychain Prompt Triage
 
@@ -96,8 +121,9 @@ Repair steps:
 
 2. Prefer installing and using a stable Apple Development or Developer ID
    signing identity.
-3. If a stale local dev item keeps prompting, clear only the Workbench desktop
-   session item and sign in again:
+3. If a stale local dev item keeps prompting, use `Reset Local Session` on the
+   Workbench sign-in screen, or clear only the Workbench desktop session item
+   and sign in again:
 
    ```bash
    security delete-generic-password \
@@ -126,8 +152,10 @@ Before announcing a build:
 
 - Focused local validation passes.
 - GitHub CI/archive validation passes if configured.
-- App is signed with a stable identity.
-- Hardened runtime and notarization path are proven.
+- Beta: app is Apple Development signed when available, otherwise ad-hoc signed,
+  and `--package-beta` produced the zip artifact.
+- GA only: app is signed with a stable Developer ID identity.
+- GA only: hardened runtime and notarization path are proven.
 - Desktop auth opens through `ASWebAuthenticationSession`, returns to
   `evaos://auth/callback`, and launches at least OpenClaw, Hermes, Mission
   Control, Live Browser, and Terminal for an admin canary.
