@@ -164,7 +164,6 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
                 let items = components.queryItems ?? []
                 let token = items.first(where: { $0.name == "desktop_session" })?.value
                     ?? items.first(where: { $0.name == "access_token" })?.value
-                    ?? items.first(where: { $0.name == "code" })?.value
                 let email = items.first(where: { $0.name == "email" })?.value
 
                 guard let token, !token.isEmpty else {
@@ -213,4 +212,3 @@ struct BridgeCommandService {
         }.value
     }
 }
-
