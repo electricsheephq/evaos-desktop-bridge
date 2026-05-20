@@ -390,6 +390,8 @@ class CodexAppServerObserver:
         features = self.runner([self.codex_bin, "features", "list"], 5.0)
         desktop = self.runner(["pgrep", "-x", "Codex"], 5.0)
         help_text = json.dumps(status.data)
+        app_server_help = self.runner([self.codex_bin, "app-server", "--help"], 5.0)
+        app_server_help_output = app_server_help.stdout if app_server_help.returncode == 0 else ""
         feature_state = self._feature_state(features.stdout, "remote_control") if features.returncode == 0 else None
         websocket_env = os.environ.get(APP_SERVER_WS_ENV)
         desktop_data = desktop_status.data.get("app") if desktop_status is not None and desktop_status.ok else None
@@ -404,8 +406,8 @@ class CodexAppServerObserver:
                 "available": bool(status.data.get("available")),
                 "codex_version": status.data.get("codex_version"),
                 "stdio_supported": True,
-                "proxy_supported": "proxy" in (self.runner([self.codex_bin, "app-server", "--help"], 5.0).stdout),
-                "websocket_listen_supported": "ws://IP:PORT" in (self.runner([self.codex_bin, "app-server", "--help"], 5.0).stdout),
+                "proxy_supported": "proxy" in app_server_help_output,
+                "websocket_listen_supported": "ws://IP:PORT" in app_server_help_output,
                 "loopback_websocket_configured": bool(websocket_env),
                 "loopback_websocket_url": redact_value(websocket_env) if websocket_env else None,
                 "transport_mode": app_server_transport_mode(),
