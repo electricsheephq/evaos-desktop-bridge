@@ -32,14 +32,18 @@ Run locally for development:
 evaos-desktop-bridge serve --host 127.0.0.1 --port 8765
 ```
 
-Run for a paired tailnet interface only after Headscale ACLs and a connector
-token are configured:
+On first start, the connector creates a per-user bearer token at:
+
+```text
+~/Library/Application Support/evaos-desktop-bridge/connector.token
+```
+
+Run for a paired tailnet interface only after Headscale ACLs are configured:
 
 ```bash
 evaos-desktop-bridge serve \
   --host <mac-headscale-ip> \
-  --port 8765 \
-  --token-file "/Library/Application Support/evaos-desktop-bridge/connector.token"
+  --port 8765
 ```
 
 Health check:
@@ -51,12 +55,14 @@ curl http://127.0.0.1:8765/health
 Command endpoint:
 
 ```bash
+TOKEN="$(cat "$HOME/Library/Application Support/evaos-desktop-bridge/connector.token")"
 curl -sS http://127.0.0.1:8765/v1/commands \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"command":"customerMacStatus","params":{}}'
 ```
 
-For non-loopback requests, add:
+All command requests require:
 
 ```text
 Authorization: Bearer <connector-token>
@@ -76,7 +82,7 @@ Remote paired-Mac mode:
 
 ```bash
 export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
-export EVAOS_DESKTOP_BRIDGE_TOKEN=<connector-token>
+export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evaos-desktop-bridge/connector.token")"
 ```
 
 The plugin still sends fixed command keys. The connector converts those keys to

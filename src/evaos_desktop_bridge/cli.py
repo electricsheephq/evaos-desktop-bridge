@@ -14,8 +14,8 @@ from .audit import append_audit
 from .connector_server import read_token, run_connector_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
-from .schema import build_envelope
-from .state import read_audit_tail, read_latest, write_latest
+from .schema import build_envelope, make_error
+from .state import read_audit_record, read_audit_tail, read_latest, write_latest
 from .types import CommandResult
 
 LATEST_OBSERVATION_COMMANDS = frozenset(
@@ -38,6 +38,20 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "customer_mac.screen_sharing_status",
     }
 )
+
+GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
+    "codex.select_thread": ("thread_id",),
+    "customer_mac.app_focus": ("app_name",),
+    "customer_mac.local_site_open": ("url",),
+    "customer_mac.local_site_action": ("action",),
+    "customer_mac.iphone_mirroring_focus": (),
+    "customer_mac.iphone_mirroring_home": (),
+    "customer_mac.iphone_mirroring_app_switcher": (),
+    "customer_mac.iphone_mirroring_spotlight": (),
+    "customer_mac.iphone_mirroring_type_spotlight": ("text",),
+    "customer_mac.iphone_mirroring_open_app": ("app_name",),
+    "customer_mac.iphone_mirroring_tap_named_target": ("target_label",),
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,7 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser = subparsers.add_parser("serve", help="Run the token-gated customer Mac connector HTTP server.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host. Prefer loopback or the paired Headscale interface.")
     serve_parser.add_argument("--port", type=_positive_int, default=8765, help="Bind port.")
-    serve_parser.add_argument("--token-file", default=None, help="File containing the connector bearer token for non-loopback requests.")
+    serve_parser.add_argument(
+        "--token-file",
+        default=None,
+        help="File containing the connector bearer token. Defaults to a per-user Application Support token.",
+    )
     serve_parser.set_defaults(command_id="serve", target="connector")
 
     queue_parser = subparsers.add_parser("queue", help="Eva/OpenClaw announcement queue commands.")
@@ -264,12 +282,13 @@ def main(
     target = args.target
     args.state_dir = state_dir
     if command_id == "serve":
-        token = read_token(args.token_file)
+        token = read_token(args.token_file, state_dir=state_dir, auto_create=True)
         run_connector_server(
             host=args.host,
             port=args.port,
             token=token,
             command_runner=lambda bridge_argv: _run_bridge_argv(bridge_argv, state_dir=state_dir),
+            state_dir=state_dir,
         )
         return 0
 
@@ -278,7 +297,9 @@ def main(
         observer = observer_factory() if observer_factory is not None else MacOSCodexObserver(state_dir=state_dir)
         customer_mac = customer_mac_factory() if customer_mac_factory is not None else CustomerMacObserver(state_dir=state_dir)
         app_server = app_server_factory() if app_server_factory is not None else CodexAppServerObserver()
-        result = _run_command(command_id, observer, customer_mac, app_server, args)
+        result = _validate_guarded_approval(command_id, args, state_dir)
+        if result.ok:
+            result = _run_command(command_id, observer, customer_mac, app_server, args)
     except PolicyError as exc:
         result = CommandResult(ok=False, errors=[exc.error])
     except Exception as exc:
@@ -429,6 +450,41 @@ def _run_command(
     if command_id == "customer_mac.screen_sharing_status":
         return customer_mac.screen_sharing_status()
     raise PolicyError(command_id)
+
+
+def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_dir: Path | None) -> CommandResult:
+    fields = GUARDED_APPROVAL_FIELDS.get(command_id)
+    if fields is None or getattr(args, "dry_run", None) is not False:
+        return CommandResult(ok=True)
+    approval_audit_id = getattr(args, "approval_audit_id", None)
+    if not isinstance(approval_audit_id, str) or not approval_audit_id.strip():
+        return _approval_required_result(command_id, fields)
+    record = read_audit_record(approval_audit_id.strip(), state_dir=state_dir)
+    if record is None:
+        return _approval_required_result(command_id, fields, "approval_audit_id was not found in the local audit log.")
+    if record.get("command") != command_id or record.get("ok") is not True:
+        return _approval_required_result(command_id, fields, "approval_audit_id does not reference a successful dry-run for this command.")
+    record_args = record.get("args")
+    if not isinstance(record_args, dict) or record_args.get("dry_run") is not True:
+        return _approval_required_result(command_id, fields, "approval_audit_id must reference a dry-run record.")
+    for field in fields:
+        if record_args.get(field) != getattr(args, field, None):
+            return _approval_required_result(command_id, fields, f"approval_audit_id does not match {field}.")
+    return CommandResult(ok=True)
+
+
+def _approval_required_result(command_id: str, fields: tuple[str, ...], message: str | None = None) -> CommandResult:
+    return CommandResult(
+        ok=False,
+        data={"required_fields": list(fields)},
+        errors=[
+            make_error(
+                code="approval_audit_required",
+                message=message or "Live guarded actions require a prior matching dry-run audit id.",
+                guidance=f"Run {command_id} with --dry-run first, then rerun the exact same action with --approval-audit-id set to that audit_id.",
+            )
+        ],
+    )
 
 
 def _positive_int(value: str) -> int:

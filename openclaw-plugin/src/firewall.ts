@@ -3,6 +3,7 @@ type HookEvent = {
   name?: string;
   args?: unknown;
   input?: unknown;
+  params?: unknown;
   parameters?: unknown;
 };
 
@@ -22,6 +23,7 @@ type HookDecision =
 
 const SAFE_TOOL_PREFIXES = ["desktop_bridge_", "customer_mac_"];
 const APPROVAL_GATED_TOOL_PREFIXES = [
+  "desktop_bridge_codex_select_thread",
   "customer_mac_app_focus",
   "customer_mac_local_site_",
   "customer_mac_iphone_mirroring_focus",
@@ -108,6 +110,7 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
     toolName,
     args: event.args,
     input: event.input,
+    params: event.params,
     parameters: event.parameters,
   }).toLowerCase();
   const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern.toLowerCase()));
@@ -120,7 +123,7 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
       };
     }
     if (APPROVAL_GATED_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
-      const params = ((event.args || event.input || event.parameters || {}) as Record<string, unknown>);
+      const params = ((event.args || event.input || event.params || event.parameters || {}) as Record<string, unknown>);
       if (params.dry_run !== false) {
         return undefined;
       }

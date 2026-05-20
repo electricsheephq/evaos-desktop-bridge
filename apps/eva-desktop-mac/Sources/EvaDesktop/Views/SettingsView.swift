@@ -23,7 +23,14 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        .onChange(of: openDesignURL) { _, newValue in
+            NotificationCenter.default.post(name: .evaDesktopOpenDesignURLChanged, object: newValue)
+        }
         .padding()
         .frame(width: 480)
     }
+}
+
+extension Notification.Name {
+    static let evaDesktopOpenDesignURLChanged = Notification.Name("EvaDesktop.openDesignURLChanged")
 }

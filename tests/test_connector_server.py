@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from evaos_desktop_bridge.connector_server import _live_guarded_without_approval, build_bridge_argv
+import json
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from threading import Thread
+
+from evaos_desktop_bridge.audit import append_audit
+from evaos_desktop_bridge.connector_server import (
+    _live_guarded_approval_error,
+    _live_guarded_without_approval,
+    _make_handler,
+    build_bridge_argv,
+    read_token,
+)
 
 
 def test_connector_builds_fixed_status_argv() -> None:
@@ -48,3 +61,86 @@ def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> No
     argv = build_bridge_argv("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"})
     assert "--approval-audit-id" in argv
     assert "audit-1" in argv
+
+
+def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tmp_path: Path) -> None:
+    dry_run_audit = append_audit(
+        command="customer_mac.app_focus",
+        target="customer_mac",
+        args={"app_name": "Safari", "dry_run": True, "json": True, "approval_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+
+    assert _live_guarded_approval_error(
+        "customerMacAppFocus",
+        {"app_name": "Safari", "dry_run": False, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) is None
+    assert _live_guarded_approval_error(
+        "customerMacAppFocus",
+        {"app_name": "Messages", "dry_run": False, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) == "approval_audit_id does not match app_name."
+    assert _live_guarded_approval_error(
+        "customerMacAppFocus",
+        {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-missing"},
+        state_dir=tmp_path,
+    ) == "approval_audit_id was not found in the local audit log."
+
+
+def test_connector_token_file_must_exist_when_configured(tmp_path: Path) -> None:
+    try:
+        read_token(str(tmp_path / "missing.token"))
+    except ValueError as exc:
+        assert "does not exist" in str(exc)
+    else:
+        raise AssertionError("expected missing configured token file to fail closed")
+
+    token_path = tmp_path / "connector.token"
+    token_path.write_text("secret-token\n", encoding="utf-8")
+    assert read_token(str(token_path)) == "secret-token"
+
+
+def test_connector_token_autocreates_per_user_default(tmp_path: Path) -> None:
+    token = read_token(None, state_dir=tmp_path, auto_create=True)
+    token_path = tmp_path / "connector.token"
+
+    assert token
+    assert token_path.exists()
+    assert token_path.read_text(encoding="utf-8").strip() == token
+    assert oct(token_path.stat().st_mode & 0o777) == "0o600"
+    assert read_token(None, state_dir=tmp_path, auto_create=True) == token
+
+
+def test_connector_token_autocreates_empty_configured_file(tmp_path: Path) -> None:
+    token_path = tmp_path / "connector.token"
+    token_path.write_text("\n", encoding="utf-8")
+
+    token = read_token(str(token_path), auto_create=True)
+
+    assert token
+    assert token_path.read_text(encoding="utf-8").strip() == token
+    assert oct(token_path.stat().st_mode & 0o777) == "0o600"
+
+
+def test_connector_rejects_post_without_token_even_on_loopback(tmp_path: Path) -> None:
+    handler = _make_handler(token=None, command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/commands",
+            body=json.dumps({"command": "customerMacStatus", "params": {}}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+        assert response.status == 401
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)

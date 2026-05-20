@@ -48,6 +48,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var bridgeCapabilitiesText = "Bridge capabilities have not been checked yet."
     @Published var customerMacCapabilitiesText = "Customer Mac capabilities have not been checked yet."
     @Published var bridgeAuditText = "Bridge audit trail has not been checked yet."
+    @Published var isRefreshingBridgeStatus = false
     @Published var webViewRefreshToken = UUID()
 
     let runtimes = RuntimeDefinition.all
@@ -267,7 +268,12 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func refreshBridgeStatus() {
-        Task {
+        guard !isRefreshingBridgeStatus else {
+            return
+        }
+        isRefreshingBridgeStatus = true
+        Task { @MainActor in
+            defer { isRefreshingBridgeStatus = false }
             bridgeStatusText = await bridge.run(arguments: ["status", "--json"])
             customerMacStatusText = await bridge.run(arguments: ["customer-mac", "status", "--json"])
             iPhoneMirroringStatusText = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
@@ -275,6 +281,13 @@ final class WorkbenchModel: ObservableObject {
             bridgeCapabilitiesText = await bridge.run(arguments: ["capabilities", "--json"])
             customerMacCapabilitiesText = await bridge.run(arguments: ["customer-mac", "capabilities", "--json"])
             bridgeAuditText = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
+        }
+    }
+
+    func applyOpenDesignURLSetting(_ value: String) {
+        openDesignURLString = value
+        if selectedRuntime == .openDesign {
+            loadSelectedRuntime(force: true)
         }
     }
 

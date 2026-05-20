@@ -11,7 +11,7 @@ from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_al
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
 from evaos_desktop_bridge.schema import build_envelope, make_error
-from evaos_desktop_bridge.state import read_audit_tail, read_latest, write_latest
+from evaos_desktop_bridge.state import read_audit_record, read_audit_tail, read_latest, write_latest
 
 
 def test_build_envelope_has_stable_required_fields() -> None:
@@ -136,6 +136,17 @@ def test_read_audit_tail_caps_records(tmp_path: Path) -> None:
     records = read_audit_tail(limit=2, state_dir=tmp_path)
 
     assert [record["command"] for record in records] == ["codex.snapshot", "codex.ax_tree"]
+
+
+def test_read_audit_record_returns_matching_record(tmp_path: Path) -> None:
+    audit_id = append_audit(command="customer_mac.app_focus", target="customer_mac", args={"app_name": "Safari"}, ok=True, warnings=[], errors=[], state_dir=tmp_path)
+
+    record = read_audit_record(audit_id, state_dir=tmp_path)
+
+    assert record is not None
+    assert record["audit_id"] == audit_id
+    assert record["command"] == "customer_mac.app_focus"
+    assert read_audit_record("audit-missing", state_dir=tmp_path) is None
 
 
 def test_queue_append_and_list_redacts_payload(tmp_path: Path) -> None:

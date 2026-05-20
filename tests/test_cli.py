@@ -412,22 +412,39 @@ def test_customer_mac_app_focus_defaults_to_dry_run(tmp_path: Path) -> None:
     assert payload["data"]["focused"] is False
 
 
+def test_customer_mac_app_focus_live_requires_matching_dry_run_audit(tmp_path: Path) -> None:
+    rejected = run_cli(["customer-mac", "app-focus", "--json", "--app-name", "Safari"], FakeObserver(), tmp_path)
+
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "approval_audit_required"
+
+    dry_run = run_cli(["customer-mac", "app-focus", "--json", "--app-name", "Safari", "--dry-run"], FakeObserver(), tmp_path)
+    approved = run_cli(["customer-mac", "app-focus", "--json", "--app-name", "Safari", "--approval-audit-id", dry_run["audit_id"]], FakeObserver(), tmp_path)
+    mismatch = run_cli(["customer-mac", "app-focus", "--json", "--app-name", "Messages", "--approval-audit-id", dry_run["audit_id"]], FakeObserver(), tmp_path)
+
+    assert approved["_exit_code"] == 0
+    assert approved["data"]["focused"] is True
+    assert mismatch["_exit_code"] == 2
+    assert mismatch["errors"][0]["code"] == "approval_audit_required"
+    assert "app_name" in mismatch["errors"][0]["message"]
+
+
 def test_customer_mac_local_site_rejects_nonlocal_urls(tmp_path: Path) -> None:
-    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "https://example.com"], FakeObserver(), tmp_path)
+    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "https://example.com", "--dry-run"], FakeObserver(), tmp_path)
 
     assert payload["_exit_code"] == 2
     assert payload["errors"][0]["code"] == "local_site_url_not_allowed"
 
 
 def test_customer_mac_local_site_allows_loopback_ip(tmp_path: Path) -> None:
-    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "http://127.0.0.1:3000"], FakeObserver(), tmp_path)
+    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "http://127.0.0.1:3000", "--dry-run"], FakeObserver(), tmp_path)
 
     assert payload["_exit_code"] == 0
     assert payload["data"]["url"] == "http://127.0.0.1:3000"
 
 
 def test_customer_mac_local_site_rejects_localhost_prefix_bypass(tmp_path: Path) -> None:
-    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "http://localhost.evil.com"], FakeObserver(), tmp_path)
+    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "http://localhost.evil.com", "--dry-run"], FakeObserver(), tmp_path)
 
     assert payload["_exit_code"] == 2
     assert payload["errors"][0]["code"] == "local_site_url_not_allowed"

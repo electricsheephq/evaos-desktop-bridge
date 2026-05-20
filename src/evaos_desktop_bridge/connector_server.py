@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from .audit import default_state_dir
 from .schema import build_envelope, make_error
+from .state import read_audit_record
 
 CommandRunner = Callable[[list[str]], tuple[int, str]]
 
@@ -24,9 +27,22 @@ GUARDED_REMOTE_COMMANDS = frozenset(
         "customerMacIphoneMirroringTypeSpotlight",
         "customerMacIphoneMirroringOpenApp",
         "customerMacIphoneMirroringTapNamedTarget",
-        "customerMacIphoneMirroringScroll",
     }
 )
+
+CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
+    "codexSelectThread": ("codex.select_thread", ("thread_id",)),
+    "customerMacAppFocus": ("customer_mac.app_focus", ("app_name",)),
+    "customerMacLocalSiteOpen": ("customer_mac.local_site_open", ("url",)),
+    "customerMacLocalSiteAction": ("customer_mac.local_site_action", ("action",)),
+    "customerMacIphoneMirroringFocus": ("customer_mac.iphone_mirroring_focus", ()),
+    "customerMacIphoneMirroringHome": ("customer_mac.iphone_mirroring_home", ()),
+    "customerMacIphoneMirroringAppSwitcher": ("customer_mac.iphone_mirroring_app_switcher", ()),
+    "customerMacIphoneMirroringSpotlight": ("customer_mac.iphone_mirroring_spotlight", ()),
+    "customerMacIphoneMirroringTypeSpotlight": ("customer_mac.iphone_mirroring_type_spotlight", ("text",)),
+    "customerMacIphoneMirroringOpenApp": ("customer_mac.iphone_mirroring_open_app", ("app_name",)),
+    "customerMacIphoneMirroringTapNamedTarget": ("customer_mac.iphone_mirroring_tap_named_target", ("target_label",)),
+}
 
 
 def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> list[str]:
@@ -126,23 +142,39 @@ def run_connector_server(
     port: int,
     token: str | None,
     command_runner: CommandRunner,
+    state_dir: Path | None = None,
 ) -> None:
-    handler = _make_handler(token=token, command_runner=command_runner)
+    handler = _make_handler(token=token, command_runner=command_runner, state_dir=state_dir)
     server = ThreadingHTTPServer((host, port), handler)
     server.serve_forever()
 
 
-def read_token(path: str | None) -> str | None:
+def read_token(path: str | None, *, state_dir: Path | None = None, auto_create: bool = False) -> str | None:
     if not path:
-        return None
-    token_path = Path(path).expanduser()
+        if not auto_create:
+            return None
+        token_path = (state_dir or default_state_dir()) / "connector.token"
+    else:
+        token_path = Path(path).expanduser()
     if not token_path.exists():
-        return None
+        if not auto_create:
+            raise ValueError(f"connector token file does not exist: {token_path}")
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_urlsafe(48)
+        token_path.write_text(token + "\n", encoding="utf-8")
+        os.chmod(token_path, 0o600)
+        return token
     token = token_path.read_text(encoding="utf-8").strip()
-    return token or None
+    if not token:
+        if not auto_create:
+            raise ValueError(f"connector token file is empty: {token_path}")
+        token = secrets.token_urlsafe(48)
+        token_path.write_text(token + "\n", encoding="utf-8")
+        os.chmod(token_path, 0o600)
+    return token
 
 
-def _make_handler(*, token: str | None, command_runner: CommandRunner) -> type[BaseHTTPRequestHandler]:
+def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir: Path | None = None) -> type[BaseHTTPRequestHandler]:
     class ConnectorHandler(BaseHTTPRequestHandler):
         server_version = "evaos-desktop-bridge-connector/0.1"
 
@@ -165,14 +197,15 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner) -> type[B
                 payload = self._read_json()
                 command = str(payload.get("command") or "")
                 params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
-                if _live_guarded_without_approval(command, params):
+                approval_error = _live_guarded_approval_error(command, params, state_dir=state_dir)
+                if approval_error is not None:
                     self._write_json(
                         403,
                         _error_envelope(
                             command or "connector.command",
                             "customer_mac" if command.startswith("customerMac") else "desktop",
                             "approval_audit_required",
-                            "Live remote control actions require a prior dry-run and approval_audit_id.",
+                            approval_error,
                         ),
                     )
                     return
@@ -191,8 +224,6 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner) -> type[B
             return
 
         def _authorized(self) -> bool:
-            if token is None and self.client_address[0] in {"127.0.0.1", "::1"}:
-                return True
             header = self.headers.get("Authorization", "")
             if not header.startswith("Bearer "):
                 return False
@@ -221,12 +252,32 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner) -> type[B
 
 
 def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool:
+    return _live_guarded_approval_error(command, params, state_dir=None, require_lookup=False) is not None
+
+
+def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_dir: Path | None, require_lookup: bool = True) -> str | None:
     if command not in GUARDED_REMOTE_COMMANDS:
-        return False
+        return None
     if params.get("dry_run") is not False:
-        return False
+        return None
     approval = params.get("approval_audit_id")
-    return not isinstance(approval, str) or not approval.strip()
+    if not isinstance(approval, str) or not approval.strip():
+        return "Live remote control actions require a prior dry-run and approval_audit_id."
+    if not require_lookup:
+        return None
+    command_id, fields = CONNECTOR_COMMAND_APPROVAL[command]
+    record = read_audit_record(approval.strip(), state_dir=state_dir)
+    if record is None:
+        return "approval_audit_id was not found in the local audit log."
+    if record.get("command") != command_id or record.get("ok") is not True:
+        return "approval_audit_id does not reference a successful dry-run for this command."
+    record_args = record.get("args")
+    if not isinstance(record_args, dict) or record_args.get("dry_run") is not True:
+        return "approval_audit_id must reference a dry-run record."
+    for field in fields:
+        if record_args.get(field) != params.get(field):
+            return f"approval_audit_id does not match {field}."
+    return None
 
 
 def _dry_run_arg(params: dict[str, Any]) -> list[str]:

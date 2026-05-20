@@ -438,13 +438,16 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         frontmost = self._frontmost_app()
         if frontmost not in SAFE_BROWSER_APPS:
             return CommandResult(ok=False, data={"performed": False, "action": action, "frontmost_app": redact_value(frontmost)}, errors=[make_error(code="browser_not_frontmost", message="A supported browser must be frontmost for local-site actions.", guidance="Open the local site first, then rerun the named browser action.")])
+        current_url = self._front_browser_url(frontmost)
+        if not current_url or not self._safe_local_url(current_url):
+            return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "frontmost_app": frontmost, "current_url": redact_value(current_url)}, errors=[make_error(code="local_site_url_not_allowed", message="Local-site actions require the frontmost browser tab to be localhost, loopback, or .local.", guidance="Open the customer-local site first, then rerun the named browser action.")])
         if dry_run:
-            return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action, "frontmost_app": frontmost})
+            return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action, "frontmost_app": frontmost, "current_url": redact_value(current_url)})
         key = {"reload": "r", "back": "[", "forward": "]"}[action]
         result = self.runner(["osascript", "-e", f'tell application "System Events" to keystroke "{key}" using command down'], 5.0)
         if result.returncode != 0:
             return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="local_site_action_failed", message="macOS refused the named browser action.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
-        return CommandResult(ok=True, data={"performed": True, "action": action, "frontmost_app": frontmost})
+        return CommandResult(ok=True, data={"performed": True, "action": action, "frontmost_app": frontmost, "current_url": redact_value(current_url)})
 
     def iphone_mirroring_status(self) -> CommandResult:
         pid = self._pid_for_app("iPhone Mirroring")
@@ -609,6 +612,15 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
 
     def _front_window_title(self) -> str | None:
         return self._osascript_value('tell application "System Events" to tell first application process whose frontmost is true to get name of front window')
+
+    def _front_browser_url(self, app_name: str | None) -> str | None:
+        if not app_name:
+            return None
+        if app_name == "Safari":
+            return self._osascript_value('tell application "Safari" to get URL of front document')
+        if app_name in {"Google Chrome", "Arc", "Brave Browser"}:
+            return self._osascript_value(f'tell application "{self._escape_applescript(app_name)}" to get URL of active tab of front window')
+        return None
 
     def _pid_for_app(self, app_name: str | None) -> int | None:
         if not app_name:

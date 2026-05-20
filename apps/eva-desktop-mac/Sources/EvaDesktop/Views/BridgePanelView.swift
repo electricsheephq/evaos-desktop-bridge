@@ -27,6 +27,7 @@ struct BridgePanelView: View {
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
+                    .disabled(model.isRefreshingBridgeStatus)
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14)], spacing: 14) {

@@ -63,7 +63,7 @@ plugin at the connector server instead:
 
 ```bash
 export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
-export EVAOS_DESKTOP_BRIDGE_TOKEN=<connector-token>
+export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evaos-desktop-bridge/connector.token")"
 ```
 
 ## Safety Notes

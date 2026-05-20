@@ -186,9 +186,10 @@ For paired-VM canaries, run the connector server on the Mac:
 evaos-desktop-bridge serve --host 127.0.0.1 --port 8765
 ```
 
-Bind to a Headscale interface only after ACLs and
-`/Library/Application Support/evaos-desktop-bridge/connector.token` are in
-place. See [docs/customer-mac-connector.md](docs/customer-mac-connector.md).
+The connector self-provisions a per-user bearer token at
+`~/Library/Application Support/evaos-desktop-bridge/connector.token`. Bind to a
+Headscale interface only after ACLs are in place and the paired VM has the
+connector token. See [docs/customer-mac-connector.md](docs/customer-mac-connector.md).
 
 ### OpenClaw plugin wrapper
 

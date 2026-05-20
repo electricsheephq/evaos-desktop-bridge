@@ -31,6 +31,11 @@ struct ContentView: View {
         .onOpenURL { url in
             model.handleAuthCallback(url)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .evaDesktopOpenDesignURLChanged)) { notification in
+            if let value = notification.object as? String {
+                model.applyOpenDesignURLSetting(value)
+            }
+        }
     }
 }
 

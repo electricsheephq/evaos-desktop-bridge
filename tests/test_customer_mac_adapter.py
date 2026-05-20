@@ -34,6 +34,10 @@ def assert_no_mutation_commands(commands: list[tuple[str, ...]]) -> None:
     assert not any(command and command[0] in blocked for command in commands)
 
 
+def assert_no_keystroke_commands(commands: list[tuple[str, ...]]) -> None:
+    assert not any(command[0] == "osascript" and "keystroke" in " ".join(command) for command in commands)
+
+
 def test_iphone_open_app_blocks_sensitive_ios_apps_during_dry_run(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
     observer = CustomerMacObserver(
@@ -100,3 +104,50 @@ def test_safe_ax_node_does_not_export_raw_bounds(tmp_path: Path) -> None:
     assert "bounds" not in node
     assert node["role"] == "AXButton"
     assert node["actions"] == ["AXPress"]
+
+
+def test_local_site_action_dry_run_requires_local_browser_url(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(
+        runner=FakeRunner(
+            {
+                (
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to get name of first application process whose frontmost is true',
+                ): RunnerResult(returncode=0, stdout="Safari\n", stderr=""),
+                ("osascript", "-e", 'tell application "Safari" to get URL of front document'): RunnerResult(returncode=0, stdout="https://example.com\n", stderr=""),
+            }
+        ),
+        state_dir=tmp_path,
+        platform_name="Darwin",
+    )
+
+    result = observer.local_site_action(action="reload", dry_run=True)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "local_site_url_not_allowed"
+    assert_no_keystroke_commands(observer.runner.commands)
+
+
+def test_local_site_action_dry_run_allows_loopback_browser_url(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(
+        runner=FakeRunner(
+            {
+                (
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to get name of first application process whose frontmost is true',
+                ): RunnerResult(returncode=0, stdout="Safari\n", stderr=""),
+                ("osascript", "-e", 'tell application "Safari" to get URL of front document'): RunnerResult(returncode=0, stdout="http://127.0.0.1:3000\n", stderr=""),
+            }
+        ),
+        state_dir=tmp_path,
+        platform_name="Darwin",
+    )
+
+    result = observer.local_site_action(action="reload", dry_run=True)
+
+    assert result.ok is True
+    assert result.data["would_perform"] is True
+    assert result.data["current_url"] == "http://127.0.0.1:3000"
+    assert_no_keystroke_commands(observer.runner.commands)

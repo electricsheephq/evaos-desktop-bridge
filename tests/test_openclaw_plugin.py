@@ -127,7 +127,7 @@ def test_launch_agent_uses_launchd_logging_and_loopback_connector() -> None:
 
     assert "serve" in plist["ProgramArguments"]
     assert "127.0.0.1" in plist["ProgramArguments"]
-    assert "/Library/Application Support/evaos-desktop-bridge/connector.token" in plist["ProgramArguments"]
+    assert "--token-file" not in plist["ProgramArguments"]
     assert plist["KeepAlive"] is True
     assert "StartInterval" not in plist
     assert "pkgutil --check-signature" in build_script

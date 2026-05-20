@@ -55,7 +55,7 @@ Headscale instead of execing a local bridge binary:
 
 ```bash
 export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
-export EVAOS_DESKTOP_BRIDGE_TOKEN=<connector-token>
+export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evaos-desktop-bridge/connector.token")"
 ```
 
 Remote mode posts fixed command keys to `/v1/commands`. The connector rejects
