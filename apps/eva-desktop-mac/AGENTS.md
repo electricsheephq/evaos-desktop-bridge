@@ -43,9 +43,10 @@ Mission Control, Live Browser, Terminal, or OpenDesign internals.
 
 ## Focused Validation
 
-Run from `/Volumes/LEXAR/repos/.../apps/eva-desktop-mac`:
+Run from the repository root:
 
 ```bash
+cd apps/eva-desktop-mac
 swift build
 swift run EvaDesktopCoreSmoke
 ./script/build_and_run.sh --verify

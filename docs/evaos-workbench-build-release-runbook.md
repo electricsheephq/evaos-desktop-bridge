@@ -28,10 +28,10 @@ packaging the Mac Workbench app under `apps/eva-desktop-mac`.
 
 ## Local Build
 
-Run from the Lexar-backed app directory:
+Run from the repository root:
 
 ```bash
-cd /Volumes/LEXAR/repos/evaos-desktop-bridge/apps/eva-desktop-mac
+cd apps/eva-desktop-mac
 swift build
 swift run EvaDesktopCoreSmoke
 ./script/build_and_run.sh --verify

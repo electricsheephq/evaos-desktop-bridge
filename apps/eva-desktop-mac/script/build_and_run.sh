@@ -50,7 +50,11 @@ fi
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string evaos" "$INFO_PLIST"
 
-codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_BUNDLE"
+if [ "$SIGNING_IDENTITY" = "-" ]; then
+  codesign --force --sign "$SIGNING_IDENTITY" --timestamp=none "$APP_BUNDLE"
+else
+  codesign --force --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+fi
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
