@@ -25,8 +25,13 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.snapshot",
         "codex.inspect",
         "codex.ax_tree",
+        "codex.connections.status",
         "codex.app_server.status",
         "codex.app_server.threads",
+        "codex.app_server.subscribe",
+        "codex.app_server.start_turn",
+        "codex.app_server.steer_turn",
+        "codex.app_server.interrupt_turn",
     }
 )
 
@@ -112,6 +117,13 @@ def build_parser() -> argparse.ArgumentParser:
     ax_parser.add_argument("--max-nodes", type=_positive_int, default=200, help="Maximum AX nodes to return.")
     ax_parser.set_defaults(command_id="codex.ax_tree", target="codex")
 
+    connections_parser = codex_subparsers.add_parser("connections", help="Codex Desktop connection and remote-control readiness.")
+    connections_subparsers = connections_parser.add_subparsers(dest="connections_command")
+
+    connections_status_parser = connections_subparsers.add_parser("status", help="Report Codex Desktop/app-server connection readiness.")
+    connections_status_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    connections_status_parser.set_defaults(command_id="codex.connections.status", target="codex")
+
     app_server_parser = codex_subparsers.add_parser("app-server", help="Read-only Codex app-server seam commands.")
     app_server_subparsers = app_server_parser.add_subparsers(dest="app_server_command")
 
@@ -123,6 +135,47 @@ def build_parser() -> argparse.ArgumentParser:
     app_server_threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     app_server_threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum app-server thread summaries to return.")
     app_server_threads_parser.set_defaults(command_id="codex.app_server.threads", target="codex")
+
+    app_server_subscribe_parser = app_server_subparsers.add_parser("subscribe", help="Read a short live Codex app-server notification window.")
+    app_server_subscribe_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_subscribe_parser.add_argument("--thread-id", required=True, help="Codex thread id to observe.")
+    app_server_subscribe_parser.add_argument("--duration-ms", type=_positive_int, default=1000, help="Milliseconds to collect notifications.")
+    app_server_subscribe_parser.add_argument("--max-events", type=_positive_int, default=40, help="Maximum notifications to return.")
+    app_server_subscribe_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum chars per included notification string.")
+    app_server_subscribe_parser.set_defaults(command_id="codex.app_server.subscribe", target="codex")
+
+    start_turn_parser = app_server_subparsers.add_parser("start-turn", help="Guarded remote-control action: start a Codex turn through app-server.")
+    start_turn_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    start_turn_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
+    start_turn_parser.add_argument("--message", required=True, help="Prompt text to send when live mode is explicitly confirmed.")
+    start_turn_parser.add_argument("--dry-run", action="store_true", help="Preview without starting a turn.")
+    start_turn_parser.add_argument("--live", action="store_true", help="Actually start the turn; requires --confirm and --source-audit-id.")
+    start_turn_parser.add_argument("--confirm", action="store_true", help="Explicit confirmation for live controller action.")
+    start_turn_parser.add_argument("--source-audit-id", default=None, help="Prior bridge audit id authorizing this live action.")
+    start_turn_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum chars for previews and returned event text.")
+    start_turn_parser.set_defaults(command_id="codex.app_server.start_turn", target="codex")
+
+    steer_turn_parser = app_server_subparsers.add_parser("steer-turn", help="Guarded remote-control action: steer an active Codex turn through app-server.")
+    steer_turn_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    steer_turn_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
+    steer_turn_parser.add_argument("--turn-id", default=None, help="Active turn id precondition.")
+    steer_turn_parser.add_argument("--message", required=True, help="Steering text to send when live mode is explicitly confirmed.")
+    steer_turn_parser.add_argument("--dry-run", action="store_true", help="Preview without steering a turn.")
+    steer_turn_parser.add_argument("--live", action="store_true", help="Actually steer the turn; requires --confirm and --source-audit-id.")
+    steer_turn_parser.add_argument("--confirm", action="store_true", help="Explicit confirmation for live controller action.")
+    steer_turn_parser.add_argument("--source-audit-id", default=None, help="Prior bridge audit id authorizing this live action.")
+    steer_turn_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum chars for previews and returned event text.")
+    steer_turn_parser.set_defaults(command_id="codex.app_server.steer_turn", target="codex")
+
+    interrupt_turn_parser = app_server_subparsers.add_parser("interrupt-turn", help="Guarded remote-control action: interrupt an active Codex turn through app-server.")
+    interrupt_turn_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    interrupt_turn_parser.add_argument("--thread-id", required=True, help="Codex thread id.")
+    interrupt_turn_parser.add_argument("--turn-id", default=None, help="Active turn id precondition.")
+    interrupt_turn_parser.add_argument("--dry-run", action="store_true", help="Preview without interrupting a turn.")
+    interrupt_turn_parser.add_argument("--live", action="store_true", help="Actually interrupt the turn; requires --confirm and --source-audit-id.")
+    interrupt_turn_parser.add_argument("--confirm", action="store_true", help="Explicit confirmation for live controller action.")
+    interrupt_turn_parser.add_argument("--source-audit-id", default=None, help="Prior bridge audit id authorizing this live action.")
+    interrupt_turn_parser.set_defaults(command_id="codex.app_server.interrupt_turn", target="codex")
 
     return parser
 
@@ -178,8 +231,9 @@ def main(
         provenance={
             **command_metadata(command_id),
             **result.provenance,
-            "dry_run": getattr(args, "dry_run", None),
+            "dry_run": _effective_dry_run(command_id, args),
             "selected_visible_target_id": getattr(args, "thread_id", None),
+            "turn_id": getattr(args, "turn_id", None),
             "source_audit_id": getattr(args, "source_audit_id", None),
         },
         state_dir=state_dir,
@@ -250,10 +304,41 @@ def _run_command(command_id: str, observer: MacOSCodexObserver, app_server: Code
         return observer.inspect(max_nodes=args.max_nodes)
     if command_id == "codex.ax_tree":
         return observer.ax_tree(max_nodes=args.max_nodes)
+    if command_id == "codex.connections.status":
+        return app_server.connections_status(desktop_status=observer.status())
     if command_id == "codex.app_server.status":
         return app_server.status()
     if command_id == "codex.app_server.threads":
         return app_server.threads(max_items=args.max_items)
+    if command_id == "codex.app_server.subscribe":
+        return app_server.subscribe(thread_id=args.thread_id, duration_ms=args.duration_ms, max_events=args.max_events, max_chars=args.max_chars)
+    if command_id == "codex.app_server.start_turn":
+        return app_server.start_turn(
+            thread_id=args.thread_id,
+            message=args.message,
+            dry_run=not args.live,
+            source_audit_id=args.source_audit_id,
+            confirmed=args.confirm,
+            max_chars=args.max_chars,
+        )
+    if command_id == "codex.app_server.steer_turn":
+        return app_server.steer_turn(
+            thread_id=args.thread_id,
+            turn_id=args.turn_id,
+            message=args.message,
+            dry_run=not args.live,
+            source_audit_id=args.source_audit_id,
+            confirmed=args.confirm,
+            max_chars=args.max_chars,
+        )
+    if command_id == "codex.app_server.interrupt_turn":
+        return app_server.interrupt_turn(
+            thread_id=args.thread_id,
+            turn_id=args.turn_id,
+            dry_run=not args.live,
+            source_audit_id=args.source_audit_id,
+            confirmed=args.confirm,
+        )
     raise PolicyError(command_id)
 
 
@@ -288,8 +373,13 @@ def _capabilities() -> dict[str, object]:
                 "codex.snapshot",
                 "codex.inspect",
                 "codex.ax_tree",
+                "codex.connections.status",
                 "codex.app_server.status",
                 "codex.app_server.threads",
+                "codex.app_server.subscribe",
+                "codex.app_server.start_turn",
+                "codex.app_server.steer_turn",
+                "codex.app_server.interrupt_turn",
             ]
         ],
         "forbidden": [
@@ -297,6 +387,7 @@ def _capabilities() -> dict[str, object]:
             "type_into_codex",
             "click_codex_controls",
             "call_codex_internal_mutation_rpc",
+            "generic_codex_app_server_rpc_passthrough",
             "hijack_stdio_or_file_descriptors",
             "read_session_databases_wholesale",
             "expose_tokens_auth_files_or_full_home_paths",
@@ -318,6 +409,17 @@ def _target_for_command(command: str) -> str:
     if command.startswith("queue."):
         return "queue"
     return "desktop"
+
+
+def _effective_dry_run(command_id: str, args: argparse.Namespace) -> bool | None:
+    if command_id in {
+        "codex.app_server.start_turn",
+        "codex.app_server.steer_turn",
+        "codex.app_server.interrupt_turn",
+        "codex.rehydrate_thread",
+    }:
+        return not bool(getattr(args, "live", False))
+    return getattr(args, "dry_run", None)
 
 
 if __name__ == "__main__":

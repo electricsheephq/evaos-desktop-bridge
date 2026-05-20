@@ -6,7 +6,19 @@ from pathlib import Path
 import pytest
 
 from evaos_desktop_bridge.audit import append_audit
-from evaos_desktop_bridge.adapters.codex_app_server import ALLOWED_APP_SERVER_METHODS, CodexAppServerObserver, JsonRpcResponse
+from evaos_desktop_bridge.adapters.codex_app_server import (
+    ALLOWED_APP_SERVER_METHODS,
+    CONTROLLER_APP_SERVER_METHODS,
+    EXPECTED_APP_SERVER_NOTIFICATIONS,
+    FORBIDDEN_APP_SERVER_METHODS,
+    CodexAppServerObserver,
+    CodexJsonRpcClient,
+    JsonRpcResponse,
+    JsonRpcTransport,
+    LoopbackWebSocketTransport,
+    classify_app_server_method,
+    extract_generated_protocol_methods,
+)
 from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_allowed
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
@@ -163,6 +175,166 @@ def test_app_server_method_allowlist_blocks_mutations() -> None:
 
     assert result.ok is False
     assert result.errors[0]["code"] == "app_server_method_not_allowed"
+
+
+def test_app_server_protocol_methods_are_classified() -> None:
+    assert classify_app_server_method("thread/read") == "read_only"
+    assert classify_app_server_method("turn/start") == "guarded_controller"
+    assert classify_app_server_method("fs/writeFile") == "forbidden"
+    assert classify_app_server_method("unknown/method") == "unknown"
+
+    assert {"turn/start", "turn/steer", "turn/interrupt"} <= CONTROLLER_APP_SERVER_METHODS
+    assert {"fs/writeFile", "config/batchWrite", "plugin/install"} <= FORBIDDEN_APP_SERVER_METHODS
+    assert "remoteControl/status/changed" in EXPECTED_APP_SERVER_NOTIFICATIONS
+
+
+def test_extract_generated_protocol_methods_from_typescript_fixture() -> None:
+    source = '''
+export type ClientRequest =
+  { "method": "initialize", id: RequestId, params: InitializeParams, } |
+  { "method": "thread/read", id: RequestId, params: ThreadReadParams, } |
+  { "method": "turn/start", id: RequestId, params: TurnStartParams, };
+export type ServerNotification =
+  { "method": "turn/started", "params": TurnStartedNotification } |
+  { "method": "remoteControl/status/changed", "params": RemoteControlStatusChangedNotification };
+'''
+
+    methods = extract_generated_protocol_methods(source)
+
+    assert methods == {
+        "initialize",
+        "thread/read",
+        "turn/start",
+        "turn/started",
+        "remoteControl/status/changed",
+    }
+
+
+class FakeTransport(JsonRpcTransport):
+    def __init__(self, responses: list[dict]) -> None:
+        self.responses = list(responses)
+        self.sent: list[dict] = []
+        self.closed = False
+
+    def send(self, payload: dict) -> None:
+        self.sent.append(payload)
+
+    def recv(self, timeout: float) -> dict | None:
+        if not self.responses:
+            return None
+        return self.responses.pop(0)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_json_rpc_client_serializes_requests_and_buffers_notifications() -> None:
+    transport = FakeTransport(
+        [
+            {"method": "turn/started", "params": {"threadId": "thread-1"}},
+            {"id": 1, "result": {"ok": True}},
+            {"method": "turn/completed", "params": {"threadId": "thread-1"}},
+        ]
+    )
+
+    with CodexJsonRpcClient(transport_factory=lambda: transport, request_timeout=0.1) as client:
+        response = client.request("thread/list", {"limit": 1})
+        events = client.collect_notifications(duration_ms=10, max_events=5)
+
+    assert response.ok is True
+    assert transport.sent[0]["id"] == 1
+    assert transport.sent[0]["method"] == "thread/list"
+    assert response.notifications == [{"method": "turn/started", "params": {"threadId": "thread-1"}}]
+    assert events == [{"method": "turn/completed", "params": {"threadId": "thread-1"}}]
+    assert transport.closed is True
+
+
+def test_loopback_websocket_transport_rejects_non_loopback_urls() -> None:
+    with pytest.raises(ValueError):
+        LoopbackWebSocketTransport("ws://example.com:9999")
+
+
+def test_app_server_controller_dry_run_does_not_call_rpc() -> None:
+    def fail_rpc(method: str, params: dict) -> JsonRpcResponse:
+        raise AssertionError(f"unexpected rpc call: {method}")
+
+    observer = CodexAppServerObserver(rpc_client=fail_rpc)
+    result = observer.start_turn(
+        thread_id="thread-1",
+        message="continue",
+        dry_run=True,
+        source_audit_id=None,
+        confirmed=False,
+    )
+
+    assert result.ok is True
+    assert result.data["would_start_turn"] is True
+    assert result.data["method"] == "turn/start"
+    assert result.provenance["dry_run"] is True
+
+
+def test_app_server_controller_live_requires_confirmation_and_source_audit() -> None:
+    observer = CodexAppServerObserver(rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"ok": True}))
+
+    result = observer.start_turn(
+        thread_id="thread-1",
+        message="continue",
+        dry_run=False,
+        source_audit_id=None,
+        confirmed=False,
+    )
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "controller_confirmation_required"
+
+
+def test_app_server_controller_live_calls_guarded_method_with_capped_message() -> None:
+    calls: list[tuple[str, dict]] = []
+
+    def capture_rpc(method: str, params: dict) -> JsonRpcResponse:
+        calls.append((method, params))
+        return JsonRpcResponse(ok=True, payload={"turnId": "turn-1"})
+
+    observer = CodexAppServerObserver(rpc_client=capture_rpc)
+    result = observer.start_turn(
+        thread_id="thread-1",
+        message=f"{Path.home()}/secret " + ("x" * 50),
+        dry_run=False,
+        source_audit_id="audit-123",
+        confirmed=True,
+        max_chars=20,
+    )
+
+    assert result.ok is True
+    assert calls[0][0] == "turn/start"
+    assert calls[0][1]["threadId"] == "thread-1"
+    assert calls[0][1]["input"][0]["text"].startswith(str(Path.home()))
+    assert str(Path.home()) not in json.dumps(result.data)
+    assert result.data["message_truncated"] is True
+
+
+def test_app_server_subscribe_sanitizes_notifications() -> None:
+    observer = CodexAppServerObserver(
+        subscription_client=lambda thread_id, duration_ms, max_events, max_chars: JsonRpcResponse(
+            ok=True,
+            payload={
+                "events": [
+                    {
+                        "method": "item/agentMessage/delta",
+                        "params": {"delta": f"{Path.home()}/project " + ("x" * 40)},
+                    },
+                    {"method": "fs/changed", "params": {"path": f"{Path.home()}/secret.txt"}},
+                ]
+            },
+        )
+    )
+
+    result = observer.subscribe(thread_id="thread-1", duration_ms=100, max_events=5, max_chars=20)
+
+    assert result.ok is True
+    assert result.data["events"][0]["params"]["delta"].startswith("~/")
+    assert result.data["events"][0]["truncated"] is True
+    assert result.data["events"][1]["method"] == "fs/changed"
 
 
 def test_app_server_threads_sanitizes_response() -> None:

@@ -20,8 +20,13 @@ ALLOWED_COMMANDS = frozenset(
         "codex.snapshot",
         "codex.inspect",
         "codex.ax_tree",
+        "codex.connections.status",
         "codex.app_server.status",
         "codex.app_server.threads",
+        "codex.app_server.subscribe",
+        "codex.app_server.start_turn",
+        "codex.app_server.steer_turn",
+        "codex.app_server.interrupt_turn",
     }
 )
 
@@ -40,8 +45,13 @@ COMMAND_METADATA: dict[str, dict[str, Any]] = {
     "codex.snapshot": {"mode": "read_only", "source": "screenshot", "requires_permission": ["screen_recording"]},
     "codex.inspect": {"mode": "read_only", "source": "ax", "requires_permission": ["accessibility"]},
     "codex.ax_tree": {"mode": "read_only", "source": "ax", "requires_permission": ["accessibility"]},
+    "codex.connections.status": {"mode": "read_only", "source": "app_server_connections", "requires_permission": []},
     "codex.app_server.status": {"mode": "read_only", "source": "app_server", "requires_permission": []},
     "codex.app_server.threads": {"mode": "read_only", "source": "app_server", "requires_permission": []},
+    "codex.app_server.subscribe": {"mode": "read_only", "source": "app_server_notifications", "requires_permission": []},
+    "codex.app_server.start_turn": {"mode": "guarded_remote_control_action", "source": "app_server_controller", "requires_permission": [], "writes_thread": True},
+    "codex.app_server.steer_turn": {"mode": "guarded_remote_control_action", "source": "app_server_controller", "requires_permission": [], "writes_thread": True},
+    "codex.app_server.interrupt_turn": {"mode": "guarded_remote_control_action", "source": "app_server_controller", "requires_permission": [], "writes_thread": True},
 }
 
 

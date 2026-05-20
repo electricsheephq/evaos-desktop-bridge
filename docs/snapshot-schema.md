@@ -281,7 +281,41 @@ With `--dry-run`, it returns:
 }
 ```
 
-`codex.app_server.status` returns read-only app-server availability and method allowlists. `codex.app_server.threads` returns capped thread summaries from allowed app-server read methods only.
+`codex.connections.status` returns Codex Desktop/app-server readiness, remote-control feature state, loopback websocket configuration, expected live notification methods, and controller safety flags.
+
+`codex.app_server.status` returns read-only app-server availability, read allowlists, controller method names, and forbidden methods. `codex.app_server.threads` returns capped thread summaries from allowed app-server read methods only.
+
+`codex.app_server.subscribe` returns:
+
+```json
+{
+  "thread_id": "thread-...",
+  "duration_ms": 1000,
+  "events": [
+    {
+      "method": "turn/started",
+      "params": {"threadId": "thread-..."},
+      "expected": true,
+      "truncated": false
+    }
+  ],
+  "count": 1,
+  "max_events": 40
+}
+```
+
+Guarded controller commands return dry-run previews by default and live results only after explicit confirmation:
+
+```json
+{
+  "would_start_turn": true,
+  "started": false,
+  "thread_id": "thread-...",
+  "method": "turn/start",
+  "message_preview": "continue",
+  "message_truncated": false
+}
+```
 
 `queue.append` returns a local queue event, and `queue.list` returns capped queue events for Eva/OpenClaw announcement routing.
 
@@ -295,4 +329,4 @@ With `--dry-run`, it returns:
 
 ## Non-Goals
 
-This schema does not include prompt sending, session database rows, auth files, token material, or mutation-capable app-server calls.
+This schema does not include generic prompt sending, session database rows, auth files, token material, or arbitrary mutation-capable app-server calls. Named controller outputs are capped, redacted, audited, and separated from read-only observation commands.

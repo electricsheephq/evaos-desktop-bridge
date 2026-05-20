@@ -15,7 +15,7 @@ def test_openclaw_plugin_manifest_points_to_entrypoint() -> None:
     assert manifest["type"] == "module"
 
 
-def test_openclaw_plugin_registers_read_only_tools_only() -> None:
+def test_openclaw_plugin_registers_named_tools_only() -> None:
     source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
 
     expected_tools = [
@@ -34,6 +34,11 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_ax_tree",
         "desktop_bridge_codex_app_server_status",
         "desktop_bridge_codex_app_server_threads",
+        "desktop_bridge_codex_connections_status",
+        "desktop_bridge_codex_live_status",
+        "desktop_bridge_codex_remote_start_turn",
+        "desktop_bridge_codex_remote_steer_turn",
+        "desktop_bridge_codex_remote_interrupt_turn",
     ]
     for tool_name in expected_tools:
         assert tool_name in source
@@ -58,6 +63,9 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert '"app-server"' in source
     assert "turn/start" not in source
     assert "session.db" not in source
+    assert "codexAppServerStartTurn" in source
+    assert "codexAppServerSteerTurn" in source
+    assert "codexAppServerInterruptTurn" in source
 
 
 def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
@@ -80,4 +88,6 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
         assert pattern in source
 
     assert "block: true" in source
+    assert "requireApproval: true" in source
+    assert "desktop_bridge_codex_remote_start_turn" in source
     assert "before_tool_call" in (PLUGIN / "index.ts").read_text(encoding="utf-8")

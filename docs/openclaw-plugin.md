@@ -18,20 +18,28 @@ Read-only tools:
 - `desktop_bridge_codex_snapshot`: capped visible snapshot; screenshot only when Codex is frontmost.
 - `desktop_bridge_codex_inspect`: compact page map of visible windows, controls, and text summaries.
 - `desktop_bridge_codex_ax_tree`: capped Accessibility roles/names tree.
+- `desktop_bridge_codex_connections_status`: Codex Desktop/app-server connection and remote-control readiness.
 - `desktop_bridge_codex_app_server_status`: Codex app-server availability and read allowlist.
 - `desktop_bridge_codex_app_server_threads`: capped app-server thread summaries through the read allowlist.
+- `desktop_bridge_codex_live_status`: short capped app-server notification window for a thread.
 
 Guarded visible action:
 
 - `desktop_bridge_codex_select_thread`: select an already-visible thread by `visible_id`; `dry_run` defaults to true.
 
-No plugin tool sends prompts, types text, clicks send/approval controls, launches Codex, calls mutation app-server RPCs, reads session databases, or accepts arbitrary shell commands.
+Guarded remote-control actions:
+
+- `desktop_bridge_codex_remote_start_turn`: start a Codex Desktop turn through app-server; dry-run defaults to true.
+- `desktop_bridge_codex_remote_steer_turn`: steer an active Codex Desktop turn through app-server; dry-run defaults to true.
+- `desktop_bridge_codex_remote_interrupt_turn`: interrupt an active Codex Desktop turn through app-server; dry-run defaults to true.
+
+No plugin tool types text, clicks send/approval controls, launches Codex, calls arbitrary app-server RPCs, reads session databases, or accepts arbitrary shell commands. Live remote-control tools require explicit params and OpenClaw approval.
 
 ## Runtime Contract
 
 The wrapper resolves the bridge executable from `EVAOS_DESKTOP_BRIDGE_BIN`, falling back to `evaos-desktop-bridge` on `PATH`.
 
-Each tool maps to a fixed argv list. User parameters can only change numeric caps, queue fields, dry-run, or a visible thread id; numeric values are clamped before execution.
+Each tool maps to a fixed argv list. User parameters can only change numeric caps, queue fields, dry-run/live controller flags, source audit id, thread/turn ids, and bounded messages; numeric values are clamped before execution.
 
 ## Firewall Hook
 
@@ -51,6 +59,8 @@ The plugin registers a `before_tool_call` hook named `evaos-desktop-bridge-firew
 - prompt sending or typewrite-style operations
 
 This hook is a defense-in-depth control. The primary safety boundary remains the fixed bridge CLI allowlist and the absence of mutation tools.
+
+For live controller tools, the same hook requests approval when `dry_run` is `false`. The bridge CLI also requires `--live --confirm --source-audit-id audit-...`, so approval UI and local provenance both have to line up before a turn is started, steered, or interrupted.
 
 ## Hands Boundary
 

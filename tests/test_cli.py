@@ -125,10 +125,80 @@ class FakeAppServer:
     def status(self) -> CommandResult:
         return CommandResult(ok=True, data={"available": self.mode == "ok", "allowed_methods": ["thread/list"], "read_only": True})
 
+    def connections_status(self, *, desktop_status: CommandResult | None = None) -> CommandResult:
+        return CommandResult(
+            ok=True,
+            data={
+                "desktop": {"running": True},
+                "app_server": {"available": True, "websocket_listen_supported": True},
+                "remote_control": {"feature_state": "under development false"},
+                "live_notifications": {"expected_methods": ["turn/started", "turn/completed"]},
+            },
+        )
+
     def threads(self, *, max_items: int) -> CommandResult:
         if self.mode != "ok":
             return CommandResult(ok=False, errors=[{"code": "app_server_unavailable", "message": "offline", "guidance": "start app-server"}])
         return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Thread 1", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items})
+
+    def subscribe(self, *, thread_id: str, duration_ms: int, max_events: int = 40, max_chars: int = 4000) -> CommandResult:
+        return CommandResult(
+            ok=True,
+            data={
+                "thread_id": thread_id,
+                "duration_ms": duration_ms,
+                "events": [{"method": "turn/started", "params": {"threadId": thread_id}}],
+                "count": 1,
+            },
+        )
+
+    def start_turn(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        dry_run: bool,
+        source_audit_id: str | None = None,
+        confirmed: bool = False,
+        max_chars: int = 4000,
+    ) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"would_start_turn": True, "started": False, "thread_id": thread_id, "message_preview": message[:max_chars]})
+        if not confirmed or not source_audit_id:
+            return CommandResult(ok=False, errors=[{"code": "controller_confirmation_required", "message": "confirm", "guidance": "dry-run first"}])
+        return CommandResult(ok=True, data={"would_start_turn": False, "started": True, "thread_id": thread_id, "turn_id": "turn-1"})
+
+    def steer_turn(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str | None,
+        message: str,
+        dry_run: bool,
+        source_audit_id: str | None = None,
+        confirmed: bool = False,
+        max_chars: int = 4000,
+    ) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"would_steer_turn": True, "steered": False, "thread_id": thread_id, "turn_id": turn_id})
+        if not confirmed or not source_audit_id or not turn_id:
+            return CommandResult(ok=False, errors=[{"code": "controller_confirmation_required", "message": "confirm", "guidance": "dry-run first"}])
+        return CommandResult(ok=True, data={"would_steer_turn": False, "steered": True, "thread_id": thread_id, "turn_id": turn_id})
+
+    def interrupt_turn(
+        self,
+        *,
+        thread_id: str,
+        turn_id: str | None,
+        dry_run: bool,
+        source_audit_id: str | None = None,
+        confirmed: bool = False,
+    ) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"would_interrupt_turn": True, "interrupted": False, "thread_id": thread_id, "turn_id": turn_id})
+        if not confirmed or not source_audit_id or not turn_id:
+            return CommandResult(ok=False, errors=[{"code": "controller_confirmation_required", "message": "confirm", "guidance": "dry-run first"}])
+        return CommandResult(ok=True, data={"would_interrupt_turn": False, "interrupted": True, "thread_id": thread_id, "turn_id": turn_id})
 
 
 def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
@@ -306,12 +376,89 @@ def test_app_server_status_json_reports_allowlist(tmp_path: Path) -> None:
     assert payload["data"]["read_only"] is True
 
 
+def test_connections_status_json_reports_remote_control_capability(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "connections", "status", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.connections.status"
+    assert payload["data"]["app_server"]["websocket_listen_supported"] is True
+    assert "turn/started" in payload["data"]["live_notifications"]["expected_methods"]
+
+
 def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
     payload = run_cli(["codex", "app-server", "threads", "--json", "--max-items", "1"], FakeObserver(), tmp_path)
 
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.app_server.threads"
     assert payload["data"]["threads"][0]["source"] == "app_server"
+
+
+def test_app_server_subscribe_json_reads_live_events(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "app-server", "subscribe", "--json", "--thread-id", "thread-1", "--duration-ms", "100"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.app_server.subscribe"
+    assert payload["data"]["events"][0]["method"] == "turn/started"
+
+
+def test_app_server_start_turn_dry_run_defaults_safe(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "app-server", "start-turn", "--json", "--thread-id", "thread-1", "--message", "continue", "--dry-run"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.app_server.start_turn"
+    assert payload["data"]["would_start_turn"] is True
+    assert payload["data"]["started"] is False
+
+
+def test_app_server_start_turn_live_requires_confirmation(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "app-server", "start-turn", "--json", "--thread-id", "thread-1", "--message", "continue", "--live"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 2
+    assert payload["command"] == "codex.app_server.start_turn"
+    assert payload["errors"][0]["code"] == "controller_confirmation_required"
+
+
+def test_app_server_start_turn_live_with_confirmation(tmp_path: Path) -> None:
+    payload = run_cli(
+        [
+            "codex",
+            "app-server",
+            "start-turn",
+            "--json",
+            "--thread-id",
+            "thread-1",
+            "--message",
+            "continue",
+            "--live",
+            "--confirm",
+            "--source-audit-id",
+            "audit-123",
+        ],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["started"] is True
+    assert payload["data"]["turn_id"] == "turn-1"
+
+
+def test_app_server_steer_and_interrupt_dry_run(tmp_path: Path) -> None:
+    steer = run_cli(
+        ["codex", "app-server", "steer-turn", "--json", "--thread-id", "thread-1", "--turn-id", "turn-1", "--message", "adjust", "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+    interrupt = run_cli(
+        ["codex", "app-server", "interrupt-turn", "--json", "--thread-id", "thread-1", "--turn-id", "turn-1", "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert steer["_exit_code"] == 0
+    assert steer["data"]["would_steer_turn"] is True
+    assert interrupt["_exit_code"] == 0
+    assert interrupt["data"]["would_interrupt_turn"] is True
 
 
 def test_queue_append_and_list_json(tmp_path: Path) -> None:

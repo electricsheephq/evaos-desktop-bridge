@@ -17,6 +17,12 @@ type HookDecision =
 
 const READ_ONLY_TOOL_PREFIX = "desktop_bridge_";
 
+const CONTROLLER_TOOL_NAMES = new Set([
+  "desktop_bridge_codex_remote_start_turn",
+  "desktop_bridge_codex_remote_steer_turn",
+  "desktop_bridge_codex_remote_interrupt_turn",
+]);
+
 const DANGEROUS_TOOL_NAMES = [
   "exec",
   "shell",
@@ -73,16 +79,23 @@ const FORBIDDEN_ARGUMENT_PATTERNS = [
 
 export function desktopBridgeFirewall(event: HookEvent): HookDecision {
   const toolName = String(event.toolName || event.name || "");
-  if (toolName.startsWith(READ_ONLY_TOOL_PREFIX)) {
-    return undefined;
-  }
-
   const haystack = JSON.stringify({
     toolName,
     args: event.args,
     input: event.input,
     parameters: event.parameters,
   });
+  const parsedArgs = normalizeArgs(event.args ?? event.input ?? event.parameters);
+  if (CONTROLLER_TOOL_NAMES.has(toolName) && parsedArgs.dry_run === false) {
+    return {
+      requireApproval: true,
+      approvalReason: "Live Codex Desktop remote-control actions can start, steer, or interrupt a Desktop-owned turn.",
+    };
+  }
+  if (toolName.startsWith(READ_ONLY_TOOL_PREFIX)) {
+    return undefined;
+  }
+
   const suspiciousTool = DANGEROUS_TOOL_NAMES.some((name) => toolName.toLowerCase().includes(name));
   const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern));
 
@@ -95,4 +108,11 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
   }
 
   return undefined;
+}
+
+function normalizeArgs(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
 }

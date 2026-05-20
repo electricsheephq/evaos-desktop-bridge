@@ -20,7 +20,7 @@ tags:
 
 ## Summary
 
-The bridge gives Eva/OpenClaw safe situational awareness of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions; it does not provide hidden mutation control.
+The bridge gives Eva/OpenClaw safe situational awareness of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes read-only app-server observation, and provides narrow guarded visible focus/select plus named remote-control actions; it does not provide hidden or generic mutation control.
 
 ## Current Status
 
@@ -36,6 +36,7 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 ## Change Log
 
 - 2026-05-03T00:00:00Z - Added OpenClaw plugin wrapper boundary, latest/audit read APIs, and firewall control.
+- 2026-05-18T00:00:00Z - Added guarded Codex app-server remote-control lane and live notification observer.
 - 2026-05-02T00:00:00Z - Initial MVP threat model for read-only Codex Desktop observation.
 
 ## Assets
@@ -50,8 +51,8 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 
 The MVP must not:
 
-- Send prompts, messages, turns, approvals, or keyboard text.
-- Call Codex internal mutation RPCs or mutation-capable app-server methods.
+- Send prompts, messages, turns, approvals, or keyboard text through generic passthroughs.
+- Call Codex internal mutation RPCs or mutation-capable app-server methods except the named guarded controller methods.
 - Hijack stdio, file descriptors, PTYs, or process streams.
 - Read Codex session databases wholesale.
 - Expose tokens, auth files, or full home paths.
@@ -68,10 +69,12 @@ The MVP must not:
 - Save a screenshot artifact when Screen Recording permits it.
 - Return a capped AX tree containing roles and names only.
 - Return capped app-server thread summaries through a hard read-only method allowlist.
+- Return short capped app-server notification windows for live thread status.
+- Start, steer, or interrupt a Codex app-server turn only through named guarded controller commands that require dry-run support, confirmation, and source audit provenance.
 - Return the last redacted observation envelope.
 - Return a capped redacted local audit-log tail.
 - Append/list local Eva/OpenClaw queue events.
-- Expose fixed read-only OpenClaw plugin tools that call the bridge CLI with non-shell argv.
+- Expose fixed OpenClaw plugin tools that call the bridge CLI with non-shell argv.
 - Append a redacted local JSONL audit record for every valid command invocation.
 
 ## Threats and Controls
@@ -79,12 +82,13 @@ The MVP must not:
 | Threat | Control |
 | --- | --- |
 | Silent prompt sending | No command types, pastes, clicks send controls, or exposes prompt APIs. |
-| Hidden Codex state mutation | App-server methods are denied unless on the read-only allowlist. |
+| Hidden Codex state mutation | App-server methods are denied unless on the read-only allowlist or the guarded controller allowlist. |
 | Session data leakage | No database reads; AX output is capped to roles/names only. |
 | Secret leakage | Redaction replaces home paths, API-key-like strings, bearer tokens, and authorization headers. |
 | Permission confusion | Commands return structured permission errors with setup guidance. |
 | Unreviewable behavior | Every valid command writes an append-only local audit record. |
-| Plugin shell escape | OpenClaw wrapper exposes fixed read-only tool mappings only and uses `execFile` with `shell: false`. |
+| Plugin shell escape | OpenClaw wrapper exposes fixed tool mappings only and uses `execFile` with `shell: false`. |
+| Ungated remote control | Live controller tools require OpenClaw approval plus bridge `--live --confirm --source-audit-id`. |
 | Generic desktop-control bypass | Plugin `before_tool_call` firewall blocks suspicious shell/computer calls containing desktop-control, Codex app-server, prompt-send, token, or session database patterns. |
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
 
@@ -116,7 +120,7 @@ The audit log is not a telemetry upload. It is a local provenance trail for oper
 
 Before broadening app-server integration:
 
-- Define a read-only RPC allowlist.
+- Preserve separate read-only and guarded-controller allowlists.
 - Prove no mutation method can be called through generic passthrough.
 - Add fixture tests for malformed responses and accidental mutation attempts.
 - Require a separate threat-model revision and PR review.

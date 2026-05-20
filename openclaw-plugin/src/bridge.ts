@@ -17,8 +17,13 @@ export type BridgeCommandKey =
   | "codexSnapshot"
   | "codexInspect"
   | "codexAxTree"
+  | "codexConnectionsStatus"
   | "codexAppServerStatus"
-  | "codexAppServerThreads";
+  | "codexAppServerThreads"
+  | "codexAppServerSubscribe"
+  | "codexAppServerStartTurn"
+  | "codexAppServerSteerTurn"
+  | "codexAppServerInterruptTurn";
 
 export type BridgeParams = {
   max_chars?: number;
@@ -29,7 +34,10 @@ export type BridgeParams = {
   source_audit_id?: string;
   message?: string;
   thread_id?: string;
+  turn_id?: string;
   dry_run?: boolean;
+  confirmed?: boolean;
+  duration_ms?: number;
 };
 
 const FIXED_COMMANDS: Record<
@@ -44,6 +52,10 @@ const FIXED_COMMANDS: Record<
     | "codexThreads"
     | "codexSelectThread"
     | "codexAppServerThreads"
+    | "codexAppServerSubscribe"
+    | "codexAppServerStartTurn"
+    | "codexAppServerSteerTurn"
+    | "codexAppServerInterruptTurn"
   >,
   string[]
 > = {
@@ -52,6 +64,7 @@ const FIXED_COMMANDS: Record<
   latest: ["latest", "--json"],
   codexFrontmost: ["codex", "frontmost", "--json"],
   codexWindows: ["codex", "windows", "--json"],
+  codexConnectionsStatus: ["codex", "connections", "status", "--json"],
   codexAppServerStatus: ["codex", "app-server", "status", "--json"],
 };
 
@@ -102,7 +115,78 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
   if (command === "codexAppServerThreads") {
     return ["codex", "app-server", "threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
   }
+  if (command === "codexAppServerSubscribe") {
+    return [
+      "codex",
+      "app-server",
+      "subscribe",
+      "--json",
+      "--thread-id",
+      requiredString(params.thread_id, "thread_id"),
+      "--duration-ms",
+      String(clampInt(params.duration_ms, 1000, 100, 10000)),
+      "--max-events",
+      String(clampInt(params.limit, 40, 1, 200)),
+      "--max-chars",
+      String(clampInt(params.max_chars, 4000, 1, 20000)),
+    ];
+  }
+  if (command === "codexAppServerStartTurn") {
+    return [
+      "codex",
+      "app-server",
+      "start-turn",
+      "--json",
+      "--thread-id",
+      requiredString(params.thread_id, "thread_id"),
+      "--message",
+      requiredString(params.message, "message"),
+      ...controllerFlags(params),
+      "--max-chars",
+      String(clampInt(params.max_chars, 4000, 1, 20000)),
+    ];
+  }
+  if (command === "codexAppServerSteerTurn") {
+    return [
+      "codex",
+      "app-server",
+      "steer-turn",
+      "--json",
+      "--thread-id",
+      requiredString(params.thread_id, "thread_id"),
+      ...(params.turn_id ? ["--turn-id", String(params.turn_id)] : []),
+      "--message",
+      requiredString(params.message, "message"),
+      ...controllerFlags(params),
+      "--max-chars",
+      String(clampInt(params.max_chars, 4000, 1, 20000)),
+    ];
+  }
+  if (command === "codexAppServerInterruptTurn") {
+    return [
+      "codex",
+      "app-server",
+      "interrupt-turn",
+      "--json",
+      "--thread-id",
+      requiredString(params.thread_id, "thread_id"),
+      ...(params.turn_id ? ["--turn-id", String(params.turn_id)] : []),
+      ...controllerFlags(params),
+    ];
+  }
   throw new Error(`Unsupported bridge command key: ${String(command)}`);
+}
+
+function controllerFlags(params: BridgeParams): string[] {
+  if (params.dry_run !== false) {
+    return ["--dry-run"];
+  }
+  return [
+    "--live",
+    ...(params.confirmed === true ? ["--confirm"] : []),
+    "--source-audit-id",
+    requiredString(params.source_audit_id, "source_audit_id"),
+  ];
 }
 
 function requiredString(value: unknown, name: string): string {

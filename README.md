@@ -2,7 +2,7 @@
 
 Safe bridge between Eva/OpenClaw and visible human desktop agent surfaces.
 
-The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. It does not send prompts, type text, click send/approval controls, call mutation RPCs, hijack stdio, or read Codex session databases.
+The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, adds a separately guarded app-server remote-control lane, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. It does not type text, click send/approval controls, expose generic mutation RPCs, hijack stdio, or read Codex session databases.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ The first target is **Codex Desktop on macOS**. The completed handoff slice obse
 - **Hands:** CLI-Anything-style GUI harnesses that operate visible desktop apps through macOS Accessibility/screenshot/AppleScript primitives.
 - **Brain:** Eva/OpenClaw policy, approvals, audit logging, and announcement queue.
 
-Current implementation covers the Codex Desktop eyes adapter, guarded visible focus/select actions, a read-only app-server adapter, local announcement queue, and OpenClaw plugin wrapper. External relay/mobile push remains a future sink on top of the local queue contract.
+Current implementation covers the Codex Desktop eyes adapter, guarded visible focus/select actions, a read-only app-server adapter, guarded named remote-control actions, local announcement queue, and OpenClaw plugin wrapper. External relay/mobile push remains a future sink on top of the local queue contract.
 
 ## Install
 
@@ -111,9 +111,21 @@ Returns a capped Accessibility tree with `role` and `name` only. It omits values
 ```bash
 evaos-desktop-bridge codex app-server status --json
 evaos-desktop-bridge codex app-server threads --json --max-items 50
+evaos-desktop-bridge codex connections status --json
+evaos-desktop-bridge codex app-server subscribe --json --thread-id THREAD --duration-ms 1000
 ```
 
-The app-server adapter uses a hard allowlist for read methods only. It can report status and attempt capped thread reads, but it blocks turn starts, steering, interrupts, injection, shell commands, file writes, config writes, plugin installs, login/logout, and other mutations.
+The app-server adapter uses a hard read allowlist for observation and a separate guarded controller allowlist for `turn/start`, `turn/steer`, and `turn/interrupt`. Generic app-server RPC passthrough remains forbidden. `subscribe` opens a short read-only notification window and returns capped/redacted live events.
+
+### Guarded Remote-Control Actions
+
+```bash
+evaos-desktop-bridge codex app-server start-turn --json --thread-id THREAD --message "..." --dry-run
+evaos-desktop-bridge codex app-server steer-turn --json --thread-id THREAD --turn-id TURN --message "..." --dry-run
+evaos-desktop-bridge codex app-server interrupt-turn --json --thread-id THREAD --turn-id TURN --dry-run
+```
+
+Live controller calls require `--live --confirm --source-audit-id audit-...`. They are audited, redacted, capped, and intentionally named; the bridge still blocks injection, shell commands, file writes, config writes, plugin installs, login/logout, and arbitrary app-server methods.
 
 ### Announcement Queue
 
@@ -126,7 +138,7 @@ The local queue is a JSONL contract for Eva/OpenClaw notifications such as `idle
 
 ### OpenClaw plugin wrapper
 
-The `openclaw-plugin/` package exposes fixed read-only tools for OpenClaw:
+The `openclaw-plugin/` package exposes fixed read-only and guarded controller tools for OpenClaw:
 
 - `desktop_bridge_status`
 - `desktop_bridge_capabilities`
@@ -143,8 +155,13 @@ The `openclaw-plugin/` package exposes fixed read-only tools for OpenClaw:
 - `desktop_bridge_codex_ax_tree`
 - `desktop_bridge_codex_app_server_status`
 - `desktop_bridge_codex_app_server_threads`
+- `desktop_bridge_codex_connections_status`
+- `desktop_bridge_codex_live_status`
+- `desktop_bridge_codex_remote_start_turn`
+- `desktop_bridge_codex_remote_steer_turn`
+- `desktop_bridge_codex_remote_interrupt_turn`
 
-The plugin calls `evaos-desktop-bridge` through fixed argv mappings only. It does not expose a generic shell, arbitrary bridge command runner, Codex prompt sender, typer, mutation app-server client, or session database reader. See [docs/openclaw-plugin.md](docs/openclaw-plugin.md).
+The plugin calls `evaos-desktop-bridge` through fixed argv mappings only. It does not expose a generic shell, arbitrary bridge command runner, typer, generic mutation app-server client, or session database reader. Live remote-control tools are separate from read-only tools and request OpenClaw approval. See [docs/openclaw-plugin.md](docs/openclaw-plugin.md).
 
 ## Local audit log
 
@@ -169,12 +186,12 @@ Live focus and Accessibility-tree reads require Accessibility permission. Screen
 
 - No full internal control socket.
 - No hidden mutation backdoor.
-- No mutation-capable Codex app-server calls.
-- No prompt/message/turn sending.
+- No generic mutation-capable Codex app-server passthrough.
+- No prompt/message/turn sending except named, guarded, audited remote-control controller tools.
 - No generic OpenClaw shell passthrough through the plugin.
 - No Codex session database reads.
 - No token, auth-file, or full home-path exposure.
-- Read-only first; visible GUI inspection only.
+- Read-only first; controller actions opt-in, named, dry-runnable, and approval-gated.
 
 Initial visible desktop concurrency cap: 1 session, 2 maximum after measurement.
 

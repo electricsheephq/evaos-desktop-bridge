@@ -16,7 +16,7 @@ export default definePluginEntry({
   description: "Read-only bridge from OpenClaw to visible Codex Desktop state.",
   kind: "tool",
   register(api: any) {
-    for (const bridgeTool of readOnlyTools()) {
+    for (const bridgeTool of bridgeTools()) {
       api.registerTool(() => bridgeTool, { names: [bridgeTool.name] });
     }
 
@@ -26,7 +26,7 @@ export default definePluginEntry({
   },
 });
 
-function readOnlyTools(): ToolDefinition[] {
+function bridgeTools(): ToolDefinition[] {
   return [
     tool("desktop_bridge_status", "Read Codex Desktop installation, running, permission, and safety status.", "status"),
     tool("desktop_bridge_capabilities", "Read the bridge command capability surface and hard safety boundaries.", "capabilities"),
@@ -134,6 +134,7 @@ function readOnlyTools(): ToolDefinition[] {
         },
       },
     ),
+    tool("desktop_bridge_codex_connections_status", "Read Codex Desktop connection and remote-control readiness.", "codexConnectionsStatus"),
     tool("desktop_bridge_codex_app_server_status", "Read Codex app-server availability and read-only method allowlist.", "codexAppServerStatus"),
     tool(
       "desktop_bridge_codex_app_server_threads",
@@ -144,6 +145,76 @@ function readOnlyTools(): ToolDefinition[] {
         additionalProperties: false,
         properties: {
           max_items: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+        },
+      },
+    ),
+    tool(
+      "desktop_bridge_codex_live_status",
+      "Read a short live Codex app-server notification window for a thread.",
+      "codexAppServerSubscribe",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["thread_id"],
+        properties: {
+          thread_id: { type: "string" },
+          duration_ms: { type: "integer", minimum: 100, maximum: 10000, default: 1000 },
+          limit: { type: "integer", minimum: 1, maximum: 200, default: 40 },
+          max_chars: { type: "integer", minimum: 1, maximum: 20000, default: 4000 },
+        },
+      },
+    ),
+    tool(
+      "desktop_bridge_codex_remote_start_turn",
+      "Guarded remote-control action: start a Codex Desktop turn through app-server. Dry-run defaults on.",
+      "codexAppServerStartTurn",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["thread_id", "message"],
+        properties: {
+          thread_id: { type: "string" },
+          message: { type: "string" },
+          dry_run: { type: "boolean", default: true },
+          confirmed: { type: "boolean", default: false },
+          source_audit_id: { type: "string" },
+          max_chars: { type: "integer", minimum: 1, maximum: 20000, default: 4000 },
+        },
+      },
+    ),
+    tool(
+      "desktop_bridge_codex_remote_steer_turn",
+      "Guarded remote-control action: steer an active Codex Desktop turn through app-server. Dry-run defaults on.",
+      "codexAppServerSteerTurn",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["thread_id", "message"],
+        properties: {
+          thread_id: { type: "string" },
+          turn_id: { type: "string" },
+          message: { type: "string" },
+          dry_run: { type: "boolean", default: true },
+          confirmed: { type: "boolean", default: false },
+          source_audit_id: { type: "string" },
+          max_chars: { type: "integer", minimum: 1, maximum: 20000, default: 4000 },
+        },
+      },
+    ),
+    tool(
+      "desktop_bridge_codex_remote_interrupt_turn",
+      "Guarded remote-control action: interrupt an active Codex Desktop turn through app-server. Dry-run defaults on.",
+      "codexAppServerInterruptTurn",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["thread_id"],
+        properties: {
+          thread_id: { type: "string" },
+          turn_id: { type: "string" },
+          dry_run: { type: "boolean", default: true },
+          confirmed: { type: "boolean", default: false },
+          source_audit_id: { type: "string" },
         },
       },
     ),
