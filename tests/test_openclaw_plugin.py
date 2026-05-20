@@ -10,12 +10,17 @@ PLUGIN = ROOT / "openclaw-plugin"
 
 
 def test_openclaw_plugin_manifest_points_to_entrypoint() -> None:
-    manifest = json.loads((PLUGIN / "package.json").read_text(encoding="utf-8"))
+    package = json.loads((PLUGIN / "package.json").read_text(encoding="utf-8"))
+    manifest = json.loads((PLUGIN / "openclaw.plugin.json").read_text(encoding="utf-8"))
 
-    assert manifest["openclaw"]["extensions"] == ["./dist/index.js"]
-    assert manifest["exports"]["."] == "./dist/index.js"
+    assert package["openclaw"]["extensions"] == ["./dist/index.js"]
+    assert package["exports"]["."] == "./dist/index.js"
+    assert "openclaw.plugin.json" in package["files"]
     assert (PLUGIN / "dist" / "index.js").exists()
-    assert manifest["type"] == "module"
+    assert package["type"] == "module"
+    assert manifest["id"] == "evaos-desktop-bridge"
+    assert manifest["main"] == "dist/index.js"
+    assert manifest["contracts"]["tools"]
 
 
 def test_openclaw_plugin_registers_read_only_tools_only() -> None:
@@ -64,6 +69,7 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
     ]
     for tool_name in expected_tools:
         assert tool_name in source
+        assert tool_name in json.loads((PLUGIN / "openclaw.plugin.json").read_text(encoding="utf-8"))["contracts"]["tools"]
 
     forbidden_tool_names = [
         "desktop_bridge_codex_send",
