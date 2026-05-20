@@ -31,8 +31,8 @@ precondition(launchJSON.contains("\"runtime\":\"browser\""))
 precondition(!launchJSON.contains("customerId"))
 
 let encodedRevoke = try JSONEncoder().encode(DesktopSessionRevokeRequest())
-let revokeJSON = String(data: encodedRevoke, encoding: .utf8) ?? ""
-precondition(revokeJSON == "{\"action\":\"revoke_desktop_session\"}")
+let revokeJSON = try JSONSerialization.jsonObject(with: encodedRevoke) as? [String: String]
+precondition(revokeJSON?["action"] == "revoke_desktop_session")
 
 let fractionalResponse = """
 {"launch_url":"https://browser-golden.ecs.electricsheephq.com/auth/callback?session=test","expires_at":"2026-05-20T10:48:51.123Z"}

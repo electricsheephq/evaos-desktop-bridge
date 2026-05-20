@@ -82,7 +82,10 @@ public struct RuntimeSessionBrokerClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try? JSONEncoder().encode(DesktopSessionRevokeRequest())
+        guard let body = try? JSONEncoder().encode(DesktopSessionRevokeRequest()) else {
+            return
+        }
+        request.httpBody = body
 
         _ = try? await urlSession.data(for: request)
     }
