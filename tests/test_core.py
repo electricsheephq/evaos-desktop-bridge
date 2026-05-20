@@ -13,6 +13,7 @@ from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
 from evaos_desktop_bridge.schema import build_envelope, make_error
 from evaos_desktop_bridge.state import read_audit_record, read_audit_tail, read_latest, write_latest
+from evaos_desktop_bridge.cli import _run_connector_service
 
 
 def test_build_envelope_has_stable_required_fields() -> None:
@@ -215,6 +216,16 @@ def test_app_server_remote_control_status_is_read_only_probe() -> None:
     assert result.data["preferred_path"] == "codex_native_remote_control"
     assert result.data["remote_control_status_read"]["ok"] is True
     assert result.data["safety"]["generic_app_server_mutations_exposed"] is False
+
+
+def test_connector_service_status_is_structured(tmp_path: Path) -> None:
+    result = _run_connector_service("status", state_dir=tmp_path)
+
+    assert result["label"] == "com.electricsheep.evaos-desktop-bridge"
+    assert result["domain"].startswith("gui/")
+    assert result["token_present"] is False
+    assert result["health"]["port"] == 8765
+    assert isinstance(result["guidance"], list)
 
 
 def test_make_error_is_structured() -> None:

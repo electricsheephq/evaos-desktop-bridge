@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
+import socket
+import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, TextIO
@@ -10,7 +13,7 @@ from typing import Callable, TextIO
 from .adapters.codex_app_server import CodexAppServerObserver
 from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.customer_mac import CustomerMacObserver
-from .audit import append_audit
+from .audit import append_audit, default_state_dir
 from .connector_server import read_token, run_connector_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
@@ -96,6 +99,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="File containing the connector bearer token. Defaults to a per-user Application Support token.",
     )
     serve_parser.set_defaults(command_id="serve", target="connector")
+
+    service_parser = subparsers.add_parser("connector-service", help="Manage the local LaunchAgent-backed connector service.")
+    service_subparsers = service_parser.add_subparsers(dest="connector_service_command")
+
+    for service_command, help_text in [
+        ("status", "Report LaunchAgent, token, and loopback health status."),
+        ("start", "Start or kick the LaunchAgent-backed connector."),
+        ("stop", "Stop the LaunchAgent-backed connector."),
+    ]:
+        service_action = service_subparsers.add_parser(service_command, help=help_text)
+        service_action.add_argument("--json", action="store_true", help="Emit JSON.")
+        service_action.set_defaults(command_id=f"connector_service.{service_command}", target="connector")
 
     queue_parser = subparsers.add_parser("queue", help="Eva/OpenClaw announcement queue commands.")
     queue_subparsers = queue_parser.add_subparsers(dest="queue_command")
@@ -346,6 +361,11 @@ def main(
             state_dir=state_dir,
         )
         return 0
+
+    if command_id.startswith("connector_service."):
+        result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
+        stdout.write(json.dumps(result, sort_keys=True) + "\n")
+        return 0 if result.get("ok") is True else 2
 
     try:
         ensure_allowed(command_id)
@@ -651,6 +671,145 @@ def _target_for_command(command: str) -> str:
     if command.startswith("queue."):
         return "queue"
     return "desktop"
+
+
+CONNECTOR_LABEL = "com.electricsheep.evaos-desktop-bridge"
+CONNECTOR_PORT = 8765
+CONNECTOR_SYSTEM_PLIST = Path("/Library/LaunchAgents/com.electricsheep.evaos-desktop-bridge.plist")
+CONNECTOR_USER_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
+
+
+def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
+    if action not in {"status", "start", "stop"}:
+        return {"ok": False, "error": "unsupported_connector_service_action", "action": action}
+
+    if action == "start":
+        start_result = _launchctl_start()
+        status = _connector_service_status(state_dir=state_dir)
+        return {"ok": status["ok"], "action": action, "launchctl": start_result, "status": status}
+
+    if action == "stop":
+        stop_result = _launchctl_stop()
+        status = _connector_service_status(state_dir=state_dir)
+        return {"ok": True, "action": action, "launchctl": stop_result, "status": status}
+
+    return _connector_service_status(state_dir=state_dir)
+
+
+def _connector_service_status(*, state_dir: Path | None = None) -> dict[str, object]:
+    domain = _launchctl_domain()
+    print_result = _run_launchctl(["print", f"{domain}/{CONNECTOR_LABEL}"])
+    health = _connector_loopback_health()
+    token_path = (state_dir or default_state_dir()) / "connector.token"
+    plist_path = _connector_plist_path()
+    loaded = print_result["returncode"] == 0
+    running = loaded and health["reachable"] is True
+    tailnet_ip = _tailscale_ip()
+    return {
+        "ok": bool(plist_path and token_path.exists() and health["reachable"]),
+        "label": CONNECTOR_LABEL,
+        "domain": domain,
+        "plist_path": str(plist_path) if plist_path else None,
+        "plist_installed": plist_path is not None,
+        "token_path": str(token_path),
+        "token_present": token_path.exists(),
+        "loaded": loaded,
+        "running": running,
+        "tailnet_ip": tailnet_ip,
+        "health": health,
+        "launchctl": print_result,
+        "guidance": _connector_service_guidance(plist_path, token_path.exists(), health),
+    }
+
+
+def _connector_service_guidance(plist_path: Path | None, token_present: bool, health: dict[str, object]) -> list[str]:
+    guidance: list[str] = []
+    if plist_path is None:
+        guidance.append("Install the evaOS Desktop Bridge connector package so the LaunchAgent plist exists.")
+    if not token_present:
+        guidance.append("Start the connector once to mint the per-user connector token.")
+    if health.get("reachable") is not True:
+        guidance.append("Start the connector service and confirm http://127.0.0.1:8765/health responds.")
+    return guidance
+
+
+def _launchctl_start() -> dict[str, object]:
+    plist_path = _connector_plist_path()
+    if plist_path is None:
+        return {"returncode": 2, "stderr": "connector LaunchAgent plist is not installed"}
+    domain = _launchctl_domain()
+    bootstrap = _run_launchctl(["bootstrap", domain, str(plist_path)])
+    kickstart = _run_launchctl(["kickstart", "-k", f"{domain}/{CONNECTOR_LABEL}"])
+    return {"bootstrap": bootstrap, "kickstart": kickstart}
+
+
+def _launchctl_stop() -> dict[str, object]:
+    return _run_launchctl(["bootout", f"{_launchctl_domain()}/{CONNECTOR_LABEL}"])
+
+
+def _run_launchctl(args: list[str]) -> dict[str, object]:
+    try:
+        completed = subprocess.run(
+            ["launchctl", *args],
+            text=True,
+            capture_output=True,
+            timeout=8,
+            check=False,
+        )
+        return {
+            "returncode": completed.returncode,
+            "stdout": completed.stdout[-2000:],
+            "stderr": completed.stderr[-2000:],
+        }
+    except Exception as exc:
+        return {"returncode": 1, "stderr": str(exc)}
+
+
+def _connector_loopback_health() -> dict[str, object]:
+    try:
+        with socket.create_connection(("127.0.0.1", CONNECTOR_PORT), timeout=1.0) as sock:
+            sock.sendall(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            data = sock.recv(512)
+        text = data.decode("utf-8", errors="replace")
+        return {
+            "reachable": text.startswith("HTTP/1.0 200") or text.startswith("HTTP/1.1 200"),
+            "port": CONNECTOR_PORT,
+            "status_line": text.splitlines()[0] if text else "",
+        }
+    except Exception as exc:
+        return {"reachable": False, "port": CONNECTOR_PORT, "error": str(exc)}
+
+
+def _tailscale_ip() -> str | None:
+    try:
+        completed = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            text=True,
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        value = line.strip()
+        if value.startswith("100.") or value.startswith("fd7a:"):
+            return value
+    return None
+
+
+def _connector_plist_path() -> Path | None:
+    if CONNECTOR_USER_PLIST.exists():
+        return CONNECTOR_USER_PLIST
+    if CONNECTOR_SYSTEM_PLIST.exists():
+        return CONNECTOR_SYSTEM_PLIST
+    return None
+
+
+def _launchctl_domain() -> str:
+    return f"gui/{os.getuid()}"
 
 
 if __name__ == "__main__":

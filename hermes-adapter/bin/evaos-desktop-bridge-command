@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${1:-}"
+params_json="${2:-{}}"
+
+if [[ -z "${command_name}" ]]; then
+  echo "usage: evaos-desktop-bridge-command <connector-command> [params-json]" >&2
+  exit 2
+fi
+
+: "${EVAOS_DESKTOP_BRIDGE_URL:?EVAOS_DESKTOP_BRIDGE_URL is required}"
+: "${EVAOS_DESKTOP_BRIDGE_TOKEN:?EVAOS_DESKTOP_BRIDGE_TOKEN is required}"
+
+python3 - "$command_name" "$params_json" <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+command = sys.argv[1]
+try:
+    params = json.loads(sys.argv[2] or "{}")
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"invalid params JSON: {exc}") from exc
+
+url = os.environ["EVAOS_DESKTOP_BRIDGE_URL"].rstrip("/") + "/v1/commands"
+token = os.environ["EVAOS_DESKTOP_BRIDGE_TOKEN"]
+body = json.dumps({"command": command, "params": params}, separators=(",", ":")).encode()
+request = urllib.request.Request(
+    url,
+    data=body,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    },
+)
+try:
+    with urllib.request.urlopen(request, timeout=20) as response:
+        sys.stdout.write(response.read().decode())
+        sys.stdout.write("\n")
+except urllib.error.HTTPError as exc:
+    sys.stderr.write(exc.read().decode(errors="replace") + "\n")
+    raise SystemExit(exc.code) from exc
+PY

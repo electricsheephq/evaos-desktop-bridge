@@ -185,17 +185,27 @@ inside the same test flow.
 
 ## Workbench Surface
 
-`evaOS Workbench` shows connector status, iPhone Mirroring status, Screen Sharing
-status, capabilities, and audit tail in the Desktop Bridge panel. It does not
-expose live local-control buttons in the canary UI. The local kill switch for
-the current desktop session is the Workbench `Revoke Session` action; paired
-connector revocation remains a support/control-plane action tied to Headscale
-ACLs and connector-token rotation.
+`evaOS Workbench` owns the customer-facing setup loop:
+
+1. **Connect This Mac** starts or checks the LaunchAgent-backed connector.
+2. **Enable Permissions** opens Accessibility and Screen Recording settings.
+3. **Pair with evaOS VM** creates a short-lived dashboard/Supabase pairing grant
+   and completes the Mac device record after the connector and Headscale client
+   are ready.
+4. **Connect iPhone** opens iPhone Mirroring and refreshes readiness.
+5. **Test Agent Access** runs local connector/status smokes and points support
+   to the VM-side `evaos-support mac-connector smoke` proof.
+6. **Revoke / Disconnect** signs out the app or revokes the paired Mac grant.
+
+The Workbench customer UI still does not expose live local-control buttons in
+V1. Live actions run through OpenClaw/Hermes agent tools so approvals and audit
+ids remain attached to the agent turn. The local kill switch for the current
+desktop session is the Workbench `Revoke Session` action; paired connector
+revocation is represented in Supabase and completed operationally by Headscale
+ACL/token revocation.
 
 ## Follow-Ups
 
-- Support/control-plane device records for paired Macs.
-- Headscale ACL provisioning and revocation runbook.
 - Friendly external Mac canary with token rotation evidence.
 - Codex Desktop remote-control lane after the generic Mac connector is stable.
 - Promote support-only iPhone controls only after repeated audited canaries; do
