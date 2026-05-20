@@ -104,7 +104,21 @@ const FORBIDDEN_ARGUMENT_PATTERNS = [
 
 export function desktopBridgeFirewall(event: HookEvent): HookDecision {
   const toolName = String(event.toolName || event.name || "");
+  const haystack = JSON.stringify({
+    toolName,
+    args: event.args,
+    input: event.input,
+    parameters: event.parameters,
+  }).toLowerCase();
+  const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern.toLowerCase()));
   if (SAFE_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
+    if (matchedPattern) {
+      return {
+        block: true,
+        blockReason:
+          `desktop-bridge firewall blocked ${toolName}: ${matchedPattern} is outside the customer Mac safety boundary.`,
+      };
+    }
     if (APPROVAL_GATED_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
       const params = ((event.args || event.input || event.parameters || {}) as Record<string, unknown>);
       if (params.dry_run !== false) {
@@ -124,14 +138,7 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
     return undefined;
   }
 
-  const haystack = JSON.stringify({
-    toolName,
-    args: event.args,
-    input: event.input,
-    parameters: event.parameters,
-  });
   const suspiciousTool = DANGEROUS_TOOL_NAMES.some((name) => toolName.toLowerCase().includes(name));
-  const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern));
 
   if (suspiciousTool && matchedPattern) {
     return {

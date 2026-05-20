@@ -29,6 +29,11 @@ def installed_mirroring(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(customer_mac, "IPHONE_MIRRORING_APP", app)
 
 
+def assert_no_mutation_commands(commands: list[tuple[str, ...]]) -> None:
+    blocked = {"open", "osascript", "cliclick"}
+    assert not any(command and command[0] in blocked for command in commands)
+
+
 def test_iphone_open_app_blocks_sensitive_ios_apps_during_dry_run(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
     observer = CustomerMacObserver(
@@ -42,7 +47,7 @@ def test_iphone_open_app_blocks_sensitive_ios_apps_during_dry_run(monkeypatch, t
 
     assert result.ok is False
     assert result.errors[0]["code"] == "iphone_app_name_not_allowed"
-    assert not any(command[0] == "open" for command in observer.runner.commands)
+    assert_no_mutation_commands(observer.runner.commands)
 
 
 def test_iphone_tap_named_target_blocks_dangerous_labels_during_dry_run(monkeypatch, tmp_path: Path) -> None:
@@ -58,7 +63,7 @@ def test_iphone_tap_named_target_blocks_dangerous_labels_during_dry_run(monkeypa
 
     assert result.ok is False
     assert result.errors[0]["code"] == "target_label_not_allowed"
-    assert not any("-c" in command for command in observer.runner.commands)
+    assert_no_mutation_commands(observer.runner.commands)
 
 
 def test_iphone_safe_open_app_dry_run_stays_named_and_non_mutating(monkeypatch, tmp_path: Path) -> None:
@@ -75,4 +80,23 @@ def test_iphone_safe_open_app_dry_run_stays_named_and_non_mutating(monkeypatch, 
     assert result.ok is True
     assert result.data["would_perform"] is True
     assert result.data["app_name"] == "Calculator"
-    assert not any(command[0] == "open" for command in observer.runner.commands)
+    assert_no_mutation_commands(observer.runner.commands)
+
+
+def test_safe_ax_node_does_not_export_raw_bounds(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
+
+    node = observer._safe_node(
+        {
+            "role": "AXButton",
+            "name": "Continue",
+            "depth": 1,
+            "window_index": 0,
+            "bounds": {"x": 10, "y": 20, "width": 30, "height": 40},
+            "actions": ["AXPress"],
+        }
+    )
+
+    assert "bounds" not in node
+    assert node["role"] == "AXButton"
+    assert node["actions"] == ["AXPress"]

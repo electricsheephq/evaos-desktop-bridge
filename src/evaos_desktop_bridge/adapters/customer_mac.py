@@ -479,8 +479,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             )
         if action not in SAFE_IPHONE_ACTIONS:
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action}, errors=[make_error(code="iphone_action_not_allowed", message="This iPhone Mirroring action is not allowlisted.", guidance=f"Allowed actions: {', '.join(sorted(SAFE_IPHONE_ACTIONS))}.")])
-        status = self.iphone_mirroring_status()
-        if not status.data.get("installed"):
+        if not IPHONE_MIRRORING_APP.exists():
             return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="iphone_mirroring_not_installed", message="iPhone Mirroring.app is not installed on this Mac.", guidance="Use a supported macOS/iPhone pairing before enabling these tools.")])
         if action == "type_spotlight" and (not text or not SAFE_TEXT_RE.match(text)):
             return self._unsafe_text_error(action, dry_run=dry_run)
@@ -490,6 +489,9 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="target_label_not_allowed", message="The requested visible target label is not safe.", guidance="Use an exact non-sensitive visible AX label; sends, calls, purchases, auth prompts, camera, microphone, and generic coordinates are blocked.")])
         if dry_run:
             return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action, "text_preview": self._safe_preview(text), "app_name": app_name, "target_label": target_label})
+        status = self.iphone_mirroring_status()
+        if not status.data.get("installed"):
+            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="iphone_mirroring_not_installed", message="iPhone Mirroring.app is not installed on this Mac.", guidance="Use a supported macOS/iPhone pairing before enabling these tools.")])
         focus = self.iphone_mirroring_focus(dry_run=False)
         if not focus.ok:
             return focus
@@ -695,8 +697,6 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         role, _ = cap_text(str(redact_value(row.get("role") or "unknown")), 80)
         name, _ = cap_text(str(redact_value(row.get("name"))) if row.get("name") else None, 160)
         node: dict[str, Any] = {"role": role, "name": name, "depth": int(row.get("depth") or 0), "window_index": row.get("window_index")}
-        if row.get("bounds") is not None:
-            node["bounds"] = row.get("bounds")
         actions = row.get("actions")
         if isinstance(actions, list):
             node["actions"] = [str(redact_value(item)) for item in actions[:20]]

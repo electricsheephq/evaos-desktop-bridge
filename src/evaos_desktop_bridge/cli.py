@@ -110,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     select_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     select_parser.add_argument("--thread-id", required=True, help="Visible thread id from codex threads output.")
     select_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without clicking/selecting.")
+    select_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     select_parser.set_defaults(command_id="codex.select_thread", target="codex")
 
     snapshot_parser = codex_subparsers.add_parser("snapshot", help="Capture safe visible Codex Desktop state.")
@@ -164,6 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     mac_focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     mac_focus_parser.add_argument("--app-name", required=True, help="Visible macOS app name.")
     mac_focus_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without focusing.")
+    mac_focus_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     mac_focus_parser.set_defaults(command_id="customer_mac.app_focus", target="customer_mac")
 
     local_site_parser = customer_mac_subparsers.add_parser("local-site", help="Customer-local website commands.")
@@ -173,12 +175,14 @@ def build_parser() -> argparse.ArgumentParser:
     local_site_open_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     local_site_open_parser.add_argument("--url", required=True, help="Local website URL.")
     local_site_open_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without opening.")
+    local_site_open_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     local_site_open_parser.set_defaults(command_id="customer_mac.local_site_open", target="customer_mac")
 
     local_site_action_parser = local_site_subparsers.add_parser("action", help="Run a named browser action against the frontmost local-site browser.")
     local_site_action_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     local_site_action_parser.add_argument("--action", required=True, choices=["reload", "back", "forward"], help="Named browser action.")
     local_site_action_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
+    local_site_action_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     local_site_action_parser.set_defaults(command_id="customer_mac.local_site_action", target="customer_mac")
 
     iphone_parser = customer_mac_subparsers.add_parser("iphone-mirroring", help="Named iPhone Mirroring commands.")
@@ -191,6 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_focus_parser = iphone_subparsers.add_parser("focus", help="Focus iPhone Mirroring.")
     iphone_focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_focus_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without focusing.")
+    iphone_focus_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_focus_parser.set_defaults(command_id="customer_mac.iphone_mirroring_focus", target="customer_mac")
 
     for subcommand, command_id, help_text in [
@@ -202,24 +207,28 @@ def build_parser() -> argparse.ArgumentParser:
         parser_for_action = iphone_subparsers.add_parser(subcommand, help=help_text)
         parser_for_action.add_argument("--json", action="store_true", help="Emit JSON.")
         parser_for_action.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
+        parser_for_action.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
         parser_for_action.set_defaults(command_id=command_id, target="customer_mac")
 
     iphone_type_parser = iphone_subparsers.add_parser("type-spotlight", help="Type short disposable/search text into iPhone Spotlight.")
     iphone_type_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_type_parser.add_argument("--text", required=True, help="Short disposable/search text.")
     iphone_type_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without typing.")
+    iphone_type_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_type_parser.set_defaults(command_id="customer_mac.iphone_mirroring_type_spotlight", target="customer_mac")
 
     iphone_open_app_parser = iphone_subparsers.add_parser("open-app", help="Open a non-sensitive iPhone app through Spotlight.")
     iphone_open_app_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_open_app_parser.add_argument("--app-name", required=True, help="Non-sensitive iPhone app name.")
     iphone_open_app_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without opening.")
+    iphone_open_app_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_open_app_parser.set_defaults(command_id="customer_mac.iphone_mirroring_open_app", target="customer_mac")
 
     iphone_tap_parser = iphone_subparsers.add_parser("tap-named-target", help="Press an exact visible iPhone Mirroring AX label.")
     iphone_tap_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_tap_parser.add_argument("--target-label", required=True, help="Exact visible target label.")
     iphone_tap_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without pressing.")
+    iphone_tap_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_tap_parser.set_defaults(command_id="customer_mac.iphone_mirroring_tap_named_target", target="customer_mac")
 
     screen_sharing_parser = customer_mac_subparsers.add_parser("screen-sharing", help="Screen Sharing/Remote Management status commands.")
@@ -297,6 +306,7 @@ def main(
             "dry_run": getattr(args, "dry_run", None),
             "selected_visible_target_id": getattr(args, "thread_id", None),
             "source_audit_id": getattr(args, "source_audit_id", None),
+            "approval_audit_id": getattr(args, "approval_audit_id", None),
         },
         state_dir=state_dir,
     )

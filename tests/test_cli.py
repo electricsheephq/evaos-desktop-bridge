@@ -4,6 +4,7 @@ import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from evaos_desktop_bridge.cli import main
 from evaos_desktop_bridge.types import CommandResult
@@ -156,7 +157,8 @@ class FakeCustomerMac:
         return CommandResult(ok=True, data={"focused": not dry_run, "would_focus": dry_run, "app_name": app_name})
 
     def local_site_open(self, *, url: str, dry_run: bool = False) -> CommandResult:
-        if not url.startswith("http://localhost"):
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
             return CommandResult(ok=False, data={"opened": False, "url": url}, errors=[{"code": "local_site_url_not_allowed", "message": "blocked", "guidance": "localhost only"}])
         return CommandResult(ok=True, data={"opened": not dry_run, "would_open": dry_run, "url": url})
 
@@ -412,6 +414,20 @@ def test_customer_mac_app_focus_defaults_to_dry_run(tmp_path: Path) -> None:
 
 def test_customer_mac_local_site_rejects_nonlocal_urls(tmp_path: Path) -> None:
     payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "https://example.com"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 2
+    assert payload["errors"][0]["code"] == "local_site_url_not_allowed"
+
+
+def test_customer_mac_local_site_allows_loopback_ip(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "http://127.0.0.1:3000"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["url"] == "http://127.0.0.1:3000"
+
+
+def test_customer_mac_local_site_rejects_localhost_prefix_bypass(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "http://localhost.evil.com"], FakeObserver(), tmp_path)
 
     assert payload["_exit_code"] == 2
     assert payload["errors"][0]["code"] == "local_site_url_not_allowed"

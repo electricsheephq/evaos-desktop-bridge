@@ -11,8 +11,7 @@ SIGN_IDENTITY="${EVAOS_CONNECTOR_PKG_SIGN_IDENTITY:-}"
 NOTARY_PROFILE="${EVAOS_CONNECTOR_NOTARY_PROFILE:-}"
 
 rm -rf "${DIST_DIR}"
-mkdir -p "${PKG_ROOT}/usr/local/bin" "${PKG_ROOT}/Library/LaunchAgents" "${PKG_ROOT}/Library/Logs/evaos-desktop-bridge" "${PY_ROOT}" "${DIST_DIR}"
-chmod 0755 "${PKG_ROOT}/Library/Logs" "${PKG_ROOT}/Library/Logs/evaos-desktop-bridge"
+mkdir -p "${PKG_ROOT}/usr/local/bin" "${PKG_ROOT}/Library/LaunchAgents" "${PY_ROOT}" "${DIST_DIR}"
 
 python3 -m pip install --target "${PY_ROOT}" "${ROOT_DIR}[gui]"
 
@@ -49,8 +48,16 @@ if [[ -n "${NOTARY_PROFILE}" ]]; then
   xcrun stapler staple "${DIST_DIR}/EvaOSDesktopBridge-${VERSION}.pkg"
 fi
 
-pkgutil --check-signature "${DIST_DIR}/EvaOSDesktopBridge-${VERSION}.pkg" || true
-shasum -a 256 "${DIST_DIR}/EvaOSDesktopBridge-${VERSION}.pkg" \
-  > "${DIST_DIR}/EvaOSDesktopBridge-${VERSION}.pkg.sha256"
+PKG_PATH="${DIST_DIR}/EvaOSDesktopBridge-${VERSION}.pkg"
+if [[ -n "${SIGN_IDENTITY}" ]]; then
+  if ! SIGNATURE_OUTPUT="$(pkgutil --check-signature "${PKG_PATH}" 2>&1)"; then
+    printf 'Signature verification failed for %s\n%s\n' "${PKG_PATH}" "${SIGNATURE_OUTPUT}" >&2
+    exit 1
+  fi
+  printf '%s\n' "${SIGNATURE_OUTPUT}"
+else
+  printf 'Skipping pkg signature check: EVAOS_CONNECTOR_PKG_SIGN_IDENTITY is not set.\n'
+fi
+shasum -a 256 "${PKG_PATH}" > "${PKG_PATH}.sha256"
 
-printf 'Built %s\n' "${DIST_DIR}/EvaOSDesktopBridge-${VERSION}.pkg"
+printf 'Built %s\n' "${PKG_PATH}"

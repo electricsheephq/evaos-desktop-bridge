@@ -19,10 +19,6 @@
   <true/>
   <key>KeepAlive</key>
   <true/>
-  <key>StandardOutPath</key>
-  <string>/Library/Logs/evaos-desktop-bridge/stdout.log</string>
-  <key>StandardErrorPath</key>
-  <string>/Library/Logs/evaos-desktop-bridge/stderr.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>EVAOS_DESKTOP_BRIDGE_MODE</key>

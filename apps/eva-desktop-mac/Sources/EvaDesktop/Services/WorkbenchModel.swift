@@ -1,4 +1,5 @@
 import AuthenticationServices
+import Darwin
 import EvaDesktopCore
 import Foundation
 import SwiftUI
@@ -308,8 +309,6 @@ final class WorkbenchModel: ObservableObject {
         loadingRuntimes.remove(runtime)
         loadingRuntimePages.remove(runtime)
         fallbackReloadAttempts[runtime] = nil
-        webViews.reset()
-        webViewRefreshToken = UUID()
     }
 
     private func rebuildClients() {
@@ -582,13 +581,35 @@ struct BridgeCommandService {
 
             do {
                 try process.run()
-                process.waitUntilExit()
             } catch {
                 return "Unable to run evaos-desktop-bridge: \(error.localizedDescription)"
             }
 
+            let deadline = Date().addingTimeInterval(8)
+            while process.isRunning && Date() < deadline {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+
+            var timedOut = false
+            if process.isRunning {
+                timedOut = true
+                process.terminate()
+                let terminateDeadline = Date().addingTimeInterval(1)
+                while process.isRunning && Date() < terminateDeadline {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+                if process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                }
+            }
+            process.waitUntilExit()
+
             let stdout = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            if timedOut {
+                let detail = stderr.isEmpty ? "" : " \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+                return "evaos-desktop-bridge timed out after 8 seconds.\(detail)"
+            }
             let output = stdout.isEmpty ? stderr : stdout
             return output.trimmingCharacters(in: .whitespacesAndNewlines)
         }.value

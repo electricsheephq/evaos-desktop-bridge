@@ -128,6 +128,7 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--thread-id",
       requiredString(params.thread_id, "thread_id"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...approvalArg(params),
     ];
   }
   if (command === "codexSnapshot") {
@@ -156,6 +157,7 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--app-name",
       requiredString(params.app_name, "app_name"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...approvalArg(params),
     ];
   }
   if (command === "customerMacLocalSiteOpen") {
@@ -167,6 +169,7 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--url",
       requiredString(params.url, "url"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...approvalArg(params),
     ];
   }
   if (command === "customerMacLocalSiteAction") {
@@ -178,19 +181,20 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--action",
       requiredString(params.action, "action"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...approvalArg(params),
     ];
   }
   if (command === "customerMacIphoneMirroringFocus") {
-    return ["customer-mac", "iphone-mirroring", "focus", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+    return ["customer-mac", "iphone-mirroring", "focus", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...approvalArg(params)];
   }
   if (command === "customerMacIphoneMirroringHome") {
-    return ["customer-mac", "iphone-mirroring", "home", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+    return ["customer-mac", "iphone-mirroring", "home", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...approvalArg(params)];
   }
   if (command === "customerMacIphoneMirroringAppSwitcher") {
-    return ["customer-mac", "iphone-mirroring", "app-switcher", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+    return ["customer-mac", "iphone-mirroring", "app-switcher", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...approvalArg(params)];
   }
   if (command === "customerMacIphoneMirroringSpotlight") {
-    return ["customer-mac", "iphone-mirroring", "spotlight", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+    return ["customer-mac", "iphone-mirroring", "spotlight", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...approvalArg(params)];
   }
   if (command === "customerMacIphoneMirroringTypeSpotlight") {
     return [
@@ -201,6 +205,7 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--text",
       requiredString(params.text, "text"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...approvalArg(params),
     ];
   }
   if (command === "customerMacIphoneMirroringOpenApp") {
@@ -212,6 +217,7 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--app-name",
       requiredString(params.app_name, "app_name"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...approvalArg(params),
     ];
   }
   if (command === "customerMacIphoneMirroringTapNamedTarget") {
@@ -223,12 +229,20 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--target-label",
       requiredString(params.target_label, "target_label"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...approvalArg(params),
     ];
   }
   if (command === "customerMacIphoneMirroringScroll") {
-    return ["customer-mac", "iphone-mirroring", "scroll", "--json", ...(params.dry_run !== false ? ["--dry-run"] : [])];
+    return ["customer-mac", "iphone-mirroring", "scroll", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...approvalArg(params)];
   }
   throw new Error(`Unsupported bridge command key: ${String(command)}`);
+}
+
+function approvalArg(params: BridgeParams): string[] {
+  if (typeof params.approval_audit_id !== "string" || params.approval_audit_id.trim() === "") {
+    return [];
+  }
+  return ["--approval-audit-id", params.approval_audit_id.trim()];
 }
 
 function requiredString(value: unknown, name: string): string {

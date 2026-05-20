@@ -117,18 +117,18 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
     assert "before_tool_call" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
 
 
-def test_launch_agent_uses_absolute_log_paths() -> None:
+def test_launch_agent_uses_launchd_logging_and_loopback_connector() -> None:
     plist_path = ROOT / "packaging" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
     plist = plistlib.loads(plist_path.read_bytes())
     build_script = (ROOT / "scripts" / "build-mac-connector-pkg.sh").read_text(encoding="utf-8")
 
-    for key in ["StandardOutPath", "StandardErrorPath"]:
-        assert plist[key].startswith("/")
-        assert "~" not in plist[key]
+    assert "StandardOutPath" not in plist
+    assert "StandardErrorPath" not in plist
 
     assert "serve" in plist["ProgramArguments"]
     assert "127.0.0.1" in plist["ProgramArguments"]
     assert "/Library/Application Support/evaos-desktop-bridge/connector.token" in plist["ProgramArguments"]
     assert plist["KeepAlive"] is True
     assert "StartInterval" not in plist
-    assert "Library/Logs/evaos-desktop-bridge" in build_script
+    assert "pkgutil --check-signature" in build_script
+    assert "|| true" not in build_script

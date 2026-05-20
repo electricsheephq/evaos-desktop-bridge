@@ -45,3 +45,6 @@ def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> No
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": True}) is False
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"}) is False
     assert _live_guarded_without_approval("customerMacStatus", {}) is False
+    argv = build_bridge_argv("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"})
+    assert "--approval-audit-id" in argv
+    assert "audit-1" in argv

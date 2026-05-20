@@ -72,6 +72,7 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
             "--thread-id",
             _required_string(params, "thread_id"),
             *_dry_run_arg(params),
+            *_approval_arg(params),
         ]
     if command == "codexSnapshot":
         return ["codex", "snapshot", "--json", "--max-chars", str(_clamp_int(params.get("max_chars"), 4000, 1, 20000))]
@@ -86,23 +87,23 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
     if command == "customerMacAxTree":
         return ["customer-mac", "ax-tree", "--json", "--max-nodes", str(_clamp_int(params.get("max_nodes"), 200, 1, 1000))]
     if command == "customerMacAppFocus":
-        return ["customer-mac", "app-focus", "--json", "--app-name", _required_string(params, "app_name"), *_dry_run_arg(params)]
+        return ["customer-mac", "app-focus", "--json", "--app-name", _required_string(params, "app_name"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacLocalSiteOpen":
-        return ["customer-mac", "local-site", "open", "--json", "--url", _required_string(params, "url"), *_dry_run_arg(params)]
+        return ["customer-mac", "local-site", "open", "--json", "--url", _required_string(params, "url"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacLocalSiteAction":
-        return ["customer-mac", "local-site", "action", "--json", "--action", _required_string(params, "action"), *_dry_run_arg(params)]
+        return ["customer-mac", "local-site", "action", "--json", "--action", _required_string(params, "action"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringFocus":
-        return ["customer-mac", "iphone-mirroring", "focus", "--json", *_dry_run_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "focus", "--json", *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringHome":
-        return ["customer-mac", "iphone-mirroring", "home", "--json", *_dry_run_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "home", "--json", *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringAppSwitcher":
-        return ["customer-mac", "iphone-mirroring", "app-switcher", "--json", *_dry_run_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "app-switcher", "--json", *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringSpotlight":
-        return ["customer-mac", "iphone-mirroring", "spotlight", "--json", *_dry_run_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "spotlight", "--json", *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringTypeSpotlight":
-        return ["customer-mac", "iphone-mirroring", "type-spotlight", "--json", "--text", _required_string(params, "text"), *_dry_run_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "type-spotlight", "--json", "--text", _required_string(params, "text"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringOpenApp":
-        return ["customer-mac", "iphone-mirroring", "open-app", "--json", "--app-name", _required_string(params, "app_name"), *_dry_run_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "open-app", "--json", "--app-name", _required_string(params, "app_name"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringTapNamedTarget":
         return [
             "customer-mac",
@@ -112,9 +113,10 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
             "--target-label",
             _required_string(params, "target_label"),
             *_dry_run_arg(params),
+            *_approval_arg(params),
         ]
     if command == "customerMacIphoneMirroringScroll":
-        return ["customer-mac", "iphone-mirroring", "scroll", "--json", *_dry_run_arg(params)]
+        return ["customer-mac", "iphone-mirroring", "scroll", "--json", *_dry_run_arg(params), *_approval_arg(params)]
     raise ValueError(f"Unsupported connector command: {command}")
 
 
@@ -229,6 +231,13 @@ def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool
 
 def _dry_run_arg(params: dict[str, Any]) -> list[str]:
     return ["--dry-run"] if params.get("dry_run") is not False else []
+
+
+def _approval_arg(params: dict[str, Any]) -> list[str]:
+    approval = params.get("approval_audit_id")
+    if not isinstance(approval, str) or not approval.strip():
+        return []
+    return ["--approval-audit-id", approval.strip()]
 
 
 def _clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
