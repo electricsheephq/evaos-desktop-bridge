@@ -1,6 +1,6 @@
 ---
 title: "Next Phase: Supervised Mac And iPhone Control"
-status: proposed
+status: active-canary
 created: 2026-05-20
 ---
 
@@ -8,8 +8,10 @@ created: 2026-05-20
 
 ## Principle
 
-Workbench first becomes a trusted cockpit. Local Mac and iPhone control come
-after signing, auth, and gateway launching are stable.
+Workbench first becomes a trusted cockpit. Local Mac and iPhone control now
+enter canary through the customer-Mac connector: named, audited tools only,
+with the Workbench UI showing status/revocation rather than live control
+buttons.
 
 The control layer should use named, allowlisted actions with audit evidence. It
 should not expose a generic shell, generic AppleScript runner, or silent
@@ -24,12 +26,13 @@ Accessibility control surface.
 2. **Read-only customer canary**
    - Workbench opens live gateways for one friendly customer.
    - WebView isolation and sign-out behavior verified.
-   - Bridge panel remains read-only.
+   - Bridge panel shows connector/iPhone status and audit tail.
 
 3. **Guarded Mac control canary**
    - Add explicit permissions onboarding for Accessibility and Screen Recording.
    - Expose small named tools: observe screen, list windows, focus app,
-     screenshot, click, type, paste.
+     screenshot, local-site open/reload/back/forward, and iPhone Mirroring
+     named actions.
    - Require dry-run previews and audit logging for actions.
 
 4. **Remote agent control contract**
@@ -47,25 +50,25 @@ Accessibility control surface.
 
 - `Peekaboo`: screen observation and screenshots.
 - `AXorcist`: Accessibility-tree reads and focused UI actions.
-- Existing `evaos-desktop-bridge`: local audit queue, permissions checks, and
-  command boundary.
-- OpenClaw plugin wrapper: route agent requests into the bridge once the safety
-  contract is ready.
+- Existing `evaos-desktop-bridge`: local audit queue, permissions checks,
+  command boundary, and token-gated connector server.
+- OpenClaw plugin wrapper: route agent requests into the local bridge CLI or a
+  paired Mac connector over Headscale.
 
-## Issues To File Before Implementation
+## Remaining Issues Before Broad Rollout
 
-1. **Threat Model And Safety Gates**
-   - Define permissions, audit, dry-run, and approval rules.
+1. **Headscale Device Records And ACLs**
+   - Pair one customer VM to one customer Mac and prove no cross-customer reachability.
 
 2. **Permissions And Onboarding**
    - Native onboarding for Accessibility, Screen Recording, and future Apple
      Events if needed.
 
-3. **Connector API And Control Plane Contract**
-   - Typed action schema for observe/click/type/paste/focus with evidence.
+3. **Connector Token Lifecycle**
+   - Provision, rotate, revoke, and audit connector tokens.
 
 4. **iPhone Mirroring Canary Spec**
-   - Boundaries for mirrored-window control, approval gates, and blocked actions.
+   - Expand only after status/snapshot/focus/open-safe-app smoke is proven.
 
 ## Non-Goals For The First Control Sprint
 

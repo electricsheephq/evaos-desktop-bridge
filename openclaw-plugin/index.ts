@@ -10,10 +10,17 @@ type ToolDefinition = {
   execute: (params: BridgeParams) => Promise<unknown>;
 };
 
+const approvalAuditIdProperty = {
+  type: "string",
+  minLength: 1,
+  maxLength: 160,
+  description: "Required when dry_run is false; use the audit id from the approved dry-run/evidence step.",
+};
+
 export default definePluginEntry({
   id: "evaos-desktop-bridge",
   name: "EvaOS Desktop Bridge",
-  description: "Read-only bridge from OpenClaw to visible Codex Desktop state.",
+  description: "Guarded bridge from OpenClaw to Codex Desktop and paired customer Mac state.",
   kind: "tool",
   register(api: any) {
     for (const bridgeTool of readOnlyTools()) {
@@ -95,6 +102,7 @@ function readOnlyTools(): ToolDefinition[] {
         properties: {
           thread_id: { type: "string" },
           dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
         },
       },
     ),
@@ -147,6 +155,154 @@ function readOnlyTools(): ToolDefinition[] {
         },
       },
     ),
+    tool("customer_mac_status", "Read paired customer Mac connector, iPhone Mirroring, and Screen Sharing readiness.", "customerMacStatus"),
+    tool("customer_mac_capabilities", "Read supported named customer Mac actions and hard safety boundaries.", "customerMacCapabilities"),
+    tool(
+      "customer_mac_snapshot",
+      "Read a safe screenshot path for the frontmost non-sensitive app; sensitive apps are blocked.",
+      "customerMacSnapshot",
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          max_chars: { type: "integer", minimum: 1, maximum: 20000, default: 4000 },
+        },
+      },
+    ),
+    tool(
+      "customer_mac_ax_tree",
+      "Read a capped Accessibility tree for the frontmost non-sensitive app.",
+      "customerMacAxTree",
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          max_nodes: { type: "integer", minimum: 1, maximum: 1000, default: 200 },
+        },
+      },
+    ),
+    tool(
+      "customer_mac_app_focus",
+      "Approval-gated named action: focus a non-sensitive customer Mac app by name.",
+      "customerMacAppFocus",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["app_name"],
+        properties: {
+          app_name: { type: "string" },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "customer_mac_local_site_open",
+      "Approval-gated named action: open a localhost, loopback, or .local website on the customer Mac.",
+      "customerMacLocalSiteOpen",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["url"],
+        properties: {
+          url: { type: "string" },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "customer_mac_local_site_action",
+      "Approval-gated named action: run reload, back, or forward in the frontmost supported browser.",
+      "customerMacLocalSiteAction",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["action"],
+        properties: {
+          action: { type: "string", enum: ["reload", "back", "forward"] },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool("customer_mac_iphone_mirroring_status", "Read iPhone Mirroring readiness and supported named actions.", "customerMacIphoneMirroringStatus"),
+    tool(
+      "customer_mac_iphone_mirroring_focus",
+      "Approval-gated named action: focus iPhone Mirroring.",
+      "customerMacIphoneMirroringFocus",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_home",
+      "Approval-gated named action: send Home to iPhone Mirroring.",
+      "customerMacIphoneMirroringHome",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_app_switcher",
+      "Approval-gated named action: open the iPhone Mirroring App Switcher.",
+      "customerMacIphoneMirroringAppSwitcher",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_spotlight",
+      "Approval-gated named action: open iPhone Spotlight through iPhone Mirroring.",
+      "customerMacIphoneMirroringSpotlight",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_type_spotlight",
+      "Approval-gated named action: type short disposable/search text into iPhone Spotlight.",
+      "customerMacIphoneMirroringTypeSpotlight",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["text"],
+        properties: {
+          text: { type: "string", minLength: 1, maxLength: 80 },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_open_app",
+      "Approval-gated named action: launch a non-sensitive iPhone app through Spotlight.",
+      "customerMacIphoneMirroringOpenApp",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["app_name"],
+        properties: {
+          app_name: { type: "string", minLength: 1, maxLength: 80 },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_tap_named_target",
+      "Approval-gated named action: press an exact visible iPhone Mirroring AX label; generic coordinates are blocked.",
+      "customerMacIphoneMirroringTapNamedTarget",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["target_label"],
+        properties: {
+          target_label: { type: "string", minLength: 1, maxLength: 80 },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "customer_mac_iphone_mirroring_scroll",
+      "Disabled pending evidence: reports unsupported rather than attempting flaky scroll/swipe control.",
+      "customerMacIphoneMirroringScroll",
+      { type: "object", additionalProperties: false, properties: { dry_run: { type: "boolean", default: true }, approval_audit_id: approvalAuditIdProperty } },
+    ),
+    tool("customer_mac_screen_sharing_status", "Read Screen Sharing/Remote Management status; this tool cannot enable it.", "customerMacScreenSharingStatus"),
   ];
 }
 

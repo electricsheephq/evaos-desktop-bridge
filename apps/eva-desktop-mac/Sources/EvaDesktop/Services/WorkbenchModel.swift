@@ -27,6 +27,12 @@ final class WorkbenchModel: ObservableObject {
             webViewRefreshToken = UUID()
         }
     }
+    @Published var openDesignURLString: String = UserDefaults.standard.string(forKey: "EvaDesktop.openDesignURL") ?? "" {
+        didSet {
+            UserDefaults.standard.set(openDesignURLString, forKey: "EvaDesktop.openDesignURL")
+            resetRuntime(.openDesign)
+        }
+    }
     @Published var selectedRuntime: RuntimeKey = .openclaw
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
@@ -35,7 +41,11 @@ final class WorkbenchModel: ObservableObject {
     @Published var runtimeURLs: [RuntimeKey: URL] = [:]
     @Published var runtimeErrors: [RuntimeKey: String] = [:]
     @Published var bridgeStatusText = "Bridge status has not been checked yet."
+    @Published var customerMacStatusText = "Customer Mac connector status has not been checked yet."
+    @Published var iPhoneMirroringStatusText = "iPhone Mirroring status has not been checked yet."
+    @Published var screenSharingStatusText = "Screen Sharing status has not been checked yet."
     @Published var bridgeCapabilitiesText = "Bridge capabilities have not been checked yet."
+    @Published var customerMacCapabilitiesText = "Customer Mac capabilities have not been checked yet."
     @Published var bridgeAuditText = "Bridge audit trail has not been checked yet."
     @Published var webViewRefreshToken = UUID()
 
@@ -83,6 +93,13 @@ final class WorkbenchModel: ObservableObject {
         return !session.isExpired
     }
 
+    func isRuntimeAvailable(_ runtime: RuntimeKey) -> Bool {
+        if runtime == .openDesign {
+            return configuredOpenDesignURL != nil
+        }
+        return RuntimeDefinition.definition(for: runtime).availability == .enabled
+    }
+
     func isRuntimeLoading(_ runtime: RuntimeKey) -> Bool {
         loadingRuntimes.contains(runtime)
     }
@@ -106,8 +123,7 @@ final class WorkbenchModel: ObservableObject {
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
 
         guard RuntimeDefinition.isBrokeredRuntime(runtime) else {
-            runtimeURLs[runtime] = nil
-            runtimeErrors[runtime] = "OpenDesign is reserved for the next desktop integration pass."
+            loadConfiguredOpenDesign(targetCustomerId: targetCustomerId, force: force)
             return
         }
 
@@ -154,6 +170,15 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func reloadSelectedRuntime() {
+        if selectedRuntime == .openDesign {
+            guard runtimeURLs[selectedRuntime] != nil else {
+                loadSelectedRuntime()
+                return
+            }
+            webViews.webView(for: selectedRuntime, customerId: sanitizedCustomerId).reload()
+            return
+        }
+
         guard isSignedIn else {
             loadSelectedRuntime()
             return
@@ -169,6 +194,13 @@ final class WorkbenchModel: ObservableObject {
     func openSelectedRuntimeExternally() {
         let runtime = selectedRuntime
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
+        if runtime == .openDesign {
+            if let url = runtimeURLs[runtime] ?? configuredOpenDesignURL {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+
         guard RuntimeDefinition.isBrokeredRuntime(runtime), isSignedIn else { return }
         guard !loadingRuntimes.contains(runtime) else { return }
 
@@ -236,9 +268,48 @@ final class WorkbenchModel: ObservableObject {
     func refreshBridgeStatus() {
         Task {
             bridgeStatusText = await bridge.run(arguments: ["status", "--json"])
+            customerMacStatusText = await bridge.run(arguments: ["customer-mac", "status", "--json"])
+            iPhoneMirroringStatusText = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
+            screenSharingStatusText = await bridge.run(arguments: ["customer-mac", "screen-sharing", "status", "--json"])
             bridgeCapabilitiesText = await bridge.run(arguments: ["capabilities", "--json"])
+            customerMacCapabilitiesText = await bridge.run(arguments: ["customer-mac", "capabilities", "--json"])
             bridgeAuditText = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
         }
+    }
+
+    private var configuredOpenDesignURL: URL? {
+        let configuredValue = UserDefaults.standard.string(forKey: "EvaDesktop.openDesignURL") ?? openDesignURLString
+        let trimmed = configuredValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return nil }
+        guard ["http", "https", "file"].contains(scheme) else { return nil }
+        return url
+    }
+
+    private func loadConfiguredOpenDesign(targetCustomerId: String, force: Bool) {
+        guard let url = configuredOpenDesignURL else {
+            runtimeURLs[.openDesign] = nil
+            runtimeErrors[.openDesign] = "Configure an OpenDesign URL in Settings to enable this gateway."
+            return
+        }
+
+        runtimeErrors[.openDesign] = nil
+        if !force, runtimeURLs[.openDesign] == url {
+            return
+        }
+
+        runtimeURLs[.openDesign] = url
+        webViews.webView(for: .openDesign, customerId: targetCustomerId).load(URLRequest(url: url))
+    }
+
+    private func resetRuntime(_ runtime: RuntimeKey) {
+        runtimeURLs[runtime] = nil
+        runtimeErrors[runtime] = nil
+        loadingRuntimes.remove(runtime)
+        loadingRuntimePages.remove(runtime)
+        fallbackReloadAttempts[runtime] = nil
+        webViews.reset()
+        webViewRefreshToken = UUID()
     }
 
     private func rebuildClients() {
@@ -481,18 +552,19 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
 }
 
 struct BridgeCommandService {
-    private static let allowedCommands: Set<String> = [
-        "status",
-        "capabilities",
-        "audit-tail"
+    private static let allowedArgumentLists: Set<String> = [
+        bridgeKey(["status", "--json"]),
+        bridgeKey(["capabilities", "--json"]),
+        bridgeKey(["audit-tail", "--json", "--limit", "12"]),
+        bridgeKey(["customer-mac", "status", "--json"]),
+        bridgeKey(["customer-mac", "capabilities", "--json"]),
+        bridgeKey(["customer-mac", "iphone-mirroring", "status", "--json"]),
+        bridgeKey(["customer-mac", "screen-sharing", "status", "--json"])
     ]
 
     func run(arguments: [String]) async -> String {
         await Task.detached {
-            guard
-                let command = arguments.first,
-                Self.allowedCommands.contains(command)
-            else {
+            guard Self.allowedArgumentLists.contains(Self.bridgeKey(arguments)) else {
                 return "Blocked unsupported bridge command."
             }
             guard let bridgeURL = Self.resolveBridgeExecutable() else {
@@ -520,6 +592,10 @@ struct BridgeCommandService {
             let output = stdout.isEmpty ? stderr : stdout
             return output.trimmingCharacters(in: .whitespacesAndNewlines)
         }.value
+    }
+
+    private static func bridgeKey(_ arguments: [String]) -> String {
+        arguments.joined(separator: "\u{1f}")
     }
 
     private static func resolveBridgeExecutable() -> URL? {

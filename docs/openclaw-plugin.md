@@ -20,18 +20,47 @@ Read-only tools:
 - `desktop_bridge_codex_ax_tree`: capped Accessibility roles/names tree.
 - `desktop_bridge_codex_app_server_status`: Codex app-server availability and read allowlist.
 - `desktop_bridge_codex_app_server_threads`: capped app-server thread summaries through the read allowlist.
+- `customer_mac_status`: paired Mac, permission, iPhone Mirroring, and Screen Sharing readiness.
+- `customer_mac_capabilities`: supported customer Mac targets and forbidden actions.
+- `customer_mac_snapshot`: safe screenshot path for the frontmost non-sensitive app.
+- `customer_mac_ax_tree`: capped Accessibility tree for the frontmost non-sensitive app.
+- `customer_mac_iphone_mirroring_status`: iPhone Mirroring readiness.
+- `customer_mac_screen_sharing_status`: Screen Sharing/Remote Management status; cannot enable it.
 
 Guarded visible action:
 
 - `desktop_bridge_codex_select_thread`: select an already-visible thread by `visible_id`; `dry_run` defaults to true.
+- `customer_mac_app_focus`: focus a non-sensitive Mac app by name.
+- `customer_mac_local_site_open`: open a localhost, loopback, or `.local` website.
+- `customer_mac_local_site_action`: reload/back/forward in a supported browser.
+- `customer_mac_iphone_mirroring_focus`: focus iPhone Mirroring.
+- `customer_mac_iphone_mirroring_home`: send Home.
+- `customer_mac_iphone_mirroring_app_switcher`: open App Switcher.
+- `customer_mac_iphone_mirroring_spotlight`: open Spotlight.
+- `customer_mac_iphone_mirroring_type_spotlight`: type short disposable/search text.
+- `customer_mac_iphone_mirroring_open_app`: open a non-sensitive app.
+- `customer_mac_iphone_mirroring_tap_named_target`: press an exact visible AX label.
+- `customer_mac_iphone_mirroring_scroll`: disabled pending evidence.
 
-No plugin tool sends prompts, types text, clicks send/approval controls, launches Codex, calls mutation app-server RPCs, reads session databases, or accepts arbitrary shell commands.
+No plugin tool sends prompts, types into Codex, clicks Codex send/approval controls, launches Codex, calls mutation app-server RPCs, reads session databases, enables Screen Sharing, accepts arbitrary coordinates, or accepts arbitrary shell commands.
 
 ## Runtime Contract
 
 The wrapper resolves the bridge executable from `EVAOS_DESKTOP_BRIDGE_BIN`, falling back to `evaos-desktop-bridge` on `PATH`.
 
 Each tool maps to a fixed argv list. User parameters can only change numeric caps, queue fields, dry-run, or a visible thread id; numeric values are clamped before execution.
+
+For paired customer VMs, the wrapper can call the customer's Mac connector over
+Headscale instead of execing a local bridge binary:
+
+```bash
+export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
+export EVAOS_DESKTOP_BRIDGE_TOKEN=<connector-token>
+```
+
+Remote mode posts fixed command keys to `/v1/commands`. The connector rejects
+unknown commands and rejects remote live guarded actions unless `dry_run=false`
+includes `approval_audit_id`.
 
 ## Firewall Hook
 
@@ -54,4 +83,9 @@ This hook is a defense-in-depth control. The primary safety boundary remains the
 
 ## Hands Boundary
 
-GUI control is limited to the named visible `select_thread` action. Broader hands should be added as a separate, approval-gated macro layer, not arbitrary coordinates or text injection.
+GUI control is limited to named actions. Codex Desktop remains read-only plus
+the existing visible thread-selection action. Customer Mac and iPhone Mirroring
+actions are dry-run by default, approval-gated in the plugin, audited by the
+bridge, and blocked for sensitive apps/labels. Broader hands should remain a
+separate, approval-gated macro layer, not arbitrary coordinates or text
+injection.

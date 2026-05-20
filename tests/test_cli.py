@@ -117,6 +117,66 @@ class FakeObserver:
             warnings=["AX tree truncated"] if max_nodes < 2 else [],
         )
 
+@dataclass
+class FakeCustomerMac:
+    mode: str = "ok"
+
+    def status(self) -> CommandResult:
+        return CommandResult(
+            ok=True,
+            data={
+                "platform": "Darwin",
+                "device": {"id": "mac-test", "hostname": "test-mac"},
+                "permissions": {"accessibility": {"status": "granted"}, "screen_recording": {"status": "unknown"}},
+                "iphone_mirroring": {"installed": True, "running": True, "supported_actions": ["home", "spotlight"]},
+                "screen_sharing": {"enabled": self.mode == "screen_sharing_enabled", "bridge_can_enable": False},
+                "safety": {"named_actions_only": True, "generic_coordinates_blocked": True},
+            },
+        )
+
+    def capabilities(self) -> CommandResult:
+        return CommandResult(
+            ok=True,
+            data={
+                "supported_targets": ["mac", "local_site", "iphone_mirroring", "screen_sharing_status"],
+                "forbidden": ["generic_remote_desktop_passthrough", "generic_coordinates"],
+                "approval_gates": {"screen_sharing_enablement": "explicit approval required"},
+            },
+        )
+
+    def snapshot(self, *, max_chars: int) -> CommandResult:
+        return CommandResult(ok=True, data={"frontmost_app": "Safari", "screenshot_path": "~/Library/Application Support/evaos-desktop-bridge/screenshots/customer-mac.png", "max_chars": max_chars})
+
+    def ax_tree(self, *, max_nodes: int) -> CommandResult:
+        return CommandResult(ok=True, data={"frontmost_app": "Safari", "nodes": [{"role": "AXButton", "name": "Reload"}][:max_nodes], "truncated": False, "max_nodes": max_nodes})
+
+    def app_focus(self, *, app_name: str, dry_run: bool = False) -> CommandResult:
+        if app_name == "Messages":
+            return CommandResult(ok=False, data={"focused": False}, errors=[{"code": "sensitive_app_blocked", "message": "blocked", "guidance": "use safe app"}])
+        return CommandResult(ok=True, data={"focused": not dry_run, "would_focus": dry_run, "app_name": app_name})
+
+    def local_site_open(self, *, url: str, dry_run: bool = False) -> CommandResult:
+        if not url.startswith("http://localhost"):
+            return CommandResult(ok=False, data={"opened": False, "url": url}, errors=[{"code": "local_site_url_not_allowed", "message": "blocked", "guidance": "localhost only"}])
+        return CommandResult(ok=True, data={"opened": not dry_run, "would_open": dry_run, "url": url})
+
+    def local_site_action(self, *, action: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "action": action})
+
+    def iphone_mirroring_status(self) -> CommandResult:
+        return CommandResult(ok=True, data={"installed": True, "running": True, "supported_actions": ["home", "spotlight"], "disabled_actions": ["scroll"]})
+
+    def iphone_mirroring_focus(self, *, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"focused": not dry_run, "would_focus": dry_run, "app_name": "iPhone Mirroring"})
+
+    def iphone_mirroring_action(self, *, action: str, text: str | None = None, app_name: str | None = None, target_label: str | None = None, dry_run: bool = False) -> CommandResult:
+        if action == "scroll":
+            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[{"code": "iphone_action_disabled_pending_evidence", "message": "disabled", "guidance": "use supported actions"}])
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "action": action, "text_preview": text, "app_name": app_name, "target_label": target_label})
+
+    def screen_sharing_status(self) -> CommandResult:
+        return CommandResult(ok=True, data={"enabled": self.mode == "screen_sharing_enabled", "bridge_can_enable": False, "approval_required_to_enable": True})
+
 
 @dataclass
 class FakeAppServer:
@@ -136,6 +196,7 @@ def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
     exit_code = main(
         argv,
         observer_factory=lambda: observer,
+        customer_mac_factory=lambda: FakeCustomerMac(),
         app_server_factory=lambda: FakeAppServer(),
         stdout=stdout,
         state_dir=tmp_path,
@@ -312,6 +373,72 @@ def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.app_server.threads"
     assert payload["data"]["threads"][0]["source"] == "app_server"
+
+
+def test_customer_mac_status_reports_device_and_safety(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "status", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "customer_mac.status"
+    assert payload["target"] == "customer_mac"
+    assert payload["data"]["device"]["id"] == "mac-test"
+    assert payload["data"]["safety"]["generic_coordinates_blocked"] is True
+
+
+def test_customer_mac_capabilities_names_supported_surfaces(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "capabilities", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert "iphone_mirroring" in payload["data"]["supported_targets"]
+    assert "generic_coordinates" in payload["data"]["forbidden"]
+
+
+def test_customer_mac_snapshot_is_latest_observation(tmp_path: Path) -> None:
+    snapshot_payload = run_cli(["customer-mac", "snapshot", "--json", "--max-chars", "40"], FakeObserver(), tmp_path)
+    latest_payload = run_cli(["latest", "--json"], FakeObserver(), tmp_path)
+
+    assert snapshot_payload["_exit_code"] == 0
+    assert snapshot_payload["command"] == "customer_mac.snapshot"
+    assert latest_payload["data"]["latest"]["command"] == "customer_mac.snapshot"
+
+
+def test_customer_mac_app_focus_defaults_to_dry_run(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "app-focus", "--json", "--app-name", "Safari", "--dry-run"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["would_focus"] is True
+    assert payload["data"]["focused"] is False
+
+
+def test_customer_mac_local_site_rejects_nonlocal_urls(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "local-site", "open", "--json", "--url", "https://example.com"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 2
+    assert payload["errors"][0]["code"] == "local_site_url_not_allowed"
+
+
+def test_customer_mac_iphone_mirroring_named_actions(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "iphone-mirroring", "open-app", "--json", "--app-name", "Calculator", "--dry-run"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "customer_mac.iphone_mirroring_open_app"
+    assert payload["data"]["would_perform"] is True
+    assert payload["data"]["app_name"] == "Calculator"
+
+
+def test_customer_mac_iphone_mirroring_scroll_is_disabled(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "iphone-mirroring", "scroll", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 2
+    assert payload["errors"][0]["code"] == "iphone_action_disabled_pending_evidence"
+
+
+def test_customer_mac_screen_sharing_status_cannot_enable(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "screen-sharing", "status", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "customer_mac.screen_sharing_status"
+    assert payload["data"]["bridge_can_enable"] is False
 
 
 def test_queue_append_and_list_json(tmp_path: Path) -> None:

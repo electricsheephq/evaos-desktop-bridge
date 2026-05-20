@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.electricsheep.evaos-desktop-bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/evaos-desktop-bridge</string>
+    <string>serve</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8765</string>
+    <string>--token-file</string>
+    <string>/Library/Application Support/evaos-desktop-bridge/connector.token</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Library/Logs/evaos-desktop-bridge/stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Library/Logs/evaos-desktop-bridge/stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>EVAOS_DESKTOP_BRIDGE_MODE</key>
+    <string>customer-mac-connector</string>
+  </dict>
+</dict>
+</plist>

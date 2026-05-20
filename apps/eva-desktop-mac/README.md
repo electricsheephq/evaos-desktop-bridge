@@ -10,9 +10,10 @@ existing runtime UIs instead of rewriting them:
 - Live Browser
 - Terminal
 
-The MVP uses SwiftUI and `WKWebView` tabs. Local Mac control, iPhone Mirroring,
-iMessage, voice, shell execution, and broad Accessibility/Screen Recording
-permissions are intentionally out of scope for the first workbench sprint.
+The MVP uses SwiftUI and `WKWebView` tabs. Local Mac control and iPhone
+Mirroring are surfaced as connector status in the canary, but the app does not
+expose live local-control buttons, iMessage, voice, shell execution, or broad
+Accessibility/Screen Recording prompts in the Workbench UI.
 
 The visible app name and native shell use ElectricSheep branding, while the
 internal executable and bundle id remain `EvaDesktop` /
@@ -116,7 +117,15 @@ stored in Keychain or app model state.
 
 ## Bridge Model
 
-The `Desktop Bridge` panel is read-only in MVP. It can show bridge status,
-capabilities, and audit tail by calling fixed `evaos-desktop-bridge` commands
-after the user clicks refresh, but it does not expose local-control actions or a
-generic command runner.
+The `Desktop Bridge` panel is a status and revocation surface in the canary. It
+can show bridge status, customer Mac status, iPhone Mirroring status, Screen
+Sharing status, capabilities, and audit tail by calling fixed
+`evaos-desktop-bridge` commands after the user clicks refresh. It does not expose
+local-control action buttons or a generic command runner.
+
+## OpenDesign
+
+OpenDesign is configurable before the permanent route is locked. Add an
+OpenDesign URL in Settings and the OpenDesign gateway will load it directly in a
+persistent WebView. If the URL is blank, the tab stays in a clean unavailable
+state instead of detouring through the dashboard.

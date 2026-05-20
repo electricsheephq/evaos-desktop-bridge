@@ -32,10 +32,10 @@ struct RuntimeDetailView: View {
                     )
                 }
 
-                if definition.availability != .enabled {
+                if !model.isRuntimeAvailable(definition.key) {
                     RuntimeUnavailableView(definition: definition)
                         .background(.background)
-                } else if !model.isSignedIn {
+                } else if RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn {
                     RuntimeSignInView(model: model, definition: definition)
                         .background(.background)
                 } else if model.isRuntimeLoading(runtime) && model.runtimeURLs[runtime] == nil {
@@ -89,26 +89,26 @@ private struct RuntimeToolbar: View {
             } label: {
                 Label("Reconnect", systemImage: "arrow.clockwise")
             }
-            .disabled(!model.isSignedIn || definition.availability != .enabled || model.isRuntimeLoading(definition.key))
+            .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key) || model.isRuntimeLoading(definition.key))
 
             Button {
                 model.reloadSelectedRuntime()
             } label: {
                 Label("Reload", systemImage: "arrow.triangle.2.circlepath")
             }
-            .disabled(!model.isSignedIn || definition.availability != .enabled)
+            .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key))
 
             Button {
                 model.openSelectedRuntimeExternally()
             } label: {
                 Label("Open", systemImage: "safari")
             }
-            .disabled(!model.isSignedIn || definition.availability != .enabled || model.runtimeURLs[definition.key] == nil)
+            .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key) || model.runtimeURLs[definition.key] == nil)
         }
     }
 
     private var toolbarTint: Color {
-        if definition.availability != .enabled {
+        if !model.isRuntimeAvailable(definition.key) {
             return .secondary
         }
         return definition.requiresAdmin ? .electricSheepAmber : .electricSheepCyan
@@ -215,7 +215,11 @@ private struct RuntimeUnavailableView: View {
         ContentUnavailableView {
             Label(definition.title, systemImage: definition.systemImage)
         } description: {
-            Text("This tab is reserved for the next Workbench integration pass.")
+            if definition.key == .openDesign {
+                Text("Add an OpenDesign URL in Settings when the route is ready.")
+            } else {
+                Text("This gateway is not available yet.")
+            }
         }
     }
 }

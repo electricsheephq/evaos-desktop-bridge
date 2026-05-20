@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Read-only OpenClaw plugin wrapper for evaos-desktop-bridge.",
+  "description": "Guarded OpenClaw plugin wrapper for evaos-desktop-bridge.",
   "exports": {
     ".": "./index.ts"
   },

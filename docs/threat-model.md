@@ -20,7 +20,7 @@ tags:
 
 ## Summary
 
-The bridge gives Eva/OpenClaw safe situational awareness of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions; it does not provide hidden mutation control.
+The bridge gives Eva/OpenClaw safe situational awareness of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions. The customer-Mac canary adds named, audited Mac and iPhone Mirroring actions behind dry-run/approval gates; it does not provide hidden mutation control.
 
 ## Current Status
 
@@ -56,6 +56,11 @@ The MVP must not:
 - Read Codex session databases wholesale.
 - Expose tokens, auth files, or full home paths.
 - Return long transcript-like text from the visible UI.
+- Expose public VNC, SSH, CDP, or generic Screen Sharing access to the Mac.
+- Enable Screen Sharing or Remote Management.
+- Run arbitrary shell, AppleScript, or coordinate-control payloads.
+- Control sensitive Mac/iPhone apps such as Messages, Mail, Wallet, Phone,
+  Camera, Settings, Passwords, or banking/authenticator apps.
 
 ## Allowed MVP Behavior
 
@@ -72,6 +77,12 @@ The MVP must not:
 - Return a capped redacted local audit-log tail.
 - Append/list local Eva/OpenClaw queue events.
 - Expose fixed read-only OpenClaw plugin tools that call the bridge CLI with non-shell argv.
+- Report customer Mac, iPhone Mirroring, and Screen Sharing readiness.
+- Capture customer Mac snapshot/AX evidence only for non-sensitive frontmost apps.
+- Run named customer Mac/iPhone Mirroring dry-run actions, and live actions only
+  when a plugin approval and `approval_audit_id` are present.
+- Serve the same fixed command surface through a token-gated connector endpoint
+  for paired-VM/Headscale canaries.
 - Append a redacted local JSONL audit record for every valid command invocation.
 
 ## Threats and Controls
@@ -87,6 +98,9 @@ The MVP must not:
 | Plugin shell escape | OpenClaw wrapper exposes fixed read-only tool mappings only and uses `execFile` with `shell: false`. |
 | Generic desktop-control bypass | Plugin `before_tool_call` firewall blocks suspicious shell/computer calls containing desktop-control, Codex app-server, prompt-send, token, or session database patterns. |
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
+| Cross-customer Mac exposure | Connector is bound locally by default; paired-VM mode requires Headscale ACLs and a connector token. |
+| Accidental live control | Guarded tools default to dry-run; plugin approval and connector `approval_audit_id` are required for remote live actions. |
+| Sensitive app mutation | Sensitive Mac/iPhone app names and dangerous visible labels are blocked before action execution. |
 
 ## Audit Log
 
@@ -127,3 +141,10 @@ Before adding GUI hands beyond focus:
 - Require explicit operator approval for click/type/send-capable macros.
 - Use named visible macros instead of arbitrary coordinates or text injection.
 - Preserve screenshot/AX caps and append-only audit records for every hands attempt.
+
+Before broad paired-Mac rollout:
+
+- Add support/control-plane device records and grant revocation.
+- Prove Headscale ACLs allow only the paired VM to reach the paired Mac connector.
+- Rotate connector tokens during offboarding and provisioning.
+- Run one friendly external Mac canary before broad customer GA.
