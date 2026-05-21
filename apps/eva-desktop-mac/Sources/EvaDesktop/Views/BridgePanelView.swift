@@ -236,7 +236,7 @@ struct BridgePanelView: View {
                             model.openUpdateDownload()
                         }
                         .buttonStyle(.borderedProminent)
-                        .help("Open the download for the available Workbench update.")
+                        .help("Open the direct Workbench ZIP download if the in-app updater cannot install the release.")
 
                         if model.updateReleaseNotesURL != nil {
                             Button("Notes") {

@@ -457,13 +457,19 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func checkForUpdatesFromButton() {
+        updateStatusText = "Opening the Workbench updater..."
+        SparkleUpdateService.shared.checkForUpdates()
         Task { @MainActor in
             await checkForUpdates(silent: false)
         }
     }
 
     func openUpdateDownload() {
-        guard let updateDownloadURL else { return }
+        guard let updateDownloadURL else {
+            updateStatusText = "Opening the Workbench updater..."
+            SparkleUpdateService.shared.checkForUpdates()
+            return
+        }
         NSWorkspace.shared.open(updateDownloadURL)
     }
 

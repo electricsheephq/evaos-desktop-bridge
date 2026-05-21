@@ -12,6 +12,9 @@ let package = Package(
         .executable(name: "EvaDesktopCoreSmoke", targets: ["EvaDesktopCoreSmoke"]),
         .library(name: "EvaDesktopCore", targets: ["EvaDesktopCore"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0")
+    ],
     targets: [
         .target(
             name: "EvaDesktopCore",
@@ -19,7 +22,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "EvaDesktop",
-            dependencies: ["EvaDesktopCore"],
+            dependencies: [
+                "EvaDesktopCore",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "Sources/EvaDesktop"
         ),
         .executableTarget(

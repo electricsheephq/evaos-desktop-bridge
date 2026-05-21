@@ -4,7 +4,7 @@
 
 This app is the native macOS shell for evaOS gateways. It wraps existing runtime
 pages in persistent `WKWebView` tabs and does not re-skin OpenClaw, Hermes,
-Mission Control, Live Browser, Terminal, or OpenDesign internals.
+Mission Control, Shared Browser, Terminal, or OpenDesign internals.
 
 ## UI Rules
 
@@ -23,7 +23,7 @@ Mission Control, Live Browser, Terminal, or OpenDesign internals.
 
 - Keep `EvaDesktop` as the executable name and
   `com.electricsheephq.EvaDesktop` as the bundle id unless a migration plan is
-  approved.
+  approved. The packaged `.app` bundle is `evaOS.app`.
 - Desktop sessions are opaque broker tokens stored in Keychain. Never store VM
   gateway tokens, runtime cookies, backend service keys, auth headers, or raw
   session payloads in app model state.
@@ -53,8 +53,8 @@ cd apps/eva-desktop-mac
 swift build
 swift run EvaDesktopCoreSmoke
 ./script/build_and_run.sh --verify
-plutil -lint dist/EvaDesktop.app/Contents/Info.plist
-codesign --verify --deep --strict dist/EvaDesktop.app
+plutil -lint dist/evaOS.app/Contents/Info.plist
+codesign --verify --deep --strict dist/evaOS.app
 ```
 
 Use GitHub Actions for heavier archive/signing validation once it exists.

@@ -30,6 +30,10 @@ struct SidebarView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
+                Text("v\(AppBrand.version)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
                 Text(model.isSignedIn ? (model.session?.userEmail ?? "Signed in") : AppBrand.signedOutStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)

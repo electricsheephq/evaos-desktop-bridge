@@ -71,16 +71,15 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
         ),
         RuntimeDefinition(
             key: .liveBrowser,
-            title: "Live Browser",
-            subtitle: "Watch and test the VM browser Eva uses.",
+            title: "Shared Browser",
+            subtitle: "Shared browser for working with Eva on your evaOS server.",
             systemImage: "globe"
         ),
         RuntimeDefinition(
             key: .terminal,
             title: "Terminal",
-            subtitle: "Admin/service terminal access through evaOS.",
-            systemImage: "terminal",
-            requiresAdmin: true
+            subtitle: "Terminal access to your private evaOS server.",
+            systemImage: "terminal"
         )
     ]
 

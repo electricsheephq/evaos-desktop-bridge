@@ -2,14 +2,20 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="EvaDesktop"
+APP_EXECUTABLE_NAME="EvaDesktop"
+APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.1.4"
-BUILD_NUMBER="1"
+VERSION="0.2.0"
+BUILD_NUMBER="2"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
 UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
+SPARKLE_APPCAST_URL="${EVA_DESKTOP_SPARKLE_APPCAST_URL:-https://www.electricsheephq.com/evaos-workbench/appcast.xml}"
+SPARKLE_PUBLIC_ED_KEY="${EVA_DESKTOP_SPARKLE_PUBLIC_ED_KEY:-xbeQ5mJ0u7pwhQP716i8Ox7maymOnpxvahi4xZQNZOg=}"
+SPARKLE_KEY_ACCOUNT="${EVA_DESKTOP_SPARKLE_KEY_ACCOUNT:-electricsheephq-evaos-workbench}"
+SPARKLE_PRIVATE_KEY_FILE="${EVA_DESKTOP_SPARKLE_PRIVATE_KEY_FILE:-/Users/lume/.openclaw/secrets/evaos-workbench-sparkle-ed25519-private-key.txt}"
+NOTARY_TIMEOUT="${EVA_DESKTOP_NOTARY_TIMEOUT:-45m}"
 if [ "$MODE" = "--package-release" ] || [ "$MODE" = "package-release" ] || [ "$MODE" = "--notarize-release" ] || [ "$MODE" = "notarize-release" ]; then
   DEFAULT_UPDATE_DOWNLOAD_URL="https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-$VERSION.zip"
 else
@@ -19,11 +25,12 @@ UPDATE_DOWNLOAD_URL="${EVA_DESKTOP_UPDATE_DOWNLOAD_URL:-$DEFAULT_UPDATE_DOWNLOAD
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+APP_BUNDLE="$DIST_DIR/$APP_BUNDLE_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_RESOURCES="$APP_CONTENTS/Resources"
-APP_BINARY="$APP_MACOS/$APP_NAME"
+APP_BINARY="$APP_MACOS/$APP_EXECUTABLE_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 BETA_STAGING_DIR="$DIST_DIR/beta"
 BETA_INSTALL_NOTES="$BETA_STAGING_DIR/BETA_INSTALL.md"
@@ -33,6 +40,10 @@ RELEASE_INSTALL_NOTES="$RELEASE_STAGING_DIR/INSTALL.md"
 RELEASE_ZIP="$DIST_DIR/evaOS-Workbench-$VERSION.zip"
 BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"
 BETA_UPDATE_MANIFEST_COMPAT="$DIST_DIR/evaos-workbench-updates.json"
+APPCAST_OUTPUT="$DIST_DIR/appcast.xml"
+NOTARY_STATUS_JSON="$DIST_DIR/notarization-status.json"
+NOTARY_LOG_JSON="$DIST_DIR/notarization-log.json"
+NOTARY_RELEASE_JSON="$DIST_DIR/notarization-release.json"
 
 detect_apple_development_identity() {
   security find-identity -p codesigning -v 2>/dev/null \
@@ -120,27 +131,43 @@ sign_app_bundle() {
     esac
   fi
 
-  codesign "${args[@]}" "$APP_BUNDLE"
+  if [ -d "$APP_FRAMEWORKS/Sparkle.framework" ]; then
+    codesign "${args[@]}" "$APP_FRAMEWORKS/Sparkle.framework"
+  fi
+  codesign --deep "${args[@]}" "$APP_BUNDLE"
+}
+
+copy_sparkle_framework() {
+  local sparkle_framework
+  sparkle_framework="$(find "$ROOT_DIR/.build/artifacts" -path "*Sparkle.framework" -type d 2>/dev/null | head -n 1 || true)"
+  if [ -z "$sparkle_framework" ]; then
+    echo "Sparkle.framework was not found after swift build." >&2
+    exit 2
+  fi
+  rm -rf "$APP_FRAMEWORKS/Sparkle.framework"
+  mkdir -p "$APP_FRAMEWORKS"
+  /usr/bin/ditto "$sparkle_framework" "$APP_FRAMEWORKS/Sparkle.framework"
 }
 
 cd "$ROOT_DIR"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "$APP_EXECUTABLE_NAME" >/dev/null 2>&1 || true
 
 swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+BUILD_BINARY="$(swift build --show-bin-path)/$APP_EXECUTABLE_NAME"
 
-rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+rm -rf "$APP_BUNDLE" "$DIST_DIR/EvaDesktop.app"
+mkdir -p "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+copy_sparkle_framework
 
 if [ -d "$ROOT_DIR/Resources" ]; then
   cp -R "$ROOT_DIR/Resources/." "$APP_RESOURCES/"
 fi
 
 /usr/libexec/PlistBuddy -c "Clear dict" "$INFO_PLIST" >/dev/null 2>&1 || true
-/usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string $APP_NAME" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string $APP_EXECUTABLE_NAME" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleName string '$DISPLAY_NAME'" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string '$DISPLAY_NAME'" "$INFO_PLIST"
@@ -155,6 +182,11 @@ fi
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string $BUNDLE_ID" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string evaos" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Add :SUFeedURL string $SPARKLE_APPCAST_URL" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_ED_KEY" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool true" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Add :SUAutomaticallyUpdate bool false" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Add :SUVerifyUpdateBeforeExtraction bool true" "$INFO_PLIST"
 
 sign_app_bundle
 
@@ -170,7 +202,7 @@ notarized yet.
 ## Install
 
 1. Unzip \`evaOS-Workbench-Beta-$VERSION.zip\`.
-2. Drag \`EvaDesktop.app\` to Applications or run it from this folder.
+2. Drag \`$APP_BUNDLE_NAME.app\` to Applications or run it from this folder.
 3. If macOS Gatekeeper blocks the first launch, right-click the app and choose
    Open. Do not globally disable Gatekeeper.
 
@@ -227,7 +259,7 @@ package_beta() {
   cp -R "$APP_BUNDLE" "$BETA_STAGING_DIR/"
   (
     cd "$BETA_STAGING_DIR"
-    /usr/bin/ditto -c -k --norsrc --keepParent "EvaDesktop.app" "$BETA_ZIP"
+    /usr/bin/ditto -c -k --norsrc --keepParent "$APP_BUNDLE_NAME.app" "$BETA_ZIP"
     /usr/bin/zip -q "$BETA_ZIP" "BETA_INSTALL.md"
   )
   write_update_manifest "$BETA_ZIP" "beta"
@@ -253,7 +285,7 @@ a non-notarized internal canary, right-click the app and choose Open.
 ## Install
 
 1. Unzip \`evaOS-Workbench-$VERSION.zip\`.
-2. Drag \`EvaDesktop.app\` to Applications.
+2. Drag \`$APP_BUNDLE_NAME.app\` to Applications.
 3. Launch \`evaOS Workbench\` and sign in with ElectricSheep.
 
 ## Recovery
@@ -272,24 +304,74 @@ EOF
 write_release_zip() {
   rm -f "$RELEASE_ZIP"
   mkdir -p "$RELEASE_STAGING_DIR"
-  rm -rf "$RELEASE_STAGING_DIR/$APP_NAME.app"
+  rm -rf "$RELEASE_STAGING_DIR/$APP_BUNDLE_NAME.app"
   cp -R "$APP_BUNDLE" "$RELEASE_STAGING_DIR/"
   (
     cd "$RELEASE_STAGING_DIR"
-    /usr/bin/ditto -c -k --norsrc --keepParent "EvaDesktop.app" "$RELEASE_ZIP"
-    /usr/bin/zip -q "$RELEASE_ZIP" "INSTALL.md"
+    /usr/bin/ditto -c -k --norsrc --keepParent "$APP_BUNDLE_NAME.app" "$RELEASE_ZIP"
   )
+}
+
+write_sparkle_appcast() {
+  local archive_dir="$DIST_DIR/sparkle-updates"
+  local generate_appcast="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+  local archive_name
+  archive_name="$(basename "$RELEASE_ZIP")"
+
+  if [ ! -x "$generate_appcast" ]; then
+    echo "Sparkle generate_appcast tool was not found at $generate_appcast" >&2
+    exit 2
+  fi
+
+  rm -rf "$archive_dir"
+  mkdir -p "$archive_dir"
+  cp "$RELEASE_ZIP" "$archive_dir/$archive_name"
+  cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
+<h2>evaOS Workbench $VERSION</h2>
+<ul>
+  <li>Adds Sparkle-powered in-app updates.</li>
+  <li>Renames the browser gateway to Shared Browser.</li>
+  <li>Enables Terminal for customer VM owners.</li>
+</ul>
+EOF
+
+  local key_args=()
+  if [ -f "$SPARKLE_PRIVATE_KEY_FILE" ]; then
+    key_args+=(--ed-key-file "$SPARKLE_PRIVATE_KEY_FILE")
+  else
+    key_args+=(--account "$SPARKLE_KEY_ACCOUNT")
+  fi
+
+  "$generate_appcast" \
+    "${key_args[@]}" \
+    --download-url-prefix "https://www.electricsheephq.com/evaos-workbench/" \
+    --release-notes-url-prefix "https://www.electricsheephq.com/evaos-workbench/" \
+    --link "$UPDATE_RELEASE_NOTES_URL" \
+    -o "$APPCAST_OUTPUT" \
+    "$archive_dir"
+  python3 - "$APPCAST_OUTPUT" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+text = text.replace("<title>EvaDesktop</title>", "<title>evaOS Workbench</title>", 1)
+path.write_text(text)
+PY
+  echo "Created Sparkle appcast: $APPCAST_OUTPUT"
 }
 
 package_release() {
   write_release_install_notes
   write_release_zip
   write_update_manifest "$RELEASE_ZIP" "release"
+  write_sparkle_appcast
   codesign --verify --deep --strict "$APP_BUNDLE"
   echo "Created release artifact: $RELEASE_ZIP"
   echo "Created update manifest: $BETA_UPDATE_MANIFEST"
+  echo "Created Sparkle appcast: $APPCAST_OUTPUT"
   echo "Created compatibility manifest copy: $BETA_UPDATE_MANIFEST_COMPAT"
   echo "Update manifest URL expected by app: $UPDATE_MANIFEST_URL"
+  echo "Sparkle appcast URL expected by app: $SPARKLE_APPCAST_URL"
   echo "Signing identity: $SIGNING_IDENTITY"
   echo "Signing label: ${SIGNING_LABEL:-unknown}"
   if [ -n "$SIGNING_KEYCHAIN" ]; then
@@ -305,15 +387,67 @@ notarize_release() {
     auth_args+=(--keychain "$NOTARY_KEYCHAIN")
   fi
 
-  xcrun notarytool submit "$RELEASE_ZIP" "${auth_args[@]}" --wait
+  local submit_json="$DIST_DIR/notarization-submit.json"
+  xcrun notarytool submit "$RELEASE_ZIP" "${auth_args[@]}" --output-format json --no-progress > "$submit_json"
+  local submission_id
+  submission_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' "$submit_json")"
+  if [ -z "$submission_id" ]; then
+    echo "Notary submission did not return an id. See $submit_json" >&2
+    exit 2
+  fi
+  echo "Submitted notarization: $submission_id"
+  local artifact_sha
+  artifact_sha="$(shasum -a 256 "$RELEASE_ZIP" | awk '{print $1}')"
+  python3 - "$submission_id" "$artifact_sha" "$RELEASE_ZIP" "$VERSION" "$BUILD_NUMBER" "$NOTARY_TIMEOUT" > "$NOTARY_RELEASE_JSON" <<'PY'
+import json
+import pathlib
+import sys
+submission_id, artifact_sha, artifact, version, build, timeout = sys.argv[1:]
+print(json.dumps({
+    "submission_id": submission_id,
+    "artifact": str(pathlib.Path(artifact).resolve()),
+    "artifact_sha256": artifact_sha,
+    "version": version,
+    "build": build,
+    "notary_timeout": timeout,
+    "status": "submitted",
+}, indent=2))
+PY
+  echo "Submission metadata: $NOTARY_RELEASE_JSON"
+
+  set +e
+  xcrun notarytool wait "$submission_id" "${auth_args[@]}" --timeout "$NOTARY_TIMEOUT" --output-format json --no-progress > "$NOTARY_STATUS_JSON"
+  local wait_status=$?
+  set -e
+  if [ "$wait_status" -ne 0 ]; then
+    xcrun notarytool info "$submission_id" "${auth_args[@]}" --output-format json > "$NOTARY_STATUS_JSON" || true
+  fi
+
+  local notary_status
+  notary_status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$NOTARY_STATUS_JSON" 2>/dev/null || true)"
+  if [ "$notary_status" != "Accepted" ]; then
+    echo "Notarization status: ${notary_status:-unknown}. Apple will continue processing if status is In Progress."
+    echo "Submission id: $submission_id"
+    echo "Status file: $NOTARY_STATUS_JSON"
+    if [ "$notary_status" = "Invalid" ] || [ "$notary_status" = "Rejected" ]; then
+      xcrun notarytool log "$submission_id" "${auth_args[@]}" "$NOTARY_LOG_JSON" || true
+      echo "Notarization log: $NOTARY_LOG_JSON" >&2
+      exit 2
+    fi
+    exit 75
+  fi
+
+  xcrun notarytool log "$submission_id" "${auth_args[@]}" "$NOTARY_LOG_JSON" || true
   xcrun stapler staple "$APP_BUNDLE"
   xcrun stapler validate "$APP_BUNDLE"
   write_release_zip
   write_update_manifest "$RELEASE_ZIP" "release"
+  write_sparkle_appcast
   codesign --verify --deep --strict "$APP_BUNDLE"
   spctl --assess --type execute "$APP_BUNDLE"
   echo "Created notarized release artifact: $RELEASE_ZIP"
   echo "Created update manifest: $BETA_UPDATE_MANIFEST"
+  echo "Created Sparkle appcast: $APPCAST_OUTPUT"
 }
 
 open_app() {
@@ -329,7 +463,7 @@ case "$MODE" in
     ;;
   --logs|logs)
     open_app
-    /usr/bin/log stream --info --style compact --predicate "process == \"$APP_NAME\""
+    /usr/bin/log stream --info --style compact --predicate "process == \"$APP_EXECUTABLE_NAME\""
     ;;
   --telemetry|telemetry)
     open_app
@@ -338,7 +472,7 @@ case "$MODE" in
   --verify|verify)
     open_app
     sleep 1
-    pgrep -x "$APP_NAME" >/dev/null
+    pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null
     ;;
   --package-beta|package-beta)
     package_beta

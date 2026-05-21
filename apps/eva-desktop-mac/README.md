@@ -7,7 +7,7 @@ existing runtime UIs instead of rewriting them:
 - evaOS / Hermes
 - Mission Control
 - OpenDesign
-- Live Browser
+- Shared Browser
 - Terminal
 
 The MVP uses SwiftUI and `WKWebView` tabs. Mac and iPhone actions run through
@@ -17,7 +17,7 @@ does not expose arbitrary shell, generic coordinates, password capture, hidden
 AppleScript, payment automation, or generic Codex app-server mutation.
 
 The visible app name and native shell use ElectricSheep branding, while the
-internal executable and bundle id remain `EvaDesktop` /
+packaged app bundle is `evaOS.app`. The internal executable and bundle id remain `EvaDesktop` /
 `com.electricsheephq.EvaDesktop` so existing Keychain sessions and URL-scheme
 callbacks keep working.
 
@@ -50,7 +50,8 @@ Visible product copy is centralized in `Sources/EvaDesktopCore/Models/AppBrand.s
 Use `evaOS Workbench` for the Mac app name and `Gateways` for the runtime
 launcher group. Keep the internal executable name and bundle identifier as
 `EvaDesktop` / `com.electricsheephq.EvaDesktop`; changing those breaks the
-existing URL scheme and Keychain namespace.
+existing URL scheme and Keychain namespace. The customer-facing bundle name
+inside release zips should be `evaOS.app`.
 
 The sidebar intentionally shows the ElectricSheep wordmark once. Do not add a
 second app title in the split-view sidebar or top toolbar. Runtime rows should
@@ -71,17 +72,19 @@ identity is used. Otherwise the script uses the first local Apple Development
 identity it can find, falling back to ad-hoc signing for local development.
 
 `./script/build_and_run.sh --package-beta` writes
-`dist/evaOS-Workbench-Beta-0.1.1.zip` with the `.app` and beta install notes. It
+`dist/evaOS-Workbench-Beta-0.2.0.zip` with the `.app` and beta install notes. It
 also writes `dist/updates.json`, the public update manifest the app checks on
 launch. That beta packaging path intentionally rejects Developer
 ID identities until the Apple approval/notarization path is ready.
 
 `./script/build_and_run.sh --package-release` requires a Developer ID
 Application identity, signs with the hardened runtime, writes
-`dist/evaOS-Workbench-0.1.1.zip`, and emits a `release` update manifest.
-`./script/build_and_run.sh --notarize-release` submits that zip to Apple,
-staples the accepted ticket, rebuilds the zip from the stapled app, and runs the
-Gatekeeper assessment.
+`dist/evaOS-Workbench-0.2.0.zip`, emits the legacy `release` update manifest,
+and generates the Sparkle `appcast.xml`. `./script/build_and_run.sh
+--notarize-release` submits that zip to Apple, waits only for the configured
+bounded timeout, staples the accepted ticket when available, rebuilds the zip
+from the stapled app, regenerates both update feeds, and runs the Gatekeeper
+assessment.
 
 ## Keychain And Signing
 
@@ -140,11 +143,11 @@ stored in Keychain or app model state.
 
 ## Updates
 
-Workbench checks `https://www.electricsheephq.com/evaos-workbench/updates.json`
-on launch. The manifest points to the newest signed release zip and release
-notes. Update install is intentionally user-mediated in this track: Workbench
-opens the download URL, then the user replaces the app. Background
-self-replacement should move to Sparkle once the update-signing path is added.
+Workbench uses Sparkle for in-app update checks, installation, and relaunch.
+The Sparkle feed is served from
+`https://www.electricsheephq.com/evaos-workbench/appcast.xml`. The legacy
+`https://www.electricsheephq.com/evaos-workbench/updates.json` manifest remains
+published temporarily so older Workbench builds can discover the next download.
 
 ## Bridge Model
 
@@ -163,6 +166,6 @@ without exposing a generic command runner.
 ## OpenDesign
 
 OpenDesign uses the same brokered gateway flow as OpenClaw, Hermes, Mission
-Control, Live Browser, and Terminal. The Workbench requests a short-lived
+Control, Shared Browser, and Terminal. The Workbench requests a short-lived
 `opendesign` launch URL from the desktop session broker and keeps the upstream
 OpenDesign UI alive in its persistent WebView while switching gateways.
