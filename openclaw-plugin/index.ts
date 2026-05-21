@@ -7,7 +7,7 @@ type ToolDefinition = {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  execute: (params: BridgeParams) => Promise<unknown>;
+  execute: (toolCallId: string, params: BridgeParams) => Promise<unknown>;
 };
 
 const approvalAuditIdProperty = {
@@ -24,7 +24,7 @@ export default definePluginEntry({
   kind: "tool",
   register(api: any) {
     for (const bridgeTool of readOnlyTools()) {
-      api.registerTool(() => bridgeTool, { names: [bridgeTool.name] });
+      api.registerTool(bridgeTool);
     }
 
     api.registerHook?.("before_tool_call", desktopBridgeFirewall, {
@@ -397,6 +397,6 @@ function tool(
     name,
     description,
     parameters,
-    execute: (params: BridgeParams = {}) => runBridge(command, params),
+    execute: (_toolCallId: string, params: BridgeParams = {}) => runBridge(command, params),
   };
 }
