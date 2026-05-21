@@ -28,12 +28,6 @@ final class WorkbenchModel: ObservableObject {
             webViewRefreshToken = UUID()
         }
     }
-    @Published var openDesignURLString: String = UserDefaults.standard.string(forKey: "EvaDesktop.openDesignURL") ?? "" {
-        didSet {
-            UserDefaults.standard.set(openDesignURLString, forKey: "EvaDesktop.openDesignURL")
-            resetRuntime(.openDesign)
-        }
-    }
     @Published var updateManifestURLString: String = UserDefaults.standard.string(forKey: "EvaDesktop.updateManifestURL") ?? AppBrand.defaultUpdateManifestURL {
         didSet {
             UserDefaults.standard.set(updateManifestURLString, forKey: "EvaDesktop.updateManifestURL")
@@ -129,9 +123,6 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func isRuntimeAvailable(_ runtime: RuntimeKey) -> Bool {
-        if runtime == .openDesign {
-            return configuredOpenDesignURL != nil
-        }
         return RuntimeDefinition.definition(for: runtime).availability == .enabled
     }
 
@@ -162,11 +153,6 @@ final class WorkbenchModel: ObservableObject {
 
     func loadRuntime(_ runtime: RuntimeKey, force: Bool = false) async {
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
-
-        guard RuntimeDefinition.isBrokeredRuntime(runtime) else {
-            loadConfiguredOpenDesign(targetCustomerId: targetCustomerId, force: force)
-            return
-        }
 
         guard isSignedIn else {
             runtimeURLs[runtime] = nil
@@ -211,15 +197,6 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func reloadSelectedRuntime() {
-        if selectedRuntime == .openDesign {
-            guard runtimeURLs[selectedRuntime] != nil else {
-                loadSelectedRuntime()
-                return
-            }
-            webViews.webView(for: selectedRuntime, customerId: sanitizedCustomerId).reload()
-            return
-        }
-
         guard isSignedIn else {
             loadSelectedRuntime()
             return
@@ -235,12 +212,6 @@ final class WorkbenchModel: ObservableObject {
     func openSelectedRuntimeExternally() {
         let runtime = selectedRuntime
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
-        if runtime == .openDesign {
-            if let url = runtimeURLs[runtime] ?? configuredOpenDesignURL {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
 
         guard RuntimeDefinition.isBrokeredRuntime(runtime), isSignedIn else { return }
         guard !loadingRuntimes.contains(runtime) else { return }
@@ -575,22 +546,6 @@ final class WorkbenchModel: ObservableObject {
         NSWorkspace.shared.open(appURL)
     }
 
-    func applyOpenDesignURLSetting(_ value: String) {
-        openDesignURLString = value
-        if selectedRuntime == .openDesign {
-            loadSelectedRuntime(force: true)
-        }
-    }
-
-    private var configuredOpenDesignURL: URL? {
-        let configuredValue = UserDefaults.standard.string(forKey: "EvaDesktop.openDesignURL") ?? openDesignURLString
-        let trimmed = configuredValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return nil }
-        guard ["http", "https", "file"].contains(scheme) else { return nil }
-        return url
-    }
-
     private var localDeviceIdentifier: String {
         let key = "EvaDesktop.localDeviceIdentifier"
         if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
@@ -707,22 +662,6 @@ final class WorkbenchModel: ObservableObject {
         formatter.timeStyle = .medium
         return formatter
     }()
-
-    private func loadConfiguredOpenDesign(targetCustomerId: String, force: Bool) {
-        guard let url = configuredOpenDesignURL else {
-            runtimeURLs[.openDesign] = nil
-            runtimeErrors[.openDesign] = "Configure an OpenDesign URL in Settings to enable this gateway."
-            return
-        }
-
-        runtimeErrors[.openDesign] = nil
-        if !force, runtimeURLs[.openDesign] == url {
-            return
-        }
-
-        runtimeURLs[.openDesign] = url
-        webViews.webView(for: .openDesign, customerId: targetCustomerId).load(URLRequest(url: url))
-    }
 
     private func resetRuntime(_ runtime: RuntimeKey) {
         runtimeURLs[runtime] = nil

@@ -15,8 +15,8 @@ precondition(resolver.sanitizedCustomerId("") == "golden")
 
 precondition(RuntimeDefinition.isBrokeredRuntime(.openclaw))
 precondition(RuntimeDefinition.isBrokeredRuntime(.terminal))
-precondition(!RuntimeDefinition.isBrokeredRuntime(.openDesign))
-precondition(RuntimeDefinition.definition(for: .openDesign).availability == .comingSoon)
+precondition(RuntimeDefinition.isBrokeredRuntime(.openDesign))
+precondition(RuntimeDefinition.definition(for: .openDesign).availability == .enabled)
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 
 let trustedDownload = URL(string: "https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-Beta-0.1.0.zip")!
@@ -45,6 +45,10 @@ precondition(launchJSON.contains("\"action\":\"runtime_launch\""))
 precondition(launchJSON.contains("\"customer_id\":\"golden\""))
 precondition(launchJSON.contains("\"runtime\":\"browser\""))
 precondition(!launchJSON.contains("customerId"))
+
+let encodedOpenDesignLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .openDesign))
+let openDesignLaunchJSON = String(data: encodedOpenDesignLaunch, encoding: .utf8) ?? ""
+precondition(openDesignLaunchJSON.contains("\"runtime\":\"opendesign\""))
 
 let encodedTargets = try JSONEncoder().encode(DesktopCustomerTargetsRequest())
 let targetsRequestJSON = String(data: encodedTargets, encoding: .utf8) ?? ""

@@ -309,11 +309,7 @@ private struct RuntimeUnavailableView: View {
         ContentUnavailableView {
             Label(definition.title, systemImage: definition.systemImage)
         } description: {
-            if definition.key == .openDesign {
-                Text("Add an OpenDesign URL in Settings when the route is ready.")
-            } else {
-                Text("This gateway is not available yet.")
-            }
+            Text("This gateway is not available yet.")
         }
     }
 }
