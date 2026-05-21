@@ -8,8 +8,9 @@ created: 2026-05-21
 
 ## Boundary
 
-This beta is for friendly customer release. It intentionally ships without
-Developer ID signing or notarization until Apple approval lands.
+This beta is for friendly customer release. The preferred customer artifact is
+now the Developer ID signed and notarized release zip when notary credentials
+are available. Use the unsigned/ad-hoc beta path only for internal canaries.
 
 The beta includes the native Workbench shell, gateway tabs, desktop auth,
 admin/customer-service customer switching, OpenDesign configuration, Bridge
@@ -40,7 +41,39 @@ apps/eva-desktop-mac/dist/updates.json
 identity when one is available locally. If no Apple Development identity exists,
 it falls back to ad-hoc signing. The beta package command refuses Developer ID
 identities so we do not accidentally imply notarized release readiness before
-Apple approval lands.
+notarization has passed.
+
+For the Developer ID signed customer artifact:
+
+```bash
+cd apps/eva-desktop-mac
+export EVA_DESKTOP_CODESIGN_IDENTITY="B605F28E822AB594CEC82D98BD11F5A02B42BB40"
+export EVA_DESKTOP_CODESIGN_KEYCHAIN="/Volumes/LEXAR/Codex/apple-developer-certs/evaos-release-signing.keychain-db"
+security unlock-keychain -p "$(cat /Volumes/LEXAR/Codex/apple-developer-certs/.evaos-release-signing-keychain-pass)" \
+  "$EVA_DESKTOP_CODESIGN_KEYCHAIN"
+swift build
+swift run EvaDesktopCoreSmoke
+./script/build_and_run.sh --package-release
+```
+
+The release artifact is written to:
+
+```text
+apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.0.zip
+apps/eva-desktop-mac/dist/updates.json
+```
+
+Once notary credentials have been stored with `notarytool`, use the notarized
+release path instead:
+
+```bash
+export EVA_DESKTOP_NOTARY_PROFILE="evaos-workbench-notary"
+export EVA_DESKTOP_NOTARY_KEYCHAIN="$EVA_DESKTOP_CODESIGN_KEYCHAIN"
+./script/build_and_run.sh --notarize-release
+```
+
+That command staples the accepted notarization ticket, rebuilds the zip, and
+regenerates the manifest from the final stapled artifact.
 
 ## Updates
 
@@ -60,16 +93,16 @@ install page is:
 https://www.electricsheephq.com/evaos-workbench
 ```
 
-Because this beta is not Developer ID signed, update installation is
-user-mediated: Workbench shows that an update is available and opens the
-download URL. Background self-replacement moves to Sparkle after Developer ID
-signing and notarization are available.
+Update installation is user-mediated: Workbench shows that an update is
+available and opens the download URL. Background self-replacement moves to
+Sparkle after update signing is added.
 
 ## Install
 
 1. Unzip the beta artifact.
 2. Drag `EvaDesktop.app` to Applications or run it from the unzipped folder.
-3. If Gatekeeper blocks first launch, right-click the app and choose Open.
+3. If macOS blocks a non-notarized internal canary, right-click the app and
+   choose Open. Notarized release builds should not need this fallback.
 4. Do not globally disable Gatekeeper.
 
 ## Keychain
@@ -124,7 +157,5 @@ testing.
 
 ## Public GA Blockers
 
-- Developer ID approval and stable release signing.
-- Notarization.
 - External friendly-customer canary evidence.
 - Stable app-owned/helper-owned TCC identity for background connector startup.

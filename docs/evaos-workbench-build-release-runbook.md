@@ -54,11 +54,10 @@ Development identity it can find, then falls back to ad-hoc signing. Ad-hoc
 signing is enough to launch and verify the bundle shape, but it is not a stable
 identity for Keychain trust across rebuilds.
 
-For a prompt-free release build, set one of:
+For a prompt-free internal build, set one of:
 
 ```bash
 export EVA_DESKTOP_CODESIGN_IDENTITY="Apple Development: ..."
-export EVA_DESKTOP_CODESIGN_IDENTITY="Developer ID Application: Electric Sheep ..."
 ```
 
 Then rebuild:
@@ -74,10 +73,10 @@ If `security find-identity -p codesigning -v` reports zero identities, local
 development can still proceed, but Keychain prompt-free behavior can only be
 fully proven after a stable signing identity is installed.
 
-## Beta Without Developer ID
+## Beta Package
 
-Until Apple approves the Developer ID certificate, ship only internal/friendly
-beta artifacts:
+Use the beta path for internal/friendly builds that are not Developer ID signed
+or notarized:
 
 ```bash
 cd apps/eva-desktop-mac
@@ -98,10 +97,50 @@ Developer ID identities, and writes install notes that tell beta users to
 right-click and Open if Gatekeeper blocks first launch. Do not ask users to
 disable Gatekeeper globally.
 
-Host the zip and update manifest at:
+## Developer ID Release Package
+
+Use the release path when a Developer ID Application identity is available.
+Prefer the identity SHA-1 plus an explicit release keychain so duplicate
+identity names in the login keychain do not hang `codesign`:
+
+```bash
+cd apps/eva-desktop-mac
+export EVA_DESKTOP_CODESIGN_IDENTITY="B605F28E822AB594CEC82D98BD11F5A02B42BB40"
+export EVA_DESKTOP_CODESIGN_KEYCHAIN="/Volumes/LEXAR/Codex/apple-developer-certs/evaos-release-signing.keychain-db"
+security unlock-keychain -p "$(cat /Volumes/LEXAR/Codex/apple-developer-certs/.evaos-release-signing-keychain-pass)" \
+  "$EVA_DESKTOP_CODESIGN_KEYCHAIN"
+swift build
+swift run EvaDesktopCoreSmoke
+./script/build_and_run.sh --package-release
+codesign --verify --deep --strict dist/EvaDesktop.app
+codesign -dvvv --entitlements :- dist/EvaDesktop.app
+spctl --assess --type execute dist/EvaDesktop.app
+```
+
+`--package-release` requires a Developer ID Application identity, signs with
+hardened runtime, writes `evaOS-Workbench-<version>.zip`, and writes
+`updates.json` with `channel: "release"`. If notarization is not complete,
+`spctl` may still reject the app even though the Developer ID signature is
+valid. Treat that as the remaining notarization gate, not a signing failure.
+
+When notary credentials are stored in the release keychain, use:
+
+```bash
+export EVA_DESKTOP_NOTARY_PROFILE="evaos-workbench-notary"
+export EVA_DESKTOP_NOTARY_KEYCHAIN="$EVA_DESKTOP_CODESIGN_KEYCHAIN"
+./script/build_and_run.sh --notarize-release
+```
+
+`--notarize-release` packages the signed app, submits the zip to Apple, staples
+the accepted ticket to `dist/EvaDesktop.app`, validates the staple, rebuilds the
+zip so it contains the stapled app, regenerates `updates.json`, and runs
+`spctl --assess`.
+
+Host the selected zip and update manifest at:
 
 ```text
 https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-Beta-<version>.zip
+https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-<version>.zip
 https://www.electricsheephq.com/evaos-workbench/updates.json
 ```
 
@@ -109,7 +148,7 @@ For the Lovable dashboard deploy, copy those two files into the dashboard repo:
 
 ```bash
 mkdir -p public/evaos-workbench
-cp apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.0.zip \
+cp apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.0.zip \
   /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/
 cp apps/eva-desktop-mac/dist/updates.json \
   /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/updates.json
@@ -119,9 +158,8 @@ Then merge the dashboard install-page PR and publish through Lovable:
 project -> Publish -> Update. The public install page is
 `https://www.electricsheephq.com/evaos-workbench`.
 
-In the no-Developer-ID beta, Workbench auto-checks the manifest and opens the
-download URL. Background self-replacement is deferred until the Developer ID /
-Sparkle path is available.
+Workbench auto-checks the manifest and opens the download URL. Background
+self-replacement is deferred until the Sparkle path is available.
 
 ## Keychain Prompt Triage
 
@@ -187,8 +225,10 @@ Before announcing a build:
 - GitHub CI/archive validation passes if configured.
 - Beta: app is Apple Development signed when available, otherwise ad-hoc signed,
   and `--package-beta` produced the zip artifact.
-- GA only: app is signed with a stable Developer ID identity.
-- GA only: hardened runtime and notarization path are proven.
+- Release: app is signed with a stable Developer ID Application identity and
+  `--package-release` produced the release zip artifact.
+- GA only: notarization path is proven, `stapler validate` passes, and
+  `spctl --assess --type execute dist/EvaDesktop.app` accepts the app.
 - Desktop auth opens through `ASWebAuthenticationSession`, returns to
   `evaos://auth/callback`, and launches at least OpenClaw, Hermes, Mission
   Control, Live Browser, and Terminal for an admin canary.
