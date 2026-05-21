@@ -50,9 +50,9 @@ named and approval-gated.
 The plugin deliberately does not expose generic click, type, prompt-send,
 mutation app-server, session database, arbitrary coordinates, Screen Sharing
 enablement, or arbitrary shell tools. Guarded actions default to dry-run.
-Support-only iPhone live gestures/messages require
-`EVAOS_SUPPORT_CANARY_CONTROLS=1` on the Mac connector, and the exact
-same-turn approval flow before live execution.
+Customer-facing iPhone live gestures/messages use the exact same-turn approval
+flow before live execution. The connector requires a matching dry-run audit id
+for every live guarded action.
 
 ## Local Setup
 

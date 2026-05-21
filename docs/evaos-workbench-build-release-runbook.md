@@ -90,12 +90,38 @@ The beta artifact is:
 
 ```text
 apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.0.zip
+apps/eva-desktop-mac/dist/updates.json
 ```
 
 The beta packaging path accepts Apple Development or ad-hoc signing, refuses
 Developer ID identities, and writes install notes that tell beta users to
 right-click and Open if Gatekeeper blocks first launch. Do not ask users to
 disable Gatekeeper globally.
+
+Host the zip and update manifest at:
+
+```text
+https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-Beta-<version>.zip
+https://www.electricsheephq.com/evaos-workbench/updates.json
+```
+
+For the Lovable dashboard deploy, copy those two files into the dashboard repo:
+
+```bash
+mkdir -p public/evaos-workbench
+cp apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.0.zip \
+  /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/
+cp apps/eva-desktop-mac/dist/updates.json \
+  /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/updates.json
+```
+
+Then merge the dashboard install-page PR and publish through Lovable:
+project -> Publish -> Update. The public install page is
+`https://www.electricsheephq.com/evaos-workbench`.
+
+In the no-Developer-ID beta, Workbench auto-checks the manifest and opens the
+download URL. Background self-replacement is deferred until the Developer ID /
+Sparkle path is available.
 
 ## Keychain Prompt Triage
 
@@ -148,6 +174,8 @@ Repair steps:
   setup experience.
 - Agent Control Setup shows clean states for connector, permissions, pairing,
   iPhone readiness, local smoke, and revoke.
+- Agent Control Setup uses customer-facing labels and standard native cards;
+  raw CLI/JSON output should never be the primary setup experience.
 - Start Connector uses the Workbench-managed beta connector; LaunchAgent remains
   a background/restart test path until stable helper signing is in place.
 
@@ -172,5 +200,5 @@ Before announcing a build:
 - Hermes proof has run through the same connector command contract.
 - At least one cross-customer reachability check fails closed before customer
   beta release.
-- Support-VM-only iPhone live controls are not enabled in customer builds unless
-  a separate release explicitly sets `EVAOS_SUPPORT_CANARY_CONTROLS=1`.
+- Customer-facing iPhone controls remain named, approval-gated, audited, and
+  free of generic coordinates or hidden mutation paths.

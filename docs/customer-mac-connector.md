@@ -24,10 +24,10 @@ OpenClaw tool on customer VM
 
 The VM never receives public VNC, SSH, CDP, or generic shell access to the Mac.
 
-Support-only canary note: live iPhone gestures and approved message sends are
-disabled unless the Mac connector process is launched with
-`EVAOS_SUPPORT_CANARY_CONTROLS=1`. Customer connectors must leave that variable
-unset.
+Customer-facing note: live iPhone gestures and approved message sends are part
+of the beta. They remain named, visible-window actions and require a prior
+dry-run, human approval, matching `approval_audit_id`, and connector audit
+evidence.
 
 ## Local Connector Server
 
@@ -147,10 +147,9 @@ Guarded actions:
 - focus iPhone Mirroring;
 - iPhone Home, App Switcher, Spotlight;
 - open a non-sensitive iPhone app;
-- tap an exact visible iPhone Mirroring target label.
-- support-only iPhone scroll/swipe gestures when
-  `EVAOS_SUPPORT_CANARY_CONTROLS=1`;
-- support-only exact approved text entry and one-message send when the human has
+- tap an exact visible iPhone Mirroring target label;
+- iPhone scroll/swipe gestures by named direction/action;
+- exact approved text entry and one-message send when the human has
   approved the recipient/context and exact text in the same flow.
 
 Rules:
@@ -162,16 +161,14 @@ Rules:
 - Sensitive Mac/iPhone apps and dangerous target labels are blocked.
 - Generic coordinates, arbitrary shell, AppleScript passthrough, Screen Sharing
   enablement, and app-server mutation passthrough are blocked.
-- Support-only gesture/message commands also require `approval_audit_id`; without
-  `EVAOS_SUPPORT_CANARY_CONTROLS=1` they fail closed even for dry-runs.
+- Gesture/message commands also require `approval_audit_id` for live execution.
 
-## Support VM Live Canary Commands
+## Live Connector Commands
 
-Start the connector on the Mac for the support VM only:
+Start the connector on the Mac:
 
 ```bash
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
+evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 ```
 
 If the Mac is not joined to the same Headscale mesh as the support VM, use a
@@ -179,8 +176,7 @@ temporary reverse SSH tunnel for the canary instead of changing the Mac's active
 VPN profile:
 
 ```bash
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  .venv/bin/python -m evaos_desktop_bridge.cli serve --host 127.0.0.1 --port 8766
+.venv/bin/python -m evaos_desktop_bridge.cli serve --host 127.0.0.1 --port 8766
 
 ssh -N -R 127.0.0.1:8766:127.0.0.1:8766 root@<support-vm-public-ip>
 ```
@@ -269,10 +265,10 @@ reachability fails before enabling agent tools.
    to the VM-side `evaos-support mac-connector smoke` proof.
 6. **Revoke / Disconnect** signs out the app or revokes the paired Mac grant.
 
-The Workbench customer UI still does not expose live local-control buttons in
-V1. Live actions run through OpenClaw/Hermes agent tools so approvals and audit
-ids remain attached to the agent turn. The local kill switch for the current
-desktop session is the Workbench `Revoke Session` action; paired connector
+The Workbench customer UI shows setup, permission, audit, and revoke state. Live
+actions run through OpenClaw/Hermes agent tools so approvals and audit ids remain
+attached to the agent turn. The local kill switch for the current desktop
+session is the Workbench `Revoke Session` action; paired connector
 revocation is represented in Supabase and completed operationally by Headscale
 ACL/token revocation.
 
@@ -291,5 +287,5 @@ JSONL evidence.
 
 - Friendly external Mac canary with token rotation evidence.
 - Codex Desktop remote-control lane after the generic Mac connector is stable.
-- Promote support-only iPhone controls only after repeated audited canaries; do
-  not include them in customer provisioning by default.
+- Add richer customer onboarding copy and screenshots once the first external
+  canary finishes without engineer hand-holding.

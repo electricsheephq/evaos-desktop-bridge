@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import platform
 import re
 import subprocess
@@ -36,8 +35,7 @@ SAFE_IPHONE_ACTIONS = {
     "open_app",
     "tap_named_target",
 }
-SUPPORT_CANARY_ENV = "EVAOS_SUPPORT_CANARY_CONTROLS"
-SUPPORT_CANARY_IPHONE_ACTIONS = {
+GUARDED_IPHONE_ACTIONS = {
     "scroll",
     "swipe_left",
     "swipe_right",
@@ -46,14 +44,13 @@ SUPPORT_CANARY_IPHONE_ACTIONS = {
     "type_approved_text",
     "send_approved_message",
 }
-SUPPORT_CANARY_GESTURE_KEYS = {
+GUARDED_GESTURE_KEYS = {
     "swipe_left": "123",
     "swipe_right": "124",
     "swipe_up": "126",
     "swipe_down": "125",
 }
 SCROLL_DIRECTIONS = {"up": "126", "down": "125"}
-DISABLED_IPHONE_ACTIONS = {"scroll", "swipe_left", "swipe_right", "swipe_up", "swipe_down", "type_approved_text", "send_approved_message"}
 SENSITIVE_APPS = {
     "1Password",
     "App Store",
@@ -403,13 +400,8 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
                 "actions": {
                     "mac": ["status", "capabilities", "snapshot", "ax_tree", "app_focus"],
                     "local_site": ["open", "reload", "back", "forward"],
-                    "iphone_mirroring": sorted(SAFE_IPHONE_ACTIONS),
-                    "iphone_mirroring_support_canary": sorted(SUPPORT_CANARY_IPHONE_ACTIONS),
+                    "iphone_mirroring": sorted(SAFE_IPHONE_ACTIONS | GUARDED_IPHONE_ACTIONS),
                     "screen_sharing": ["status"],
-                },
-                "experimental_or_disabled": {
-                    "iphone_mirroring": sorted(DISABLED_IPHONE_ACTIONS),
-                    "reason": f"Live gesture and approved-message actions require {SUPPORT_CANARY_ENV}=1 on the support canary connector.",
                 },
                 "forbidden": [
                     "generic_remote_desktop_passthrough",
@@ -424,7 +416,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
                 "approval_gates": {
                     "mutating_named_actions": "OpenClaw tools must require approval before live execution.",
                     "screen_sharing_enablement": "The bridge reports status only; enabling Screen Sharing requires explicit customer/admin approval outside this CLI.",
-                    "support_canary_live_iphone": f"Support-only iPhone gestures/messages require {SUPPORT_CANARY_ENV}=1 plus a matching dry-run audit id.",
+                    "live_iphone_actions": "iPhone gestures, approved text, and approved message send require a matching dry-run audit id before live execution.",
                 },
             },
         )
@@ -541,19 +533,13 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
                 "pid": pid,
                 "frontmost": frontmost == "iPhone Mirroring",
                 "window_title": redact_value(self._front_window_title()) if frontmost == "iPhone Mirroring" else None,
-                "supported_actions": sorted(SAFE_IPHONE_ACTIONS),
-                "support_canary_actions": sorted(SUPPORT_CANARY_IPHONE_ACTIONS),
-                "disabled_actions": [] if self._support_canary_controls_enabled() else sorted(DISABLED_IPHONE_ACTIONS),
-                "support_canary": {
-                    "env_var": SUPPORT_CANARY_ENV,
-                    "enabled": self._support_canary_controls_enabled(),
-                    "scope": "support_vm_only",
-                },
+                "supported_actions": sorted(SAFE_IPHONE_ACTIONS | GUARDED_IPHONE_ACTIONS),
+                "guarded_actions": sorted(GUARDED_IPHONE_ACTIONS),
                 "safety": {
                     "messages_calls_purchases_auth_camera_mic_blocked": True,
                     "generic_coordinates_blocked": True,
                     "arbitrary_text_blocked": True,
-                    "approved_messages_support_only": True,
+                    "approved_messages_require_same_turn_approval": True,
                 },
             },
         )
@@ -572,11 +558,9 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
         recipient_context: str | None = None,
         dry_run: bool = False,
     ) -> CommandResult:
-        if action in SUPPORT_CANARY_IPHONE_ACTIONS and not self._support_canary_controls_enabled():
-            return self._support_canary_required_error(action, dry_run=dry_run)
         if action not in SAFE_IPHONE_ACTIONS:
-            if action not in SUPPORT_CANARY_IPHONE_ACTIONS:
-                return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action}, errors=[make_error(code="iphone_action_not_allowed", message="This iPhone Mirroring action is not allowlisted.", guidance=f"Allowed actions: {', '.join(sorted(SAFE_IPHONE_ACTIONS | SUPPORT_CANARY_IPHONE_ACTIONS))}.")])
+            if action not in GUARDED_IPHONE_ACTIONS:
+                return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action}, errors=[make_error(code="iphone_action_not_allowed", message="This iPhone Mirroring action is not allowlisted.", guidance=f"Allowed actions: {', '.join(sorted(SAFE_IPHONE_ACTIONS | GUARDED_IPHONE_ACTIONS))}.")])
         if not IPHONE_MIRRORING_APP.exists():
             return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="iphone_mirroring_not_installed", message="iPhone Mirroring.app is not installed on this Mac.", guidance="Use a supported macOS/iPhone pairing before enabling these tools.")])
         if action == "type_spotlight" and (not text or not SAFE_TEXT_RE.match(text)):
@@ -591,13 +575,13 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
             if target_label is None:
                 target_label = "Send"
             if target_label.strip().lower() not in {"send", "send message"}:
-                return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="send_target_label_not_allowed", message="Approved support-canary message sends may only press a visible Send control.", guidance="Use target label 'Send' or 'Send message'; do not route this through arbitrary visible labels.")])
+                return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="send_target_label_not_allowed", message="Approved message sends may only press a visible Send control.", guidance="Use target label 'Send' or 'Send message'; do not route this through arbitrary visible labels.")])
         if action == "open_app" and (not app_name or not self._safe_app_name(app_name) or self._is_iphone_sensitive_app(app_name)):
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "app_name": app_name}, errors=[make_error(code="iphone_app_name_not_allowed", message="The requested iPhone app name is not allowed for this named action.", guidance="Use a non-sensitive app name with safe characters, for example Calculator or Notes.")])
         if action == "tap_named_target" and (not target_label or not self._safe_app_name(target_label) or self._is_dangerous_iphone_target(target_label)):
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="target_label_not_allowed", message="The requested visible target label is not safe.", guidance="Use an exact non-sensitive visible AX label; sends, calls, purchases, auth prompts, camera, microphone, and generic coordinates are blocked.")])
         if action == "scroll" and direction not in SCROLL_DIRECTIONS:
-            return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "direction": direction}, errors=[make_error(code="scroll_direction_required", message="Support canary scroll requires direction 'up' or 'down'.", guidance="Use a named direction only; generic coordinates are blocked.")])
+            return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "direction": direction}, errors=[make_error(code="scroll_direction_required", message="iPhone scroll requires direction 'up' or 'down'.", guidance="Use a named direction only; generic coordinates are blocked.")])
         if dry_run:
             return CommandResult(
                 ok=True,
@@ -611,7 +595,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
                     "target_label": target_label,
                     "direction": direction,
                     "recipient_context": self._safe_preview(recipient_context),
-                    "support_canary": action in SUPPORT_CANARY_IPHONE_ACTIONS,
+                    "guarded": action in GUARDED_IPHONE_ACTIONS,
                 },
             )
         status = self.iphone_mirroring_status()
@@ -647,7 +631,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
             return CommandResult(ok=True, data={"performed": True, "action": action, "app_name": app_name}, provenance={"source": "iphone_mirroring"})
         if action == "tap_named_target":
             return self._press_iphone_target(target_label=target_label)
-        if action in SUPPORT_CANARY_GESTURE_KEYS:
+        if action in GUARDED_GESTURE_KEYS:
             vectors = {
                 "swipe_left": (-900, 0),
                 "swipe_right": (900, 0),
@@ -663,12 +647,12 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
             typed = self._keystroke_approved_text(text)
             if not typed.ok:
                 return typed
-            return CommandResult(ok=True, data={"performed": True, "action": action, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)}, provenance={"source": "iphone_mirroring", "support_canary": True})
+            return CommandResult(ok=True, data={"performed": True, "action": action, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)}, provenance={"source": "iphone_mirroring", "customer_control": True})
         if action == "send_approved_message":
             typed = self._keystroke_approved_text(text)
             if not typed.ok:
                 return typed
-            pressed = self._press_iphone_target(target_label=target_label, allow_support_send=True, action=action)
+            pressed = self._press_iphone_target(target_label=target_label, allow_approved_send=True, action=action)
             if not pressed.ok:
                 return pressed
             return CommandResult(
@@ -681,7 +665,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
                     "text_sha256": self._text_hash(text),
                     "recipient_context": self._safe_preview(recipient_context),
                 },
-                provenance={"source": "iphone_mirroring_ax", "support_canary": True},
+                provenance={"source": "iphone_mirroring_ax", "customer_control": True},
             )
         raise AssertionError(f"unhandled iPhone Mirroring action: {action}")
 
@@ -704,16 +688,16 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
             warnings=[] if enabled else ["Screen Sharing/Remote Management is not enabled; this bridge will not enable it without explicit approval."],
         )
 
-    def _iphone_keyboard_action(self, action: str, key_code: str, *, support_canary: bool = False, direction: str | None = None) -> CommandResult:
-        script = f'tell application "System Events" to key code {key_code}' if support_canary else f'tell application "System Events" to key code {key_code} using command down'
+    def _iphone_keyboard_action(self, action: str, key_code: str, *, customer_control: bool = False, direction: str | None = None) -> CommandResult:
+        script = f'tell application "System Events" to key code {key_code}' if customer_control else f'tell application "System Events" to key code {key_code} using command down'
         result = self.runner(["osascript", "-e", script], 5.0)
         if result.returncode != 0:
             return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="iphone_keyboard_action_failed", message="macOS refused the iPhone Mirroring keyboard shortcut.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
-        warnings = ["Support-canary gesture uses the safest keyboard-equivalent lane; verify live behavior in the iPhone Mirroring window."] if support_canary else []
+        warnings = ["This live iPhone action uses the safest keyboard-equivalent lane; verify behavior in the iPhone Mirroring window."] if customer_control else []
         data: dict[str, Any] = {"performed": True, "action": action}
         if direction:
             data["direction"] = direction
-        return CommandResult(ok=True, data=data, warnings=warnings, provenance={"source": "iphone_mirroring", "support_canary": support_canary})
+        return CommandResult(ok=True, data=data, warnings=warnings, provenance={"source": "iphone_mirroring", "customer_control": customer_control})
 
     def _iphone_scroll_gesture(self, action: str, *, dx: int, dy: int, direction: str | None = None) -> CommandResult:
         if self.accessibility_checker() is False:
@@ -747,18 +731,18 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
         return CommandResult(
             ok=True,
             data=data,
-            warnings=warnings + ["Support-canary gesture posts an internal scroll vector to the focused iPhone Mirroring window; verify live behavior before broader use."],
-            provenance={"source": "iphone_mirroring_quartz", "support_canary": True},
+            warnings=warnings + ["Live iPhone gesture posts an internal scroll vector to the focused iPhone Mirroring window; verify behavior before repeating."],
+            provenance={"source": "iphone_mirroring_quartz", "customer_control": True},
         )
 
-    def _press_iphone_target(self, *, target_label: str, allow_support_send: bool = False, action: str = "tap_named_target") -> CommandResult:
+    def _press_iphone_target(self, *, target_label: str, allow_approved_send: bool = False, action: str = "tap_named_target") -> CommandResult:
         if self.accessibility_checker() is False:
             return CommandResult(ok=False, data={"performed": False, "action": action, "target_label": target_label}, errors=[self._permission_error("accessibility", "tap a named iPhone Mirroring target")])
         pid = self._pid_for_app("iPhone Mirroring")
         if pid is None:
             return CommandResult(ok=False, data={"performed": False, "action": action, "target_label": target_label}, errors=[make_error(code="iphone_mirroring_not_running", message="iPhone Mirroring is not currently running.", guidance="Open iPhone Mirroring and rerun the named action.")])
-        if self._is_dangerous_iphone_target(target_label) and not (allow_support_send and target_label.strip().lower() in {"send", "send message"}):
-            return CommandResult(ok=False, data={"performed": False, "action": action, "target_label": target_label}, errors=[make_error(code="target_label_not_allowed", message="The requested visible target label is not safe.", guidance="Only the support canary approved-message action may press a Send target after same-turn approval.")])
+        if self._is_dangerous_iphone_target(target_label) and not (allow_approved_send and target_label.strip().lower() in {"send", "send message"}):
+            return CommandResult(ok=False, data={"performed": False, "action": action, "target_label": target_label}, errors=[make_error(code="target_label_not_allowed", message="The requested visible target label is not safe.", guidance="Only the approved-message action may press a Send target after same-turn approval.")])
         result = self.runner([sys.executable, "-c", self.AX_PRESS_LABEL_SCRIPT, str(pid), target_label, "500", "1"], 20.0)
         warnings = self._stderr_warning(result)
         if result.returncode != 0:
@@ -770,7 +754,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
         if not payload.get("ok"):
             code = str(payload.get("error") or "iphone_target_press_failed").split(":", 1)[0]
             return CommandResult(ok=False, data={"performed": False, "action": action, "target_label": target_label, "matches": [self._safe_node(row) for row in payload.get("matches", [])]}, errors=[make_error(code=code, message="The named target could not be pressed safely.", guidance="Use exact visible labels only; do not fall back to generic coordinates.")], warnings=warnings)
-        return CommandResult(ok=True, data={"performed": True, "action": action, "target_label": target_label, "matches": [self._safe_node(row) for row in payload.get("matches", [])]}, warnings=warnings, provenance={"source": "iphone_mirroring_ax", "support_canary": allow_support_send})
+        return CommandResult(ok=True, data={"performed": True, "action": action, "target_label": target_label, "matches": [self._safe_node(row) for row in payload.get("matches", [])]}, warnings=warnings, provenance={"source": "iphone_mirroring_ax", "customer_control": allow_approved_send})
 
     def _keystroke_text(self, text: str) -> CommandResult:
         if not SAFE_TEXT_RE.match(text):
@@ -787,7 +771,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
         script = f'tell application "System Events" to keystroke "{self._escape_applescript(text)}"'
         result = self.runner(["osascript", "-e", script], 5.0)
         if result.returncode != 0:
-            return CommandResult(ok=False, data={"typed": False, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)}, errors=[make_error(code="approved_text_entry_failed", message="macOS refused approved support-canary text entry.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
+            return CommandResult(ok=False, data={"typed": False, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)}, errors=[make_error(code="approved_text_entry_failed", message="macOS refused approved text entry.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
         return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)})
 
     def _ax_snapshot(self, *, pid: int, max_nodes: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
@@ -976,23 +960,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
         return CommandResult(
             ok=False,
             data={"performed": False, "would_perform": dry_run, "action": action},
-            errors=[make_error(code="approved_text_required", message="Support-canary text entry requires non-empty same-turn-approved text capped at 240 characters.", guidance="Do not type secrets. For messages, get exact human approval for the recipient/context and exact text first.")],
-        )
-
-    def _support_canary_controls_enabled(self) -> bool:
-        return os.environ.get(SUPPORT_CANARY_ENV, "").strip().lower() in {"1", "true", "yes", "support"}
-
-    def _support_canary_required_error(self, action: str, *, dry_run: bool) -> CommandResult:
-        return CommandResult(
-            ok=False,
-            data={"performed": False, "would_perform": dry_run, "action": action, "support_canary": False},
-            errors=[
-                make_error(
-                    code="support_canary_controls_not_enabled",
-                    message="This iPhone Mirroring action is support-VM-only and is disabled on this host.",
-                    guidance=f"Enable {SUPPORT_CANARY_ENV}=1 only on the support canary Mac connector; customer connectors should leave it unset.",
-                )
-            ],
+            errors=[make_error(code="approved_text_required", message="Approved text entry requires non-empty same-turn-approved text capped at 240 characters.", guidance="Do not type secrets. For messages, get exact human approval for the recipient/context and exact text first.")],
         )
 
     def _text_hash(self, text: str | None) -> str | None:
@@ -1014,5 +982,5 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
             "sensitive_apps_blocked": True,
             "screen_sharing_enablement_blocked": True,
             "append_only_audit_log": True,
-            "support_canary_controls_enabled": self._support_canary_controls_enabled(),
+            "approved_message_send_audited": True,
         }

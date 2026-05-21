@@ -58,8 +58,9 @@ Open release blocker found:
 
 - Pair only the support VM to the operator Mac.
 - Keep customer VMs out of this canary.
-- Launch the Mac connector with `EVAOS_SUPPORT_CANARY_CONTROLS=1` only for this
-  support test.
+- The `EVAOS_SUPPORT_CANARY_CONTROLS=1` flag is only for the Codex visible
+  `continue` fallback. iPhone gestures/messages no longer require that flag;
+  they require the normal dry-run/approval/audit flow.
 - Prefer Codex native remote-control readiness first. Use visible GUI fallback
   only if native remote-control is unavailable.
 - iPhone/Bumble live actions are allowed only after exact same-turn approval.
@@ -80,8 +81,7 @@ Grant permissions to the app or terminal that runs `evaos-desktop-bridge`:
 Start the connector on the Headscale interface:
 
 ```bash
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
+evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 ```
 
 Workbench can start the beta connector from the app. This is the recommended
@@ -106,8 +106,7 @@ connector loopback-only and use a temporary SSH reverse tunnel from the Mac to
 the support VM instead:
 
 ```bash
-EVAOS_SUPPORT_CANARY_CONTROLS=1 \
-  .venv/bin/python -m evaos_desktop_bridge.cli serve --host 127.0.0.1 --port 8766
+.venv/bin/python -m evaos_desktop_bridge.cli serve --host 127.0.0.1 --port 8766
 
 ssh -N \
   -o ExitOnForwardFailure=yes \

@@ -21,7 +21,7 @@ from .connector_server import read_token, run_connector_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
 from .schema import build_envelope, make_error
-from .state import read_audit_record, read_audit_tail, read_latest, write_latest
+from .state import approval_audit_freshness_error, read_audit_record, read_audit_tail, read_latest, write_latest
 from .types import CommandResult
 
 LATEST_OBSERVATION_COMMANDS = frozenset(
@@ -266,7 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
         parser_for_action.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
         parser_for_action.set_defaults(command_id=command_id, target="customer_mac")
 
-    iphone_scroll_parser = iphone_subparsers.add_parser("scroll", help="Support-only canary action: scroll the focused iPhone Mirroring window by named direction.")
+    iphone_scroll_parser = iphone_subparsers.add_parser("scroll", help="Approval-gated action: scroll the focused iPhone Mirroring window by named direction.")
     iphone_scroll_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_scroll_parser.add_argument("--direction", choices=["up", "down"], default="down", help="Named scroll direction.")
     iphone_scroll_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
@@ -274,10 +274,10 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_scroll_parser.set_defaults(command_id="customer_mac.iphone_mirroring_scroll", target="customer_mac")
 
     for subcommand, command_id, help_text in [
-        ("swipe-left", "customer_mac.iphone_mirroring_swipe_left", "Support-only canary action: swipe left in the focused iPhone Mirroring window."),
-        ("swipe-right", "customer_mac.iphone_mirroring_swipe_right", "Support-only canary action: swipe right in the focused iPhone Mirroring window."),
-        ("swipe-up", "customer_mac.iphone_mirroring_swipe_up", "Support-only canary action: swipe up in the focused iPhone Mirroring window."),
-        ("swipe-down", "customer_mac.iphone_mirroring_swipe_down", "Support-only canary action: swipe down in the focused iPhone Mirroring window."),
+        ("swipe-left", "customer_mac.iphone_mirroring_swipe_left", "Approval-gated action: swipe left in the focused iPhone Mirroring window."),
+        ("swipe-right", "customer_mac.iphone_mirroring_swipe_right", "Approval-gated action: swipe right in the focused iPhone Mirroring window."),
+        ("swipe-up", "customer_mac.iphone_mirroring_swipe_up", "Approval-gated action: swipe up in the focused iPhone Mirroring window."),
+        ("swipe-down", "customer_mac.iphone_mirroring_swipe_down", "Approval-gated action: swipe down in the focused iPhone Mirroring window."),
     ]:
         swipe_parser = iphone_subparsers.add_parser(subcommand, help=help_text)
         swipe_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -306,14 +306,14 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_tap_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_tap_parser.set_defaults(command_id="customer_mac.iphone_mirroring_tap_named_target", target="customer_mac")
 
-    iphone_type_approved_parser = iphone_subparsers.add_parser("type-approved-text", help="Support-only canary action: type exact same-turn-approved text into the focused iPhone Mirroring window.")
+    iphone_type_approved_parser = iphone_subparsers.add_parser("type-approved-text", help="Approval-gated action: type exact same-turn-approved text into the focused iPhone Mirroring window.")
     iphone_type_approved_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_type_approved_parser.add_argument("--text", required=True, help="Exact same-turn-approved text, capped at 240 chars.")
     iphone_type_approved_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without typing.")
     iphone_type_approved_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_type_approved_parser.set_defaults(command_id="customer_mac.iphone_mirroring_type_approved_text", target="customer_mac")
 
-    iphone_send_parser = iphone_subparsers.add_parser("send-approved-message", help="Support-only canary action: type and send one exact same-turn-approved message.")
+    iphone_send_parser = iphone_subparsers.add_parser("send-approved-message", help="Approval-gated action: type and send one exact same-turn-approved message.")
     iphone_send_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_send_parser.add_argument("--text", required=True, help="Exact same-turn-approved message text, capped at 240 chars.")
     iphone_send_parser.add_argument("--recipient-context", required=True, help="Short human-approved recipient/context for audit evidence.")
@@ -561,6 +561,9 @@ def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_
     record_args = record.get("args")
     if not isinstance(record_args, dict) or record_args.get("dry_run") is not True:
         return _approval_required_result(command_id, fields, "approval_audit_id must reference a dry-run record.")
+    freshness_error = approval_audit_freshness_error(record)
+    if freshness_error is not None:
+        return _approval_required_result(command_id, fields, freshness_error)
     for field in fields:
         if record_args.get(field) != getattr(args, field, None):
             return _approval_required_result(command_id, fields, f"approval_audit_id does not match {field}.")

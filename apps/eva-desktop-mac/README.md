@@ -10,10 +10,11 @@ existing runtime UIs instead of rewriting them:
 - Live Browser
 - Terminal
 
-The MVP uses SwiftUI and `WKWebView` tabs. Local Mac control and iPhone
-Mirroring are surfaced as connector status in the canary, but the app does not
-expose live local-control buttons, iMessage, voice, shell execution, or broad
-Accessibility/Screen Recording prompts in the Workbench UI.
+The MVP uses SwiftUI and `WKWebView` tabs. Mac and iPhone actions run through
+audited OpenClaw/Hermes tools, not through hidden buttons in the Workbench UI.
+Live actions require a prior dry-run and matching approval audit id. The app
+does not expose arbitrary shell, generic coordinates, password capture, hidden
+AppleScript, payment automation, or generic Codex app-server mutation.
 
 The visible app name and native shell use ElectricSheep branding, while the
 internal executable and bundle id remain `EvaDesktop` /
@@ -70,9 +71,10 @@ identity is used. Otherwise the script uses the first local Apple Development
 identity it can find, falling back to ad-hoc signing for local development.
 
 `./script/build_and_run.sh --package-beta` writes
-`dist/evaOS-Workbench-Beta-0.1.0.zip` with the `.app` and beta install notes.
-That beta packaging path intentionally rejects Developer ID identities until the
-Apple approval/notarization path is ready.
+`dist/evaOS-Workbench-Beta-0.1.0.zip` with the `.app` and beta install notes. It
+also writes `dist/updates.json`, the public update manifest the app checks on
+launch. That beta packaging path intentionally rejects Developer
+ID identities until the Apple approval/notarization path is ready.
 
 ## Keychain And Signing
 
@@ -129,6 +131,15 @@ Sign-out clears Keychain and best-effort revokes the opaque desktop session in
 Supabase. VM runtime cookies are still minted by `evaos-ws-proxy`; they are not
 stored in Keychain or app model state.
 
+## Updates
+
+Workbench checks `https://www.electricsheephq.com/evaos-workbench/updates.json`
+on launch. The manifest points to the newest beta zip and release notes. In the
+no-Developer-ID beta, update install is intentionally user-mediated: Workbench
+opens the download URL, then the user replaces the app. Background
+self-replacement should move to Sparkle once Developer ID signing/notarization
+is available.
+
 ## Bridge Model
 
 The `Desktop Bridge` panel is a guided setup surface in the canary. It walks the
@@ -138,9 +149,10 @@ LaunchAgent-backed connector, create short-lived pairing grants through
 dashboard/Supabase, and complete the local Mac device record once the connector
 and Headscale client are ready. Completion sends the connector URL and local
 connector token to the service-role-only pairing secret store; support-control
-then applies that secret to the paired VM gateway environment. The app still
-does not expose live local-control buttons or a generic command runner; actual
-actions run through audited OpenClaw/Hermes tools.
+then applies that secret to the paired VM gateway environment. Customer-facing
+Mac and iPhone controls are available to agents through the audited tool
+contract; Workbench shows status, permissions, audit, revoke, and setup state
+without exposing a generic command runner.
 
 ## OpenDesign
 
