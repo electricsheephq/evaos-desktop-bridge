@@ -8,14 +8,15 @@ created: 2026-05-21
 
 ## Boundary
 
-This beta is for internal and friendly canary users. It intentionally ships
-without Developer ID signing, notarization, auto-update, or public GA claims.
+This beta is for friendly customer release. It intentionally ships without
+Developer ID signing or notarization until Apple approval lands.
 
 The beta includes the native Workbench shell, gateway tabs, desktop auth,
 admin/customer-service customer switching, OpenDesign configuration, Bridge
-status, and support-runbook coverage for the support VM Mac/iPhone/Codex canary.
-It does not expose broad local Mac control, iPhone messaging, Bumble actions,
-arbitrary shell, or Codex mutation controls in customer builds.
+status, customer-facing Mac and iPhone control through audited OpenClaw/Hermes
+tools, and support-runbook coverage for the support VM Codex canary. It does not
+expose arbitrary shell, generic coordinates, hidden AppleScript, password
+capture, payment/purchase automation, or generic Codex app-server mutation.
 
 ## Build
 
@@ -32,6 +33,7 @@ The beta artifact is written to:
 
 ```text
 apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.0.zip
+apps/eva-desktop-mac/dist/updates.json
 ```
 
 `build_and_run.sh --package-beta` uses an Apple Development code-signing
@@ -39,6 +41,29 @@ identity when one is available locally. If no Apple Development identity exists,
 it falls back to ad-hoc signing. The beta package command refuses Developer ID
 identities so we do not accidentally imply notarized release readiness before
 Apple approval lands.
+
+## Updates
+
+Workbench checks the public update manifest on launch:
+
+```text
+https://www.electricsheephq.com/evaos-workbench/updates.json
+```
+
+The package command writes the matching manifest JSON next to the beta zip. For
+the current ElectricSheep release path, copy the zip and manifest into the
+Lovable dashboard repo under `public/evaos-workbench/`, merge that dashboard PR,
+then publish through Lovable: project -> Publish -> Update. The customer-facing
+install page is:
+
+```text
+https://www.electricsheephq.com/evaos-workbench
+```
+
+Because this beta is not Developer ID signed, update installation is
+user-mediated: Workbench shows that an update is available and opens the
+download URL. Background self-replacement moves to Sparkle after Developer ID
+signing and notarization are available.
 
 ## Install
 
@@ -79,21 +104,27 @@ Development signing for internal canaries or Developer ID signing for release.
   displayed permission target, and confirm status reads Ready without raw JSON.
 - Refresh Desktop Bridge status and confirm only clean status/capability/audit
   summaries appear in the Workbench UI.
+- Confirm Workbench checks the update manifest and shows Download Update when a
+  newer manifest version is hosted.
 
-## Support VM Canary
+## Agent Control
 
-The support-only Mac/iPhone/Codex canary remains separate from customer beta
-distribution. Use `docs/support-vm-mac-iphone-codex-canary.md` for pairing,
-dry-run, approval, and revocation steps.
+Customer beta agents can use named Mac and iPhone tools once the customer pairs
+their Mac. Reads are available by default; live actions require a prior dry-run,
+human approval, and a matching approval audit id.
 
-Customer beta builds must not launch connectors with
-`EVAOS_SUPPORT_CANARY_CONTROLS=1`.
+Allowed customer-facing controls include app focus, localhost/browser actions,
+iPhone Mirroring focus/Home/App Switcher/Spotlight/open-app/tap named target,
+scroll/swipe gestures, approved text entry, and one approved message send with
+exact recipient/context and exact text.
+
+Codex Desktop mutation remains a separate canary path. Use
+`docs/support-vm-mac-iphone-codex-canary.md` for Codex remote-control fallback
+testing.
 
 ## Public GA Blockers
 
 - Developer ID approval and stable release signing.
 - Notarization.
 - External friendly-customer canary evidence.
-- Update/distribution policy.
-- Final support matrix for customer-owned Macs.
 - Stable app-owned/helper-owned TCC identity for background connector startup.

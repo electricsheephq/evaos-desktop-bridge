@@ -34,6 +34,11 @@ final class WorkbenchModel: ObservableObject {
             resetRuntime(.openDesign)
         }
     }
+    @Published var updateManifestURLString: String = UserDefaults.standard.string(forKey: "EvaDesktop.updateManifestURL") ?? AppBrand.defaultUpdateManifestURL {
+        didSet {
+            UserDefaults.standard.set(updateManifestURLString, forKey: "EvaDesktop.updateManifestURL")
+        }
+    }
     @Published var selectedRuntime: RuntimeKey = .openclaw
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
@@ -61,6 +66,11 @@ final class WorkbenchModel: ObservableObject {
     @Published var customerTargetError: String?
     @Published var isRefreshingBridgeStatus = false
     @Published var webViewRefreshToken = UUID()
+    @Published var isCheckingForUpdates = false
+    @Published var updateStatusText = "Workbench checks for updates automatically."
+    @Published var updateAvailable = false
+    @Published var updateDownloadURL: URL?
+    @Published var updateReleaseNotesURL: URL?
 
     let runtimes = RuntimeDefinition.all
     let webViews = WebViewStore()
@@ -70,6 +80,7 @@ final class WorkbenchModel: ObservableObject {
     private var resolver: RuntimeURLResolver
     private let bridge = BridgeCommandService()
     private let macControl = CustomerMacControlClient()
+    private let updateClient = WorkbenchUpdateClient()
     private let connectorProcess = WorkbenchConnectorProcessManager()
     private var fallbackReloadAttempts: [RuntimeKey: Int] = [:]
 
@@ -141,6 +152,7 @@ final class WorkbenchModel: ObservableObject {
     func bootstrap() async {
         await refreshCustomerTargets()
         await loadRuntime(selectedRuntime)
+        await checkForUpdates(silent: true)
     }
 
     func reconnectSelectedRuntime() {
@@ -365,6 +377,62 @@ final class WorkbenchModel: ObservableObject {
             bridgeAuditText = BridgeStatusFormatter.audit(raw: auditRaw)
             await refreshMacPairing()
         }
+    }
+
+    func checkForUpdates(silent: Bool = false) async {
+        guard !isCheckingForUpdates else { return }
+        let configuredManifest = UserDefaults.standard.string(forKey: "EvaDesktop.updateManifestURL") ?? updateManifestURLString
+        updateManifestURLString = configuredManifest
+        guard let manifestURL = URL(string: configuredManifest.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            updateAvailable = false
+            updateDownloadURL = nil
+            updateReleaseNotesURL = nil
+            if !silent {
+                updateStatusText = WorkbenchUpdateError.invalidManifestURL.localizedDescription
+            }
+            return
+        }
+
+        isCheckingForUpdates = true
+        if !silent {
+            updateStatusText = "Checking for the latest Workbench build..."
+        }
+        defer { isCheckingForUpdates = false }
+
+        do {
+            let manifest = try await updateClient.fetchManifest(from: manifestURL)
+            updateAvailable = manifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber)
+            updateDownloadURL = manifest.downloadURL
+            updateReleaseNotesURL = manifest.releaseNotesURL
+            if updateAvailable {
+                updateStatusText = "Update \(manifest.displayName) is available."
+            } else if !silent {
+                updateStatusText = "Workbench is up to date."
+            }
+        } catch {
+            updateAvailable = false
+            updateDownloadURL = nil
+            updateReleaseNotesURL = nil
+            if !silent {
+                updateStatusText = "Update check failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func checkForUpdatesFromButton() {
+        Task { @MainActor in
+            await checkForUpdates(silent: false)
+        }
+    }
+
+    func openUpdateDownload() {
+        guard let updateDownloadURL else { return }
+        NSWorkspace.shared.open(updateDownloadURL)
+    }
+
+    func openUpdateReleaseNotes() {
+        guard let updateReleaseNotesURL else { return }
+        NSWorkspace.shared.open(updateReleaseNotesURL)
     }
 
     func startConnectorService() {
@@ -688,6 +756,10 @@ final class WorkbenchModel: ObservableObject {
         isOperatorSession = false
         isLoadingCustomerTargets = false
         customerTargetError = nil
+        pairedDevices = []
+        enrollmentCode = nil
+        enrollmentExpiresAt = nil
+        pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
         webViews.reset()
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()
@@ -1187,14 +1259,14 @@ enum BridgeStatusFormatter {
         let accessibility = value(at: ["data", "permissions", "accessibility", "status"], in: object) as? String
         let screenRecording = value(at: ["data", "permissions", "screen_recording", "status"], in: object) as? String
         let iphoneRunning = value(at: ["data", "iphone_mirroring", "running"], in: object) as? Bool
-        let supportCanary = value(at: ["data", "safety", "support_canary_controls_enabled"], in: object) as? Bool
+        let approvedMessages = value(at: ["data", "safety", "approved_message_send_audited"], in: object) as? Bool
         return compact([
             customerMacReady(raw: raw) ? "Ready" : "Needs Permission",
             frontmost.map { "Frontmost: \($0)" },
             accessibility.map { "Accessibility: \($0)" },
             screenRecording.map { "Screen Recording: \($0)" },
             iphoneRunning.map { "iPhone Mirroring: \($0 ? "running" : "not running")" },
-            supportCanary.map { "Support canary controls: \($0 ? "enabled" : "disabled")" }
+            approvedMessages.map { "Approved message audit: \($0 ? "ready" : "unavailable")" }
         ])
     }
 
@@ -1204,13 +1276,13 @@ enum BridgeStatusFormatter {
         let installed = value(at: ["data", "installed"], in: object) as? Bool
         let running = value(at: ["data", "running"], in: object) as? Bool
         let frontmost = value(at: ["data", "frontmost"], in: object) as? Bool
-        let supportEnabled = value(at: ["data", "support_canary", "enabled"], in: object) as? Bool
+        let guardedActions = value(at: ["data", "guarded_actions"], in: object) as? [Any]
         return compact([
             iPhoneReady(raw: raw) ? "Ready" : "Needs iPhone Mirroring",
             installed.map { "Installed: \($0 ? "yes" : "no")" },
             running.map { "App: \($0 ? "running" : "not running")" },
             frontmost.map { "Focused: \($0 ? "yes" : "no")" },
-            supportEnabled.map { "Support-only gestures: \($0 ? "enabled" : "disabled")" }
+            guardedActions.map { "Agent controls: \($0.count) approval-gated actions" }
         ])
     }
 

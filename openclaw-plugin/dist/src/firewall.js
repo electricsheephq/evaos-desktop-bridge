@@ -16,13 +16,13 @@ const APPROVAL_GATED_TOOL_PREFIXES = [
     "customer_mac_iphone_mirroring_type_approved_text",
     "customer_mac_iphone_mirroring_send_approved_message",
 ];
-const SUPPORT_CANARY_TOOL_NAMES = new Set([
+const IPHONE_GESTURE_TOOL_NAMES = new Set([
     "customer_mac_iphone_mirroring_swipe_left",
     "customer_mac_iphone_mirroring_swipe_right",
     "customer_mac_iphone_mirroring_swipe_up",
     "customer_mac_iphone_mirroring_swipe_down",
 ]);
-const SUPPORT_CANARY_ALLOWED_MATCHES = new Set(["swipe"]);
+const IPHONE_GESTURE_ALLOWED_MATCHES = new Set(["swipe"]);
 const DANGEROUS_TOOL_NAMES = [
     "exec",
     "shell",
@@ -101,8 +101,8 @@ export function desktopBridgeFirewall(event) {
     const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern.toLowerCase()));
     if (SAFE_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
         const allowedSupportCanaryMatch = matchedPattern !== undefined &&
-            SUPPORT_CANARY_TOOL_NAMES.has(toolName) &&
-            SUPPORT_CANARY_ALLOWED_MATCHES.has(matchedPattern);
+            IPHONE_GESTURE_TOOL_NAMES.has(toolName) &&
+            IPHONE_GESTURE_ALLOWED_MATCHES.has(matchedPattern);
         if (matchedPattern && !allowedSupportCanaryMatch) {
             return {
                 block: true,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +15,17 @@ from evaos_desktop_bridge.connector_server import (
     build_bridge_argv,
     read_token,
 )
+
+
+def rewrite_audit_timestamp(state_dir: Path, audit_id: str, timestamp: str) -> None:
+    audit_path = state_dir / "audit.jsonl"
+    updated: list[str] = []
+    for line in audit_path.read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record.get("audit_id") == audit_id:
+            record["timestamp"] = timestamp
+        updated.append(json.dumps(record, sort_keys=True, separators=(",", ":")))
+    audit_path.write_text("\n".join(updated) + "\n", encoding="utf-8")
 
 
 def test_connector_builds_fixed_status_argv() -> None:
@@ -71,7 +83,7 @@ def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> No
     assert "audit-1" in argv
 
 
-def test_connector_support_canary_message_requires_matching_dry_run_audit(tmp_path: Path) -> None:
+def test_connector_approved_message_requires_matching_dry_run_audit(tmp_path: Path) -> None:
     dry_run_audit = append_audit(
         command="customer_mac.iphone_mirroring_send_approved_message",
         target="customer_mac",
@@ -89,9 +101,39 @@ def test_connector_support_canary_message_requires_matching_dry_run_audit(tmp_pa
     ) is None
     assert _live_guarded_approval_error(
         "customerMacIphoneMirroringSendApprovedMessage",
+        {"text": "Hello", "recipient_context": "Bumble canary", "dry_run": False, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) is None
+    assert _live_guarded_approval_error(
+        "customerMacIphoneMirroringScroll",
+        {"direction": "down", "dry_run": False, "approval_audit_id": append_audit(command="customer_mac.iphone_mirroring_scroll", target="customer_mac", args={"direction": "down", "dry_run": True, "json": True, "approval_audit_id": None}, ok=True, warnings=[], errors=[], state_dir=tmp_path)},
+        state_dir=tmp_path,
+    ) is None
+    assert _live_guarded_approval_error(
+        "customerMacIphoneMirroringSendApprovedMessage",
         {"text": "Different", "recipient_context": "Bumble canary", "target_label": "Send", "dry_run": False, "approval_audit_id": dry_run_audit},
         state_dir=tmp_path,
     ) == "approval_audit_id does not match text."
+
+
+def test_connector_approval_audit_expires(tmp_path: Path) -> None:
+    dry_run_audit = append_audit(
+        command="customer_mac.app_focus",
+        target="customer_mac",
+        args={"app_name": "Safari", "dry_run": True, "json": True, "approval_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=20)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    rewrite_audit_timestamp(tmp_path, dry_run_audit, old_timestamp)
+
+    assert _live_guarded_approval_error(
+        "customerMacAppFocus",
+        {"app_name": "Safari", "dry_run": False, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) == "approval_audit_id is older than 15 minutes; run a new dry-run."
 
 
 def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tmp_path: Path) -> None:

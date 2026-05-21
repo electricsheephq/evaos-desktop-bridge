@@ -4,12 +4,24 @@ import io
 import json
 import plistlib
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 from evaos_desktop_bridge import cli as bridge_cli
 from evaos_desktop_bridge.cli import main
 from evaos_desktop_bridge.types import CommandResult
+
+
+def rewrite_audit_timestamp(state_dir: Path, audit_id: str, timestamp: str) -> None:
+    audit_path = state_dir / "audit.jsonl"
+    updated: list[str] = []
+    for line in audit_path.read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record.get("audit_id") == audit_id:
+            record["timestamp"] = timestamp
+        updated.append(json.dumps(record, sort_keys=True, separators=(",", ":")))
+    audit_path.write_text("\n".join(updated) + "\n", encoding="utf-8")
 
 
 @dataclass
@@ -457,6 +469,18 @@ def test_customer_mac_app_focus_live_requires_matching_dry_run_audit(tmp_path: P
     assert mismatch["_exit_code"] == 2
     assert mismatch["errors"][0]["code"] == "approval_audit_required"
     assert "app_name" in mismatch["errors"][0]["message"]
+
+
+def test_customer_mac_live_approval_audit_expires(tmp_path: Path) -> None:
+    dry_run = run_cli(["customer-mac", "app-focus", "--json", "--app-name", "Safari", "--dry-run"], FakeObserver(), tmp_path)
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=20)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    rewrite_audit_timestamp(tmp_path, dry_run["audit_id"], old_timestamp)
+
+    rejected = run_cli(["customer-mac", "app-focus", "--json", "--app-name", "Safari", "--approval-audit-id", dry_run["audit_id"]], FakeObserver(), tmp_path)
+
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "approval_audit_required"
+    assert "older than 15 minutes" in rejected["errors"][0]["message"]
 
 
 def test_customer_mac_local_site_rejects_nonlocal_urls(tmp_path: Path) -> None:

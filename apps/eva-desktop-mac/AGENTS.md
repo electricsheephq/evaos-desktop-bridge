@@ -33,13 +33,16 @@ Mission Control, Live Browser, Terminal, or OpenDesign internals.
   Stable Apple Development or Developer ID signing is required for a prompt-free
   release experience.
 
-## MVP Boundary
+## Agent Control Boundary
 
-- The Bridge panel is read-only in this app sprint.
-- Do not add Accessibility, Screen Recording, Apple Events, iMessage, iPhone
-  Mirroring, arbitrary shell, or generic local-control actions to Workbench MVP.
-- Future Mac control work must live behind explicit permissions, audit logs,
-  named allowlisted actions, and dry-run/approval gates.
+- The Bridge panel is the customer setup surface for connector status,
+  permissions, pairing, iPhone readiness, update checks, audit, and revoke.
+- Customer-facing Mac and iPhone control lives in OpenClaw/Hermes tools, not in
+  hidden Workbench buttons.
+- Live actions must stay named, allowlisted, audited, dry-run-first, and
+  approval-gated. Never add arbitrary shell, generic coordinates, hidden
+  AppleScript passthrough, password capture, purchase/payment automation, or
+  generic Codex app-server mutation.
 
 ## Focused Validation
 

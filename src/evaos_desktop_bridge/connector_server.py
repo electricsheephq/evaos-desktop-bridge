@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from .audit import default_state_dir
 from .schema import build_envelope, make_error
-from .state import read_audit_record
+from .state import approval_audit_freshness_error, read_audit_record
 
 CommandRunner = Callable[[list[str]], tuple[int, str]]
 
@@ -328,10 +328,23 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
     record_args = record.get("args")
     if not isinstance(record_args, dict) or record_args.get("dry_run") is not True:
         return "approval_audit_id must reference a dry-run record."
+    freshness_error = approval_audit_freshness_error(record)
+    if freshness_error is not None:
+        return freshness_error
     for field in fields:
-        if record_args.get(field) != params.get(field):
+        if record_args.get(field) != _approval_field_value(command, params, field):
             return f"approval_audit_id does not match {field}."
     return None
+
+
+def _approval_field_value(command: str, params: dict[str, Any], field: str) -> Any:
+    if field == "prompt" and command == "codexContinueThread":
+        return params.get("prompt") or "continue"
+    if field == "direction" and command == "customerMacIphoneMirroringScroll":
+        return params.get("direction") or "down"
+    if field == "target_label" and command == "customerMacIphoneMirroringSendApprovedMessage":
+        return params.get("target_label") or "Send"
+    return params.get(field)
 
 
 def _dry_run_arg(params: dict[str, Any]) -> list[str]:

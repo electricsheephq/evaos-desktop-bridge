@@ -65,7 +65,8 @@ def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("codex.app_server.threads")["source"] == "app_server"
     assert command_metadata("codex.continue_thread")["support_only"] is True
     assert command_metadata("customer_mac.iphone_mirroring_open_app")["requires_approval"] is True
-    assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["support_only"] is True
+    assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["mode"] == "guarded_visible_action"
+    assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["requires_approval"] is True
     assert command_metadata("customer_mac.screen_sharing_status")["bridge_can_enable"] is False
 
 

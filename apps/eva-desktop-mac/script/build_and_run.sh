@@ -8,6 +8,9 @@ BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
 VERSION="0.1.0"
 BUILD_NUMBER="1"
+UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
+UPDATE_DOWNLOAD_URL="${EVA_DESKTOP_UPDATE_DOWNLOAD_URL:-https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-Beta-$VERSION.zip}"
+UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -20,6 +23,8 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 BETA_STAGING_DIR="$DIST_DIR/beta"
 BETA_INSTALL_NOTES="$BETA_STAGING_DIR/BETA_INSTALL.md"
 BETA_ZIP="$DIST_DIR/evaOS-Workbench-Beta-$VERSION.zip"
+BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"
+BETA_UPDATE_MANIFEST_COMPAT="$DIST_DIR/evaos-workbench-updates.json"
 
 detect_apple_development_identity() {
   security find-identity -p codesigning -v 2>/dev/null \
@@ -112,7 +117,9 @@ notarized yet.
 
 - No Developer ID signing.
 - No notarization.
-- No auto-update.
+- Automatic update checks are enabled. Workbench checks the ElectricSheep
+  update manifest and opens the newest installer package when an update is
+  available. Background self-replacement is deferred until Developer ID signing.
 - Keychain trust may reset between ad-hoc builds. If Workbench repeatedly asks
   for Keychain access, use Reset Local Session on the sign-in screen or clear
   only the Workbench desktop session item:
@@ -123,12 +130,32 @@ notarized yet.
     -a desktop-session
   \`\`\`
 
-## Safety Boundary
+## Agent Control Boundary
 
-The customer beta exposes gateway tabs and bridge status only. Support-only
-Mac/iPhone/Codex control canaries require separate connector setup and must not
-be enabled in customer beta builds.
+The customer beta supports named Mac and iPhone controls through audited
+OpenClaw/Hermes tools. Live actions require a prior dry-run and matching
+approval audit id. Workbench does not expose arbitrary shell, hidden AppleScript,
+generic coordinates, password capture, payment/purchase automation, or generic
+Codex app-server mutation.
 EOF
+}
+
+write_update_manifest() {
+  local sha256
+  sha256="$(shasum -a 256 "$BETA_ZIP" | awk '{print $1}')"
+  cat > "$BETA_UPDATE_MANIFEST" <<EOF
+{
+  "version": "$VERSION",
+  "build": "$BUILD_NUMBER",
+  "channel": "beta",
+  "minimum_system_version": "$MIN_SYSTEM_VERSION",
+  "download_url": "$UPDATE_DOWNLOAD_URL",
+  "sha256": "$sha256",
+  "release_notes_url": "$UPDATE_RELEASE_NOTES_URL",
+  "published_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+  cp "$BETA_UPDATE_MANIFEST" "$BETA_UPDATE_MANIFEST_COMPAT"
 }
 
 package_beta() {
@@ -140,8 +167,12 @@ package_beta() {
     /usr/bin/ditto -c -k --norsrc --keepParent "EvaDesktop.app" "$BETA_ZIP"
     /usr/bin/zip -q "$BETA_ZIP" "BETA_INSTALL.md"
   )
+  write_update_manifest
   codesign --verify --deep --strict "$APP_BUNDLE"
   echo "Created beta artifact: $BETA_ZIP"
+  echo "Created update manifest: $BETA_UPDATE_MANIFEST"
+  echo "Created compatibility manifest copy: $BETA_UPDATE_MANIFEST_COMPAT"
+  echo "Update manifest URL expected by app: $UPDATE_MANIFEST_URL"
   echo "Signing identity: $SIGNING_IDENTITY"
 }
 

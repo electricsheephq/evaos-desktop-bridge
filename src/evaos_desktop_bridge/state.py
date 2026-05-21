@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ from .redaction import redact_value
 
 LATEST_FILE = "latest.json"
 AUDIT_FILE = "audit.jsonl"
+APPROVAL_AUDIT_MAX_AGE_SECONDS = 15 * 60
 
 
 def latest_path(state_dir: Path | None = None) -> Path:
@@ -62,4 +64,23 @@ def read_audit_record(audit_id: str, state_dir: Path | None = None) -> dict[str,
             continue
         if record.get("audit_id") == audit_id:
             return redact_value(record)
+    return None
+
+
+def approval_audit_freshness_error(record: dict[str, Any], *, max_age_seconds: int = APPROVAL_AUDIT_MAX_AGE_SECONDS) -> str | None:
+    timestamp = record.get("timestamp")
+    if not isinstance(timestamp, str) or not timestamp.strip():
+        return "approval_audit_id has no timestamp; run a new dry-run."
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return "approval_audit_id has an invalid timestamp; run a new dry-run."
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()
+    if age_seconds < -60:
+        return "approval_audit_id timestamp is in the future; run a new dry-run."
+    if age_seconds > max_age_seconds:
+        minutes = max(1, max_age_seconds // 60)
+        return f"approval_audit_id is older than {minutes} minutes; run a new dry-run."
     return None

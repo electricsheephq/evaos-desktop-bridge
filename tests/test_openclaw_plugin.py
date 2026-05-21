@@ -27,6 +27,7 @@ def test_openclaw_plugin_manifest_points_to_entrypoint() -> None:
 
 def test_openclaw_plugin_registers_read_only_tools_only() -> None:
     source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
+    dist = (PLUGIN / "dist" / "index.js").read_text(encoding="utf-8")
 
     expected_tools = [
         "desktop_bridge_status",
@@ -71,6 +72,7 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
     ]
     for tool_name in expected_tools:
         assert tool_name in source
+        assert tool_name in dist
         assert tool_name in json.loads((PLUGIN / "openclaw.plugin.json").read_text(encoding="utf-8"))["contracts"]["tools"]
 
     forbidden_tool_names = [
@@ -84,6 +86,10 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
     ]
     for tool_name in forbidden_tool_names:
         assert tool_name not in source
+        assert tool_name not in dist
+
+    assert "Approval-gated named action: send one exact same-turn-approved message" in dist
+    assert "Support-only canary action" not in dist
 
 
 def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:

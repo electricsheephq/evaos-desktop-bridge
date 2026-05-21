@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("EvaDesktop.runtimeBaseDomain") private var runtimeBaseDomain = "ecs.electricsheephq.com"
     @AppStorage("EvaDesktop.dashboardBaseURL") private var dashboardBaseURL = "https://www.electricsheephq.com"
     @AppStorage("EvaDesktop.openDesignURL") private var openDesignURL = ""
+    @AppStorage("EvaDesktop.updateManifestURL") private var updateManifestURL = AppBrand.defaultUpdateManifestURL
 
     var body: some View {
         Form {
@@ -14,12 +15,13 @@ struct SettingsView: View {
             TextField("Dashboard URL", text: $dashboardBaseURL)
             TextField("Gateway domain", text: $runtimeBaseDomain)
             TextField("OpenDesign URL", text: $openDesignURL)
+            TextField("Update manifest URL", text: $updateManifestURL)
 
             Text("Dashboard and gateway-domain changes apply to new Workbench windows. OpenDesign URL changes apply when that gateway is opened or reconnected.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("OpenDesign stays unavailable until a route is configured. Local Mac control and iPhone Mirroring appear only as bridge status in this canary; live actions stay behind audited OpenClaw tools.")
+            Text("OpenDesign stays unavailable until a route is configured. Mac and iPhone actions run through audited OpenClaw/Hermes tools with dry-run and approval gates.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

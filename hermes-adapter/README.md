@@ -38,5 +38,5 @@ responses still fail as hard command errors.
 - OpenClaw remains the first native plugin path.
 - Hermes uses this command wrapper or an MCP/tool config that shells to it.
 - The command wrapper only posts fixed JSON to the paired connector URL.
-- Support-only iPhone live gestures/messages still require
-  `EVAOS_SUPPORT_CANARY_CONTROLS=1` on the Mac connector.
+- Customer-facing iPhone live gestures/messages require the same dry-run,
+  approval, and matching audit-id contract as OpenClaw.
