@@ -7,8 +7,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.2.0"
-BUILD_NUMBER="2"
+VERSION="0.2.1"
+BUILD_NUMBER="3"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
 UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
 SPARKLE_APPCAST_URL="${EVA_DESKTOP_SPARKLE_APPCAST_URL:-https://www.electricsheephq.com/evaos-workbench/appcast.xml}"
@@ -149,6 +149,13 @@ copy_sparkle_framework() {
   /usr/bin/ditto "$sparkle_framework" "$APP_FRAMEWORKS/Sparkle.framework"
 }
 
+ensure_app_rpaths() {
+  local frameworks_rpath="@executable_path/../Frameworks"
+  if ! otool -l "$APP_BINARY" | grep -q "$frameworks_rpath"; then
+    install_name_tool -add_rpath "$frameworks_rpath" "$APP_BINARY"
+  fi
+}
+
 cd "$ROOT_DIR"
 
 pkill -x "$APP_EXECUTABLE_NAME" >/dev/null 2>&1 || true
@@ -161,6 +168,7 @@ mkdir -p "$APP_MACOS" "$APP_FRAMEWORKS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 copy_sparkle_framework
+ensure_app_rpaths
 
 if [ -d "$ROOT_DIR/Resources" ]; then
   cp -R "$ROOT_DIR/Resources/." "$APP_RESOURCES/"
