@@ -45,6 +45,7 @@ def test_customer_beta_documents_guarded_agent_control_boundary() -> None:
 
 
 def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector() -> None:
+    app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
     model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
     bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
     content_view = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "ContentView.swift").read_text(encoding="utf-8")
@@ -61,11 +62,24 @@ def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector()
     assert "NSApplication.willTerminateNotification" in content_view
     assert "Bridge file:" in model
     assert "Python helper:" in model
-    assert "Connect Your Mac" in bridge_panel
+    assert 'bridgeSectionTitle = "Settings"' in app_brand
+    assert 'macAndIPhoneTitle = "Mac & iPhone"' in app_brand
+    assert 'Text("Settings")' in bridge_panel
+    assert 'SectionEyebrow("Readiness")' in bridge_panel
+    assert "Turn On Mac Access" in bridge_panel
+    assert "Allow Screen & Control" in bridge_panel
+    assert "Link to evaOS" in bridge_panel
+    assert "Check Setup" in bridge_panel
+    assert "agentAccessTestText" in model
+    assert "model.agentAccessTestText" in bridge_panel
     assert "Sign out clears this app login" in bridge_panel
-    assert "Revoke Mac Access" in bridge_panel
+    assert "Disconnect This Mac" in bridge_panel
+    assert "Recent Activity" in bridge_panel
+    assert "Support Details" in bridge_panel
+    assert ".help(" in bridge_panel
     assert 'lower.contains("not running")' in bridge_panel
-    assert "StatusTile" in bridge_panel
-    assert "Download Update" in bridge_panel
+    assert "ReadinessTile" in bridge_panel
+    assert "StatusTile" not in bridge_panel
+    assert "Download" in bridge_panel
     assert ".font(.callout)" in bridge_panel
-    assert 'design: .monospaced' not in bridge_panel
+    assert 'design: .monospaced' in bridge_panel

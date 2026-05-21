@@ -49,7 +49,8 @@ final class WorkbenchModel: ObservableObject {
     @Published var customerMacCapabilitiesText = "Customer Mac capabilities have not been checked yet."
     @Published var bridgeAuditText = "Bridge audit trail has not been checked yet."
     @Published var connectorServiceText = "Connector service status has not been checked yet."
-    @Published var pairingText = "Pair this Mac to enable VM agents to use the audited connector tools."
+    @Published var pairingText = "Link this Mac to let Eva use approved Mac and iPhone actions."
+    @Published var agentAccessTestText = "Check setup when Mac Access is on and permissions are approved."
     @Published var pairedDevices: [CustomerMacDevice] = []
     @Published var enrollmentCode: String?
     @Published var enrollmentExpiresAt: Date?
@@ -441,7 +442,7 @@ final class WorkbenchModel: ObservableObject {
                 )
                 enrollmentCode = response.enrollmentCode
                 enrollmentExpiresAt = response.enrollmentExpiresAt
-                var nextPairingText = "Pairing code \(response.enrollmentCode) is ready. Use it after the connector is running and Tailscale/Headscale is connected."
+                var nextPairingText = "Pairing code \(response.enrollmentCode) is ready. Use it after Mac Access is on and the secure network link is connected."
                 if let key = response.headscale?.preauthKey, !key.isEmpty {
                     nextPairingText += "\nHeadscale key: \(key)"
                 } else if let mode = response.headscale?.mode {
@@ -484,7 +485,7 @@ final class WorkbenchModel: ObservableObject {
                 )
                 self.enrollmentCode = nil
                 self.enrollmentExpiresAt = nil
-                pairingText = "This Mac is paired. Refresh status, then run Test Agent Access."
+                pairingText = "This Mac is linked. Refresh status, then run Check Setup."
                 await refreshMacPairing()
             } catch {
                 pairingText = "Enrollment completion failed: \(error.localizedDescription)"
@@ -504,7 +505,7 @@ final class WorkbenchModel: ObservableObject {
                     deviceId: device.id,
                     customerId: sanitizedCustomerId
                 )
-                pairingText = "Mac pairing revoked. VM agents can no longer use this connector grant."
+                pairingText = "Mac access disconnected. Eva can no longer use this connector grant."
                 await refreshMacPairing()
             } catch {
                 pairingText = "Revoke failed: \(error.localizedDescription)"
@@ -514,6 +515,7 @@ final class WorkbenchModel: ObservableObject {
 
     func testAgentAccess() {
         Task { @MainActor in
+            agentAccessTestText = "Checking Mac Access, permissions, and iPhone readiness..."
             let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
             let localStatus = await bridge.run(arguments: ["customer-mac", "status", "--json"])
             let iphone = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
@@ -523,9 +525,9 @@ final class WorkbenchModel: ObservableObject {
             let connectorReady = BridgeStatusFormatter.connectorReady(raw: service)
             let macReady = BridgeStatusFormatter.customerMacReady(raw: localStatus)
             let iphoneReady = BridgeStatusFormatter.iPhoneReady(raw: iphone)
-            pairingText = connectorReady && macReady && iphoneReady
-                ? "Test passed locally. Next proof: run support-control mac-connector smoke for \(sanitizedCustomerId)."
-                : "Test failed locally. Fix the connector or macOS permissions before VM agent proof."
+            agentAccessTestText = connectorReady && macReady && iphoneReady
+                ? "Ready. Mac Access, permissions, and iPhone Mirroring passed the local check."
+                : "Needs attention. Turn on Mac Access, approve permissions, then connect iPhone if you want phone actions."
         }
     }
 
@@ -580,7 +582,7 @@ final class WorkbenchModel: ObservableObject {
             case .connectorNotReady:
                 "The local connector is not ready. Start the connector service and confirm it is reachable first."
             case .missingTailnetIp:
-                "Tailscale/Headscale is not connected yet. Connect the Mac to the evaOS tailnet before completing pairing."
+                "The secure network link is not connected yet. Connect this Mac to evaOS before completing pairing."
             case .missingTokenPath:
                 "Connector token path is missing. Restart the connector service so it can mint a local token."
             case .missingToken:
