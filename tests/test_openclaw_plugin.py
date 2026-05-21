@@ -22,6 +22,7 @@ def test_openclaw_plugin_manifest_points_to_entrypoint() -> None:
     assert manifest["main"] == "dist/index.js"
     assert manifest["configSchema"] == {"type": "object", "additionalProperties": False, "properties": {}}
     assert manifest["contracts"]["tools"]
+    assert package["openclaw"]["contracts"]["tools"] == manifest["contracts"]["tools"]
 
 
 def test_openclaw_plugin_registers_read_only_tools_only() -> None:
@@ -100,6 +101,20 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "customerMacIphoneMirroringSendApprovedMessage" in source
     assert "turn/start" not in source
     assert "session.db" not in source
+
+
+def test_openclaw_plugin_registers_tool_objects_for_runtime_discovery() -> None:
+    source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
+
+    assert "api.registerTool(bridgeTool);" in source
+    assert "api.registerTool(() => bridgeTool" not in source
+
+
+def test_openclaw_plugin_execute_preserves_tool_arguments() -> None:
+    source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
+
+    assert "execute: (_toolCallId: string, params: BridgeParams = {}) => runBridge(command, params)" in source
+    assert "execute: (params: BridgeParams = {}) =>" not in source
 
 
 def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:

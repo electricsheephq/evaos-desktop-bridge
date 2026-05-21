@@ -14,7 +14,7 @@ export default definePluginEntry({
     kind: "tool",
     register(api) {
         for (const bridgeTool of readOnlyTools()) {
-            api.registerTool(() => bridgeTool, { names: [bridgeTool.name] });
+            api.registerTool(bridgeTool);
         }
         api.registerHook?.("before_tool_call", desktopBridgeFirewall, {
             name: "evaos-desktop-bridge-firewall",
@@ -234,6 +234,6 @@ function tool(name, description, command, parameters = { type: "object", additio
         name,
         description,
         parameters,
-        execute: (params = {}) => runBridge(command, params),
+        execute: (_toolCallId, params = {}) => runBridge(command, params),
     };
 }
