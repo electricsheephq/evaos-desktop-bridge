@@ -71,7 +71,7 @@ Ask for:
 
 ## Self-Serve Pairing Check
 
-For Workbench `0.2.2+`, the customer should not need hidden support commands:
+For Workbench `0.2.3+`, the customer should not need hidden support commands:
 
 1. In Settings -> Mac & iPhone, create a pairing code.
 2. Click Copy Agent Prompt.

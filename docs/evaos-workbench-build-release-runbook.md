@@ -18,7 +18,7 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.2.2` / build `4` is the self-serve pairing release. It keeps the
+Workbench `0.2.3` / build `4` is the self-serve pairing release. It keeps the
 `0.2.1` Sparkle/rpath repair, adds customer-safe pairing prompt copy, and adds
 pre-token OpenClaw/Hermes pairing helpers. When publishing it, keep the older
 `0.2.0` and `0.2.1` ZIP paths aliased to the fixed current ZIP so stale links
