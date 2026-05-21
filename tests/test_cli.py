@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import plistlib
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
+from evaos_desktop_bridge import cli as bridge_cli
 from evaos_desktop_bridge.cli import main
 from evaos_desktop_bridge.types import CommandResult
 
@@ -560,3 +562,52 @@ def test_disallowed_command_is_not_registered(tmp_path: Path) -> None:
     )
 
     assert exit_code == 2
+
+
+def test_connector_start_autoinstalls_user_launchagent(monkeypatch, tmp_path: Path) -> None:
+    plist_path = tmp_path / "Library" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
+    launchctl_calls: list[list[str]] = []
+
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_USER_PLIST", plist_path)
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_SYSTEM_PLIST", tmp_path / "system.plist")
+    monkeypatch.setattr(bridge_cli, "_tailscale_ip", lambda: "100.64.0.42")
+    monkeypatch.setattr(bridge_cli, "_connector_program_path", lambda: "/opt/homebrew/bin/evaos-desktop-bridge")
+    monkeypatch.setattr(bridge_cli, "_launchctl_domain", lambda: "gui/501")
+    monkeypatch.setattr(
+        bridge_cli,
+        "_run_launchctl",
+        lambda args: launchctl_calls.append(args) or {"returncode": 0, "stdout": "", "stderr": ""},
+    )
+
+    result = bridge_cli._launchctl_start()
+    payload = plistlib.loads(plist_path.read_bytes())
+
+    assert result["bootstrap"]["returncode"] == 0
+    assert payload["ProgramArguments"] == [
+        "/opt/homebrew/bin/evaos-desktop-bridge",
+        "serve",
+        "--host",
+        "100.64.0.42",
+        "--port",
+        "8765",
+    ]
+    assert payload["RunAtLoad"] is True
+    assert payload["KeepAlive"] is True
+    assert ["bootstrap", "gui/501", str(plist_path)] in launchctl_calls
+    assert ["kickstart", "-k", "gui/501/com.electricsheep.evaos-desktop-bridge"] in launchctl_calls
+
+
+def test_connector_start_host_can_be_overridden(monkeypatch, tmp_path: Path) -> None:
+    plist_path = tmp_path / "agent.plist"
+
+    monkeypatch.setenv("EVAOS_DESKTOP_BRIDGE_CONNECTOR_HOST", "127.0.0.1")
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_USER_PLIST", plist_path)
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_SYSTEM_PLIST", tmp_path / "system.plist")
+    monkeypatch.setattr(bridge_cli, "_tailscale_ip", lambda: "100.64.0.42")
+    monkeypatch.setattr(bridge_cli, "_connector_program_path", lambda: "evaos-desktop-bridge")
+
+    created = bridge_cli._ensure_connector_user_plist()
+    payload = plistlib.loads(created.read_bytes())
+
+    assert bridge_cli._connector_plist_host(created) == "127.0.0.1"
+    assert payload["ProgramArguments"][payload["ProgramArguments"].index("--host") + 1] == "127.0.0.1"
