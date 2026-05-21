@@ -33,11 +33,15 @@ public enum DesktopSessionCallbackParser {
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
             throw DesktopSessionCallbackError.invalidCallback
         }
-        guard
-            components.scheme == "evaos",
-            components.host == "auth",
-            components.path == "/callback"
-        else {
+        let isEvaOSCallback =
+            components.scheme == "evaos"
+            && components.host == "auth"
+            && components.path == "/callback"
+        let isLoopbackCallback =
+            components.scheme == "http"
+            && ["127.0.0.1", "localhost", "::1"].contains(components.host ?? "")
+            && components.path == "/auth/callback"
+        guard isEvaOSCallback || isLoopbackCallback else {
             throw DesktopSessionCallbackError.invalidCallback
         }
 

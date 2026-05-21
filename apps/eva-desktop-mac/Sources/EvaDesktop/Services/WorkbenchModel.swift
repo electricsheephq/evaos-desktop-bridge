@@ -996,6 +996,7 @@ final class RuntimeNavigationObserver: NSObject, WKNavigationDelegate {
     }
 }
 
+@MainActor
 final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var authSession: ASWebAuthenticationSession?
     private let dashboardBaseURL: URL
@@ -1005,32 +1006,59 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
     }
 
     func signIn() async throws -> DesktopSession {
-        var components = URLComponents(url: dashboardBaseURL.appendingPathComponent("desktop-auth"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [
-            URLQueryItem(name: "desktop_app", value: "1"),
-            URLQueryItem(name: "fresh", value: UUID().uuidString)
-        ]
-        let authURL = components.url!
-
         return try await withCheckedThrowingContinuation { continuation in
+            var didComplete = false
+            var loopbackReceiver: DesktopAuthLoopbackReceiver?
+
+            @MainActor
+            func finish(_ result: Result<DesktopSession, Error>) {
+                guard !didComplete else { return }
+                didComplete = true
+                loopbackReceiver?.stop()
+                authSession?.cancel()
+                authSession = nil
+                switch result {
+                case .success(let desktopSession):
+                    continuation.resume(returning: desktopSession)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            loopbackReceiver = try? DesktopAuthLoopbackReceiver.start { result in
+                Task { @MainActor in
+                    finish(result)
+                }
+            }
+
+            var components = URLComponents(url: dashboardBaseURL.appendingPathComponent("desktop-auth"), resolvingAgainstBaseURL: false)!
+            components.queryItems = [
+                URLQueryItem(name: "desktop_app", value: "1"),
+                URLQueryItem(name: "fresh", value: UUID().uuidString),
+                loopbackReceiver.map { URLQueryItem(name: "desktop_callback", value: $0.callbackURL.absoluteString) }
+            ].compactMap { $0 }
+            let authURL = components.url!
+
             let session = ASWebAuthenticationSession(
                 url: authURL,
                 callbackURLScheme: "evaos"
             ) { callbackURL, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
+                Task { @MainActor in
+                    if let error {
+                        finish(.failure(error))
+                        return
+                    }
 
-                guard let callbackURL else {
-                    continuation.resume(throwing: RuntimeSessionBrokerError.invalidResponse)
-                    return
-                }
+                    guard let callbackURL else {
+                        finish(.failure(RuntimeSessionBrokerError.invalidResponse))
+                        return
+                    }
 
-                do {
-                    continuation.resume(returning: try DesktopSessionCallbackParser.parse(callbackURL))
-                } catch {
-                    continuation.resume(throwing: RuntimeSessionBrokerError.invalidResponse)
+                    do {
+                        finish(.success(try DesktopSessionCallbackParser.parse(callbackURL)))
+                    } catch {
+                        finish(.failure(RuntimeSessionBrokerError.invalidResponse))
+                    }
                 }
             }
 
@@ -1043,6 +1071,137 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first ?? NSWindow()
+    }
+}
+
+final class DesktopAuthLoopbackReceiver {
+    let callbackURL: URL
+
+    private let socketFileDescriptor: Int32
+    private let queue = DispatchQueue(label: "com.electricsheephq.EvaDesktop.auth-loopback")
+    private let onComplete: (Result<DesktopSession, Error>) -> Void
+    private var stopped = false
+
+    static func start(onComplete: @escaping (Result<DesktopSession, Error>) -> Void) throws -> DesktopAuthLoopbackReceiver {
+        let socketFileDescriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketFileDescriptor >= 0 else {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+
+        var reuse: Int32 = 1
+        setsockopt(socketFileDescriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(0).bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                bind(socketFileDescriptor, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0, listen(socketFileDescriptor, 1) == 0 else {
+            close(socketFileDescriptor)
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+
+        var boundAddress = sockaddr_in()
+        var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                getsockname(socketFileDescriptor, sockaddrPointer, &boundAddressLength)
+            }
+        }
+        guard nameResult == 0 else {
+            close(socketFileDescriptor)
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+
+        let port = UInt16(bigEndian: boundAddress.sin_port)
+        let receiver = DesktopAuthLoopbackReceiver(
+            socketFileDescriptor: socketFileDescriptor,
+            callbackURL: URL(string: "http://127.0.0.1:\(port)/auth/callback")!,
+            onComplete: onComplete
+        )
+        receiver.startAccepting()
+        return receiver
+    }
+
+    private init(socketFileDescriptor: Int32, callbackURL: URL, onComplete: @escaping (Result<DesktopSession, Error>) -> Void) {
+        self.socketFileDescriptor = socketFileDescriptor
+        self.callbackURL = callbackURL
+        self.onComplete = onComplete
+    }
+
+    func stop() {
+        queue.async {
+            guard !self.stopped else { return }
+            self.stopped = true
+            close(self.socketFileDescriptor)
+        }
+    }
+
+    private func startAccepting() {
+        queue.async {
+            guard !self.stopped else { return }
+            let client = accept(self.socketFileDescriptor, nil, nil)
+            guard client >= 0 else { return }
+            self.handle(client)
+            close(client)
+        }
+    }
+
+    private func handle(_ client: Int32) {
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        let count = recv(client, &buffer, buffer.count, 0)
+        guard count > 0 else {
+            writeResponse(client, status: "400 Bad Request", body: "Invalid evaOS Workbench callback.")
+            onComplete(.failure(RuntimeSessionBrokerError.invalidResponse))
+            return
+        }
+
+        let request = String(decoding: buffer.prefix(count), as: UTF8.self)
+        guard
+            let firstLine = request.split(separator: "\r\n", maxSplits: 1, omittingEmptySubsequences: false).first,
+            let path = firstLine.split(separator: " ").dropFirst().first,
+            let callbackURL = URL(string: "http://127.0.0.1\(path)")
+        else {
+            writeResponse(client, status: "400 Bad Request", body: "Invalid evaOS Workbench callback.")
+            onComplete(.failure(RuntimeSessionBrokerError.invalidResponse))
+            return
+        }
+
+        do {
+            let desktopSession = try DesktopSessionCallbackParser.parse(callbackURL)
+            writeResponse(
+                client,
+                status: "200 OK",
+                body: "evaOS Workbench is connected. You can return to the app."
+            )
+            onComplete(.success(desktopSession))
+        } catch {
+            writeResponse(client, status: "400 Bad Request", body: "Invalid evaOS Workbench callback.")
+            onComplete(.failure(error))
+        }
+    }
+
+    private func writeResponse(_ client: Int32, status: String, body: String) {
+        let html = """
+        <!doctype html><html><head><meta charset="utf-8"><title>evaOS Workbench</title></head><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#171513;color:#f7f3ea;padding:32px;"><h1>evaOS Workbench</h1><p>\(body)</p></body></html>
+        """
+        let response = """
+        HTTP/1.1 \(status)\r
+        Content-Type: text/html; charset=utf-8\r
+        Content-Length: \(html.utf8.count)\r
+        Connection: close\r
+        \r
+        \(html)
+        """
+        _ = response.withCString { pointer in
+            send(client, pointer, strlen(pointer), 0)
+        }
     }
 }
 

@@ -7,7 +7,7 @@ public enum AppBrand {
     public static let bridgeSectionTitle = "Settings"
     public static let macAndIPhoneTitle = "Mac & iPhone"
     public static let signedOutStatus = "Sign in to launch evaOS gateways"
-    public static let version = "0.1.2"
+    public static let version = "0.1.3"
     public static let buildNumber = "1"
     public static let defaultUpdateManifestURL = "https://www.electricsheephq.com/evaos-workbench/updates.json"
 }
