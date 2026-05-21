@@ -8,14 +8,17 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Text(AppBrand.visibleName)
+            Text("Advanced")
                 .font(.headline)
 
             TextField("Dashboard URL", text: $dashboardBaseURL)
+                .help("Used for ElectricSheep login and desktop session handoff.")
             TextField("Gateway domain", text: $runtimeBaseDomain)
+                .help("Used to resolve customer-scoped gateway hosts for OpenClaw, Hermes, Mission Control, Live Browser, and Terminal.")
             TextField("Update manifest URL", text: $updateManifestURL)
+                .help("Workbench checks this signed release manifest for app updates.")
 
-            Text("Dashboard and gateway-domain changes apply to new Workbench windows.")
+            Text("Advanced network and update settings. Dashboard and gateway-domain changes apply to new Workbench windows.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

@@ -15,11 +15,12 @@ struct SidebarView: View {
             }
 
             Section(AppBrand.bridgeSectionTitle) {
-                Label("Status & Audit", systemImage: "shield.lefthalf.filled")
+                Label(AppBrand.macAndIPhoneTitle, systemImage: "macbook.and.iphone")
                     .tag(SidebarSelection.bridge)
             }
         }
         .listStyle(.sidebar)
+        .tint(Color.electricSheepGoldSoft)
         .navigationTitle("")
         .safeAreaInset(edge: .top, spacing: 0) {
             SidebarBrandHeader()

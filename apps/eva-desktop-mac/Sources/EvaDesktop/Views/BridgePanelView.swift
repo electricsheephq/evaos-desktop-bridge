@@ -3,91 +3,140 @@ import SwiftUI
 
 struct BridgePanelView: View {
     @ObservedObject var model: WorkbenchModel
+    @State private var supportDetailsExpanded = false
+
+    private let setupColumns = [
+        GridItem(.flexible(minimum: 340), spacing: 16),
+        GridItem(.flexible(minimum: 340), spacing: 16)
+    ]
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 26) {
                 header
-                statusStrip
-                setupChecklist
-                updateCard
-                readinessSection
+                readinessStrip
+                setupSection
+                accountAndUpdatesSection
+                recentActivitySection
+                supportDetailsSection
             }
-            .padding(28)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(Color.electricSheepPrimaryText)
+            .padding(30)
+            .frame(maxWidth: 1320, alignment: .leading)
         }
-        .background(.background)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.electricSheepCanvas)
+        .tint(Color.electricSheepGoldSoft)
     }
 
     private var header: some View {
         HStack(alignment: .top, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Connect Your Mac")
+            VStack(alignment: .leading, spacing: 9) {
+                Text("Settings")
                     .font(.largeTitle.weight(.semibold))
-                Text("Pair this computer with evaOS so your agents can use supervised Mac and iPhone tools with clear approval and audit trails.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.electricSheepPrimaryText)
+
+                Text("Connect this Mac, enable iPhone access, manage updates, and review what Eva can use.")
+                    .foregroundStyle(Color.electricSheepSecondaryText)
                     .font(.title3)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
             Spacer()
+
             Button {
                 model.refreshBridgeStatus()
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Label(model.isRefreshingBridgeStatus ? "Checking..." : "Refresh", systemImage: "arrow.clockwise")
             }
             .disabled(model.isRefreshingBridgeStatus)
+            .help("Refresh connector, permissions, iPhone, pairing, and recent activity status.")
         }
     }
 
-    private var statusStrip: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], spacing: 12) {
-            StatusTile(title: "Connector", value: firstLine(model.connectorServiceText), state: state(for: model.connectorServiceText))
-            StatusTile(title: "Mac Permissions", value: firstLine(model.customerMacStatusText), state: state(for: model.customerMacStatusText))
-            StatusTile(title: "iPhone", value: firstLine(model.iPhoneMirroringStatusText), state: state(for: model.iPhoneMirroringStatusText))
-            StatusTile(title: "VM Pairing", value: model.pairedDevices.isEmpty ? "Not paired" : "Paired", state: model.pairedDevices.isEmpty ? .needsAttention : .ready)
-        }
-    }
-
-    private var setupChecklist: some View {
+    private var readinessStrip: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Setup")
-                .font(.title2.weight(.semibold))
+            SectionEyebrow("Readiness")
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], spacing: 14) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], spacing: 12) {
+                ReadinessTile(
+                    title: "Connector",
+                    value: shortStatus(model.connectorServiceText, unchecked: "Unchecked"),
+                    state: state(for: model.connectorServiceText),
+                    help: "The secure local service that lets approved Eva actions reach this Mac."
+                )
+
+                ReadinessTile(
+                    title: "Permissions",
+                    value: permissionsReadiness,
+                    state: state(for: model.customerMacStatusText),
+                    help: "Accessibility and Screen Recording let Eva inspect the screen and press visible controls after approval."
+                )
+
+                ReadinessTile(
+                    title: "Pairing",
+                    value: model.pairedDevices.isEmpty ? "Not paired" : "Linked",
+                    state: model.pairedDevices.isEmpty ? .needsAttention : .ready,
+                    help: "Links this Mac to your private evaOS VM."
+                )
+
+                ReadinessTile(
+                    title: "iPhone",
+                    value: iPhoneReadiness,
+                    state: state(for: model.iPhoneMirroringStatusText),
+                    help: "Optional readiness for Apple iPhone Mirroring actions."
+                )
+            }
+        }
+    }
+
+    private var setupSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionTitle("Setup")
+
+            LazyVGrid(columns: setupColumns, alignment: .leading, spacing: 16) {
                 SetupStepCard(
                     number: "1",
                     systemImage: "desktopcomputer",
-                    title: "Start Mac Connector",
-                    status: model.connectorServiceText,
+                    title: "Turn On Mac Access",
+                    detail: shortStatus(model.connectorServiceText, unchecked: "Start the secure connector on this Mac."),
                     state: state(for: model.connectorServiceText),
+                    badge: setupBadge(for: model.connectorServiceText, fallback: "Unchecked"),
                     actions: {
-                        Button("Start") { model.startConnectorService() }
+                        Button("Turn On") { model.startConnectorService() }
+                            .buttonStyle(.borderedProminent)
+                            .help("Starts the local connector service for this Workbench session.")
                         Button("Stop") { model.stopConnectorService() }
                             .buttonStyle(.bordered)
+                            .help("Stops the local connector service on this Mac.")
                     }
                 )
 
                 SetupStepCard(
                     number: "2",
                     systemImage: "checkmark.shield",
-                    title: "Enable Permissions",
-                    status: "Approve Accessibility and Screen Recording for the app or helper macOS shows. These let Eva see the screen and press visible controls.",
+                    title: "Allow Screen & Control",
+                    detail: permissionSetupDetail,
                     state: state(for: model.customerMacStatusText),
+                    badge: permissionBadge,
                     actions: {
                         Button("Accessibility") { model.openAccessibilitySettings() }
+                            .help("Open macOS Accessibility settings so Eva can press approved visible controls.")
                         Button("Screen Recording") { model.openScreenRecordingSettings() }
                             .buttonStyle(.bordered)
+                            .help("Open macOS Screen Recording settings so Eva can take redacted visual snapshots.")
                     }
                 )
 
                 SetupStepCard(
                     number: "3",
                     systemImage: "link.badge.plus",
-                    title: "Pair With evaOS",
-                    status: pairingStatus,
+                    title: "Link to evaOS",
+                    detail: publicPairingStatus,
                     state: model.pairedDevices.isEmpty ? .needsAttention : .ready,
+                    badge: model.pairedDevices.isEmpty ? "Not paired" : "Ready",
                     actions: {
-                        Button(model.enrollmentCode == nil ? "Create Pairing Code" : "Complete Pairing") {
+                        Button(model.enrollmentCode == nil ? "Create Pairing Code" : "Complete Link") {
                             if model.enrollmentCode == nil {
                                 model.createMacEnrollment()
                             } else {
@@ -95,12 +144,8 @@ struct BridgePanelView: View {
                             }
                         }
                         .disabled(!model.isSignedIn || model.isPairingMac)
-
-                        if !model.pairedDevices.isEmpty {
-                            Button("Revoke") { model.revokeFirstPairedMac() }
-                                .buttonStyle(.bordered)
-                                .disabled(model.isPairingMac)
-                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Creates or completes a short-lived secure link between this Mac and evaOS.")
                     }
                 )
 
@@ -108,195 +153,428 @@ struct BridgePanelView: View {
                     number: "4",
                     systemImage: "iphone",
                     title: "Connect iPhone",
-                    status: model.iPhoneMirroringStatusText,
+                    detail: iPhoneSetupDetail,
                     state: state(for: model.iPhoneMirroringStatusText),
+                    badge: iPhoneBadge,
                     actions: {
                         Button("Open iPhone Mirroring") { model.openIPhoneMirroring() }
+                            .help("Open Apple's iPhone Mirroring app. Eva cannot act on the phone without approved tools.")
                         Button("Refresh") { model.refreshBridgeStatus() }
                             .buttonStyle(.bordered)
+                            .disabled(model.isRefreshingBridgeStatus)
+                            .help("Refresh iPhone Mirroring readiness.")
                     }
                 )
 
                 SetupStepCard(
                     number: "5",
                     systemImage: "sparkles",
-                    title: "Test Agent Access",
-                    status: model.customerMacStatusText,
-                    state: state(for: model.customerMacStatusText),
+                    title: "Check Setup",
+                    detail: model.agentAccessTestText,
+                    state: state(for: model.agentAccessTestText),
+                    badge: setupBadge(for: model.agentAccessTestText, fallback: "Unchecked"),
                     actions: {
-                        Button("Run Local Test") { model.testAgentAccess() }
+                        Button("Run Check") { model.testAgentAccess() }
+                            .buttonStyle(.borderedProminent)
+                            .help("Runs a local readiness check for Mac Access, permissions, and iPhone Mirroring.")
                         Button("Refresh") { model.refreshBridgeStatus() }
                             .buttonStyle(.bordered)
                             .disabled(model.isRefreshingBridgeStatus)
-                    }
-                )
-
-                SetupStepCard(
-                    number: "6",
-                    systemImage: "xmark.shield",
-                    title: "Sign Out / Revoke",
-                    status: "Sign out clears this app login. Revoke Mac Access blocks VM agents from this connector grant.",
-                    state: .neutral,
-                    actions: {
-                        Button("Sign Out") { model.signOut() }
-                            .disabled(!model.isSignedIn)
-                        if !model.pairedDevices.isEmpty {
-                            Button("Revoke Mac Access") { model.revokeFirstPairedMac() }
-                                .buttonStyle(.bordered)
-                        }
+                            .help("Refresh all setup status without running the local check.")
                     }
                 )
             }
         }
     }
 
-    private var updateCard: some View {
+    private var accountAndUpdatesSection: some View {
+        LazyVGrid(columns: setupColumns, alignment: .leading, spacing: 16) {
+            ManagementCard(
+                title: "Account & Access",
+                systemImage: "xmark.shield",
+                badge: model.isSignedIn ? "Signed in" : "Signed out",
+                badgeState: model.isSignedIn ? .ready : .neutral,
+                detail: accountAccessDetail,
+                actions: {
+                    Button("Sign Out") { model.signOut() }
+                        .disabled(!model.isSignedIn)
+                        .help("Signs out of Workbench and clears local runtime sessions.")
+
+                    if !model.pairedDevices.isEmpty {
+                        Button("Disconnect This Mac", role: .destructive) { model.revokeFirstPairedMac() }
+                            .buttonStyle(.bordered)
+                            .disabled(model.isPairingMac)
+                            .help("Revokes this Mac link so evaOS agents cannot use the connector.")
+                    }
+                }
+            )
+
+            ManagementCard(
+                title: "Updates",
+                systemImage: "arrow.triangle.2.circlepath",
+                badge: model.updateAvailable ? "Available" : "Current",
+                badgeState: model.updateAvailable ? .warning : .neutral,
+                detail: model.updateStatusText,
+                actions: {
+                    Button(model.isCheckingForUpdates ? "Checking..." : "Check Now") {
+                        model.checkForUpdatesFromButton()
+                    }
+                    .disabled(model.isCheckingForUpdates)
+                    .help("Checks the ElectricSheep Workbench update manifest.")
+
+                    if model.updateAvailable {
+                        Button("Download") {
+                            model.openUpdateDownload()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Open the download for the available Workbench update.")
+
+                        if model.updateReleaseNotesURL != nil {
+                            Button("Notes") {
+                                model.openUpdateReleaseNotes()
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Open release notes for the available Workbench update.")
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    private var recentActivitySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(Color.electricSheepCyan)
-                Text("Updates")
-                    .font(.headline)
-                StatusBadge(text: model.updateAvailable ? "Available" : "Auto-checking", state: model.updateAvailable ? .warning : .neutral)
-                Spacer()
-            }
+            SectionTitle("Recent Activity")
 
-            Text(model.updateStatusText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            LuxuryPanel {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.electricSheepGoldSoft)
+                        .frame(width: 32, height: 32)
+                        .background(Color.electricSheepGoldSoft.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            HStack(spacing: 8) {
-                Button(model.isCheckingForUpdates ? "Checking..." : "Check Now") {
-                    model.checkForUpdatesFromButton()
-                }
-                .disabled(model.isCheckingForUpdates)
-
-                if model.updateAvailable {
-                    Button("Download Update") {
-                        model.openUpdateDownload()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(recentActivitySummary)
+                            .font(.headline)
+                            .foregroundStyle(Color.electricSheepPrimaryText)
+                        Text("Detailed audit records stay in Support Details.")
+                            .font(.callout)
+                            .foregroundStyle(Color.electricSheepSecondaryText)
                     }
-                    .buttonStyle(.borderedProminent)
-                    if model.updateReleaseNotesURL != nil {
-                        Button("Release Notes") {
-                            model.openUpdateReleaseNotes()
-                        }
-                        .buttonStyle(.bordered)
-                    }
+
+                    Spacer()
                 }
             }
         }
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.electricSheepCyan.opacity(0.12), lineWidth: 1)
-        )
     }
 
-    private var readinessSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Agent Tool Readiness")
-                .font(.title2.weight(.semibold))
-
+    private var supportDetailsSection: some View {
+        DisclosureGroup(isExpanded: $supportDetailsExpanded) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14)], spacing: 14) {
                 BridgeOutputCard(title: "OpenClaw / Hermes", text: model.customerMacCapabilitiesText)
                 BridgeOutputCard(title: "Codex Remote Control", text: model.codexRemoteControlStatusText)
                 BridgeOutputCard(title: "Screen Sharing", text: model.screenSharingStatusText)
+                BridgeOutputCard(title: "Bridge Capabilities", text: model.bridgeCapabilitiesText)
+                BridgeOutputCard(title: "Pairing Details", text: model.pairingText)
             }
 
-            BridgeOutputCard(title: "Audit Tail", text: model.bridgeAuditText)
+            BridgeOutputCard(title: "Audit Records", text: model.bridgeAuditText)
+                .padding(.top, 14)
+        } label: {
+            HStack(spacing: 10) {
+                SectionTitle("Support Details")
+                StatusBadge(text: supportDetailsExpanded ? "Open" : "Collapsed", state: .neutral)
+                Spacer()
+            }
+        }
+        .tint(Color.electricSheepGoldSoft)
+        .help("Advanced diagnostics for support. Customer setup only needs the sections above.")
+    }
+
+    private var permissionsReadiness: String {
+        let setupState = state(for: model.customerMacStatusText)
+        switch setupState {
+        case .ready:
+            return "Ready"
+        case .neutral:
+            return "Unchecked"
+        case .needsAttention:
+            return "Needs permission"
+        case .warning:
+            return "Review"
         }
     }
 
-    private var pairingStatus: String {
-        var lines = [model.pairingText]
-        if let code = model.enrollmentCode {
-            lines.append("Pairing code: \(code)")
+    private var iPhoneReadiness: String {
+        let setupState = state(for: model.iPhoneMirroringStatusText)
+        switch setupState {
+        case .ready:
+            return "Ready"
+        case .neutral:
+            return "Unchecked"
+        case .needsAttention:
+            return "Optional"
+        case .warning:
+            return "Review"
         }
-        if let expiresAt = model.enrollmentExpiresAt {
-            lines.append("Expires: \(expiresAt.formatted(date: .abbreviated, time: .shortened))")
+    }
+
+    private var permissionSetupDetail: String {
+        if state(for: model.customerMacStatusText) == .ready {
+            return "Accessibility and Screen Recording are approved."
         }
+        if isUnchecked(model.customerMacStatusText) {
+            return "Open macOS settings and approve the Workbench app or helper macOS shows."
+        }
+        return shortStatus(model.customerMacStatusText, unchecked: "Open macOS settings and approve access.")
+    }
+
+    private var permissionBadge: String {
+        switch state(for: model.customerMacStatusText) {
+        case .ready:
+            return "Ready"
+        case .neutral:
+            return "Unchecked"
+        case .needsAttention:
+            return "Needs permission"
+        case .warning:
+            return "Review"
+        }
+    }
+
+    private var publicPairingStatus: String {
         if !model.pairedDevices.isEmpty {
-            lines.append("Paired: \(model.pairedDevices.map { $0.deviceName ?? $0.id }.joined(separator: ", "))")
+            let names = model.pairedDevices.map { $0.deviceName ?? $0.id }.joined(separator: ", ")
+            return "Linked to \(names)."
         }
-        return lines.joined(separator: "\n")
+
+        if let code = model.enrollmentCode {
+            var lines = ["Pairing code ready: \(code)"]
+            if let expiresAt = model.enrollmentExpiresAt {
+                lines.append("Expires \(expiresAt.formatted(date: .abbreviated, time: .shortened)).")
+            }
+            lines.append("Complete the link after the secure network connection is ready.")
+            return lines.joined(separator: "\n")
+        }
+
+        if model.pairingText.lowercased().contains("failed") {
+            return shortStatus(model.pairingText, unchecked: "Create a short-lived pairing code.")
+        }
+
+        return "Create a short-lived code to link this Mac to evaOS."
     }
 
-    private func firstLine(_ value: String) -> String {
-        value.split(separator: "\n").first.map(String.init) ?? "Not checked"
+    private var iPhoneSetupDetail: String {
+        if state(for: model.iPhoneMirroringStatusText) == .ready {
+            return "iPhone Mirroring is ready for approved phone actions."
+        }
+        if isUnchecked(model.iPhoneMirroringStatusText) {
+            return "Optional. Open iPhone Mirroring when you want Eva to help with phone workflows."
+        }
+        return shortStatus(model.iPhoneMirroringStatusText, unchecked: "Open iPhone Mirroring when needed.")
     }
 
-    private func state(for value: String) -> SetupVisualState {
-        let lower = value.lowercased()
-        if lower.contains("not checked") || lower.contains("auto-checking") {
-            return .neutral
+    private var iPhoneBadge: String {
+        switch state(for: model.iPhoneMirroringStatusText) {
+        case .ready:
+            return "Ready"
+        case .neutral:
+            return "Optional"
+        case .needsAttention:
+            return "Needs app"
+        case .warning:
+            return "Review"
         }
-        if lower.contains("not running") || lower.contains("unavailable") || lower.contains("not paired") || lower.contains("needs") || lower.contains("failed") || lower.contains("missing") || lower.contains("invalid") || lower.contains("offline") || lower.contains("error") {
-            return .needsAttention
-        }
-        if lower.contains("ready") || lower.contains("paired") || lower.contains("available") || lower.contains("running") || lower.contains("granted") || lower.contains("test passed") {
-            return .ready
-        }
-        return .needsAttention
     }
-}
 
-private enum SetupVisualState {
-    case ready
-    case needsAttention
-    case warning
-    case neutral
+    private var accountAccessDetail: String {
+        if model.pairedDevices.isEmpty {
+            return "Sign out clears this app login. Link this Mac before disconnect controls appear."
+        }
+        return "Sign out clears this app login. Disconnect blocks future Eva access to this Mac."
+    }
 
-    var label: String {
-        switch self {
+    private var recentActivitySummary: String {
+        let text = model.bridgeAuditText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = text.lowercased()
+        if text.isEmpty || lower.contains("not checked") {
+            return "Check setup to load recent activity."
+        }
+        if lower.contains("no audit events") {
+            return "No agent actions recorded yet."
+        }
+        if lower.contains("unavailable") || lower.contains("failed") && lower.contains("audit") {
+            return "Recent activity needs attention. Open Support Details for diagnostics."
+        }
+        let lines = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let failed = lines.filter { $0.lowercased().contains("failed") }.count
+        if failed > 0 {
+            return "\(lines.count) recent events recorded; \(failed) need attention."
+        }
+        return "\(lines.count) recent events recorded. No failures in the latest sample."
+    }
+
+    private func shortStatus(_ value: String, unchecked: String) -> String {
+        if isUnchecked(value) {
+            return unchecked
+        }
+        return firstLine(value)
+    }
+
+    private func setupBadge(for value: String, fallback: String) -> String {
+        if isUnchecked(value) {
+            return fallback
+        }
+        switch state(for: value) {
         case .ready:
             return "Ready"
         case .needsAttention:
             return "Needs setup"
         case .warning:
-            return "Update"
+            return "Review"
         case .neutral:
-            return "Info"
+            return fallback
         }
     }
+
+    private func firstLine(_ value: String) -> String {
+        let line = value.split(separator: "\n").first.map(String.init) ?? ""
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Unchecked" : trimmed
+    }
+
+    private func isUnchecked(_ value: String) -> Bool {
+        let lower = value.lowercased()
+        return lower.contains("not checked") || lower.contains("auto-checking") || lower.contains("check setup when")
+    }
+
+    private func state(for value: String) -> SetupVisualState {
+        let lower = value.lowercased()
+        if isUnchecked(value) || lower.contains("checking") {
+            return .neutral
+        }
+        if lower.contains("update") && lower.contains("available") {
+            return .warning
+        }
+        if lower.contains("ready") || lower.contains("paired") || lower.contains("linked") || lower.contains("available") || lower.contains("running") || lower.contains("granted") || lower.contains("passed") {
+            return .ready
+        }
+        if lower.contains("not running") || lower.contains("unavailable") || lower.contains("not paired") || lower.contains("needs") || lower.contains("failed") || lower.contains("missing") || lower.contains("invalid") || lower.contains("offline") || lower.contains("error") || lower.contains("attention") {
+            return .needsAttention
+        }
+        return .needsAttention
+    }
+}
+
+private enum SetupVisualState: Equatable {
+    case ready
+    case needsAttention
+    case warning
+    case neutral
 
     var color: Color {
         switch self {
         case .ready:
-            return Color.electricSheepCyan
+            return Color.electricSheepSuccess
         case .needsAttention:
-            return Color.electricSheepAmber
+            return Color.electricSheepGoldSoft
         case .warning:
             return Color.electricSheepAmber
         case .neutral:
-            return .secondary
+            return Color.electricSheepMutedText
+        }
+    }
+
+    var fill: Color {
+        switch self {
+        case .ready:
+            return Color.electricSheepSuccess.opacity(0.12)
+        case .needsAttention, .warning:
+            return Color.electricSheepGoldSoft.opacity(0.14)
+        case .neutral:
+            return Color.white.opacity(0.06)
         }
     }
 }
 
-private struct StatusTile: View {
+private struct SectionEyebrow: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.system(.caption, design: .monospaced).weight(.semibold))
+            .tracking(3)
+            .foregroundStyle(Color.electricSheepGoldSoft)
+    }
+}
+
+private struct SectionTitle: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(Color.electricSheepPrimaryText)
+    }
+}
+
+private struct LuxuryPanel<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.electricSheepLineWarm, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.20), radius: 16, y: 8)
+    }
+}
+
+private struct ReadinessTile: View {
     let title: String
     let value: String
     let state: SetupVisualState
+    let help: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                Text(title.uppercased())
+                    .font(.system(.caption2, design: .monospaced).weight(.semibold))
+                    .tracking(2)
+                    .foregroundStyle(Color.electricSheepMutedText)
                 Spacer()
                 Circle()
                     .fill(state.color)
                     .frame(width: 8, height: 8)
+                    .shadow(color: state.color.opacity(0.4), radius: 5)
             }
             Text(value)
-                .font(.headline)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(Color.electricSheepPrimaryText)
                 .lineLimit(2)
-                .minimumScaleFactor(0.85)
+                .minimumScaleFactor(0.82)
         }
-        .padding(14)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(15)
+        .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.electricSheepLine, lineWidth: 1)
+        )
+        .help(help)
     }
 }
 
@@ -304,45 +582,82 @@ private struct SetupStepCard<Actions: View>: View {
     let number: String
     let systemImage: String
     let title: String
-    let status: String
+    let detail: String
     let state: SetupVisualState
+    let badge: String
     @ViewBuilder let actions: Actions
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Text(number)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.black)
-                    .frame(width: 24, height: 24)
-                    .background(Color.electricSheepCyan, in: Circle())
-                Image(systemName: systemImage)
-                    .foregroundStyle(state.color)
-                    .frame(width: 18)
-                Text(title)
-                    .font(.headline)
-                Spacer()
-                StatusBadge(text: state.label, state: state)
-            }
+        LuxuryPanel {
+            VStack(alignment: .leading, spacing: 15) {
+                HStack(spacing: 12) {
+                    Text(number)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.electricSheepCanvasEdge)
+                        .frame(width: 27, height: 27)
+                        .background(Color.electricSheepGoldSoft, in: Circle())
 
-            Text(status.isEmpty ? "Not checked yet." : status)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(8)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+                    Image(systemName: systemImage)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(state.color)
+                        .frame(width: 18)
 
-            HStack(spacing: 8) {
-                actions
+                    Text(title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Color.electricSheepPrimaryText)
+
+                    Spacer()
+                    StatusBadge(text: badge, state: state)
+                }
+
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(Color.electricSheepSecondaryText)
+                    .lineLimit(5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+
+                HStack(spacing: 9) {
+                    actions
+                }
             }
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(state.color.opacity(0.16), lineWidth: 1)
-        )
+    }
+}
+
+private struct ManagementCard<Actions: View>: View {
+    let title: String
+    let systemImage: String
+    let badge: String
+    let badgeState: SetupVisualState
+    let detail: String
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        LuxuryPanel {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(badgeState.color)
+                        .frame(width: 18)
+                    Text(title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Color.electricSheepPrimaryText)
+                    Spacer()
+                    StatusBadge(text: badge, state: badgeState)
+                }
+
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(Color.electricSheepSecondaryText)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 9) {
+                    actions
+                }
+            }
+        }
     }
 }
 
@@ -352,11 +667,12 @@ private struct StatusBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.caption.weight(.semibold))
+            .font(.system(.caption, design: .rounded).weight(.semibold))
             .foregroundStyle(state.color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(state.color.opacity(0.12), in: Capsule())
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(state.fill, in: Capsule())
+            .overlay(Capsule().stroke(state.color.opacity(0.22), lineWidth: 1))
     }
 }
 
@@ -365,23 +681,30 @@ private struct BridgeOutputCard: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title.uppercased())
+                .font(.system(.caption, design: .monospaced).weight(.semibold))
+                .tracking(2)
+                .foregroundStyle(Color.electricSheepMutedText)
 
-            Text(text.isEmpty ? "Not checked yet." : text)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(8)
+            Text(displayText)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(Color.electricSheepSecondaryText)
+                .lineLimit(9)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
-        .padding()
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.electricSheepCanvasEdge, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.electricSheepCyan.opacity(0.10), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.electricSheepLine, lineWidth: 1)
         )
+    }
+
+    private var displayText: String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Unchecked" : trimmed
     }
 }
