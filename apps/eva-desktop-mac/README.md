@@ -72,14 +72,14 @@ identity is used. Otherwise the script uses the first local Apple Development
 identity it can find, falling back to ad-hoc signing for local development.
 
 `./script/build_and_run.sh --package-beta` writes
-`dist/evaOS-Workbench-Beta-0.2.0.zip` with the `.app` and beta install notes. It
+`dist/evaOS-Workbench-Beta-0.2.1.zip` with the `.app` and beta install notes. It
 also writes `dist/updates.json`, the public update manifest the app checks on
 launch. That beta packaging path intentionally rejects Developer
 ID identities until the Apple approval/notarization path is ready.
 
 `./script/build_and_run.sh --package-release` requires a Developer ID
 Application identity, signs with the hardened runtime, writes
-`dist/evaOS-Workbench-0.2.0.zip`, emits the legacy `release` update manifest,
+`dist/evaOS-Workbench-0.2.1.zip`, emits the legacy `release` update manifest,
 and generates the Sparkle `appcast.xml`. `./script/build_and_run.sh
 --notarize-release` submits that zip to Apple, waits only for the configured
 bounded timeout, staples the accepted ticket when available, rebuilds the zip
