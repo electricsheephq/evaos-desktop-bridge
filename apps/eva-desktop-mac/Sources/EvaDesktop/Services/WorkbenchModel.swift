@@ -1,4 +1,7 @@
 import AuthenticationServices
+import AppKit
+import ApplicationServices
+import CoreGraphics
 import Darwin
 import EvaDesktopCore
 import Foundation
@@ -56,6 +59,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var enrollmentExpiresAt: Date?
     @Published var isPairingMac = false
     @Published var customerTargets: [DesktopCustomerTarget] = []
+    @Published var sessionRoles: [String] = []
     @Published var isOperatorSession = false
     @Published var isLoadingCustomerTargets = false
     @Published var customerTargetError: String?
@@ -67,7 +71,6 @@ final class WorkbenchModel: ObservableObject {
     @Published var updateDownloadURL: URL?
     @Published var updateReleaseNotesURL: URL?
 
-    let runtimes = RuntimeDefinition.all
     let webViews = WebViewStore()
 
     private let keychain = KeychainSessionStore()
@@ -101,8 +104,22 @@ final class WorkbenchModel: ObservableObject {
         RuntimeDefinition.definition(for: selectedRuntime)
     }
 
+    var canAccessAdminRuntimes: Bool {
+        guard isSignedIn, isOperatorSession else { return false }
+        let normalizedRoles = Set(sessionRoles.map { $0.lowercased() })
+        if normalizedRoles.contains("admin") || normalizedRoles.contains("customer_service") || normalizedRoles.contains("support") {
+            return true
+        }
+        let email = session?.userEmail?.lowercased() ?? ""
+        return email == "admin@100yen.org"
+    }
+
+    var visibleRuntimes: [RuntimeDefinition] {
+        RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
+    }
+
     var loadedRuntimeKeys: [RuntimeKey] {
-        runtimes.map(\.key).filter { runtimeURLs[$0] != nil }
+        RuntimeDefinition.all.map(\.key).filter { runtimeURLs[$0] != nil }
     }
 
     var sanitizedCustomerId: String {
@@ -161,6 +178,12 @@ final class WorkbenchModel: ObservableObject {
             return
         }
 
+        guard canAccess(runtime) else {
+            runtimeURLs[runtime] = nil
+            runtimeErrors[runtime] = "This gateway is available to ElectricSheep admins only."
+            return
+        }
+
         if !force, runtimeURLs[runtime] != nil {
             return
         }
@@ -215,6 +238,10 @@ final class WorkbenchModel: ObservableObject {
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
 
         guard RuntimeDefinition.isBrokeredRuntime(runtime), isSignedIn else { return }
+        guard canAccess(runtime) else {
+            runtimeErrors[runtime] = "This gateway is available to ElectricSheep admins only."
+            return
+        }
         guard !loadingRuntimes.contains(runtime) else { return }
 
         loadingRuntimes.insert(runtime)
@@ -289,6 +316,7 @@ final class WorkbenchModel: ObservableObject {
     func refreshCustomerTargets() async {
         guard isSignedIn else {
             customerTargets = []
+            sessionRoles = []
             isOperatorSession = false
             customerTargetError = nil
             return
@@ -302,8 +330,10 @@ final class WorkbenchModel: ObservableObject {
         do {
             let response = try await broker.customerTargets(desktopSession: session)
             customerTargets = response.customers
+            sessionRoles = response.roles
             isOperatorSession = response.isOperator
             applyDefaultCustomerIfNeeded(response)
+            ensureSelectedRuntimeIsVisible()
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
             customerTargetError = "Your evaOS Workbench session expired. Sign in again."
@@ -456,6 +486,31 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
+    func copyAgentPairingPrompt() {
+        guard let enrollmentCode, !enrollmentCode.isEmpty else {
+            pairingText = "Create a pairing code before copying the agent prompt."
+            return
+        }
+
+        Task { @MainActor in
+            let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
+            connectorServiceText = BridgeStatusFormatter.connector(raw: service)
+            do {
+                let connector = try Self.localConnectorEnrollmentContext(from: service)
+                let prompt = Self.agentPairingPrompt(
+                    enrollmentCode: enrollmentCode,
+                    connectorUrl: connector.connectorUrl,
+                    customerId: sanitizedCustomerId
+                )
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(prompt, forType: .string)
+                pairingText = "Agent setup prompt copied. Paste it into David's OpenClaw agent so it can complete the link."
+            } catch {
+                pairingText = "Prompt unavailable: \(error.localizedDescription)"
+            }
+        }
+    }
+
     func completeLocalMacEnrollment() {
         guard let enrollmentCode, !enrollmentCode.isEmpty, !isPairingMac else { return }
         isPairingMac = true
@@ -536,11 +591,30 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func openAccessibilitySettings() {
+        requestAccessibilityPermission()
         openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
 
     func openScreenRecordingSettings() {
+        requestScreenRecordingPermission()
         openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+    }
+
+    func requestAccessibilityPermission() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        Task { @MainActor in
+            let raw = await bridge.run(arguments: ["permissions", "prime", "--json", "--permission", "accessibility"])
+            customerMacStatusText = BridgeStatusFormatter.permissionPrimer(raw: raw, fallback: customerMacStatusText)
+        }
+    }
+
+    func requestScreenRecordingPermission() {
+        _ = CGRequestScreenCaptureAccess()
+        Task { @MainActor in
+            let raw = await bridge.run(arguments: ["permissions", "prime", "--json", "--permission", "screen-recording"])
+            customerMacStatusText = BridgeStatusFormatter.permissionPrimer(raw: raw, fallback: customerMacStatusText)
+        }
     }
 
     func openIPhoneMirroring() {
@@ -632,6 +706,25 @@ final class WorkbenchModel: ObservableObject {
         )
     }
 
+    private static func agentPairingPrompt(enrollmentCode: String, connectorUrl: String, customerId: String) -> String {
+        """
+        Finish my evaOS Workbench Mac pairing.
+
+        Customer: \(customerId)
+        Pairing code: \(enrollmentCode)
+        Mac connector URL: \(connectorUrl)
+
+        From the evaOS VM, complete the pairing by calling the Mac connector enrollment endpoint. Do not ask me for the connector token; the Mac connector keeps it locally and sends it directly to evaOS.
+
+        Run:
+        curl -fsS -X POST '\(connectorUrl)/v1/enrollment/complete' \\
+          -H 'Content-Type: application/json' \\
+          -d '{"enrollment_code":"\(enrollmentCode)","device_name":"Customer Mac"}'
+
+        After it succeeds, check customer_mac_status and customer_mac_iphone_mirroring_status. For live Mac or iPhone actions, dry-run first, show the audit_id, and wait for approval.
+        """
+    }
+
     private func refreshMacPairing() async {
         guard isSignedIn else {
             pairedDevices = []
@@ -694,6 +787,7 @@ final class WorkbenchModel: ObservableObject {
         try? keychain.clear(allowUserInteraction: allowKeychainInteraction)
         session = nil
         customerTargets = []
+        sessionRoles = []
         isOperatorSession = false
         isLoadingCustomerTargets = false
         customerTargetError = nil
@@ -714,6 +808,7 @@ final class WorkbenchModel: ObservableObject {
         try keychain.save(newSession)
         session = newSession
         customerTargets = []
+        sessionRoles = []
         isOperatorSession = false
         customerTargetError = nil
         runtimeErrors.removeAll()
@@ -726,10 +821,13 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
-        clearLocalSessionState(allowKeychainInteraction: false)
-        runtimeErrors[runtime] = status == 401
-            ? "Your evaOS Workbench session expired or was revoked. Sign in again to open gateways."
-            : "This account is not authorized for that runtime or customer. Sign in with the right account or switch customer."
+        if status == 401 {
+            clearLocalSessionState(allowKeychainInteraction: false)
+            runtimeErrors[runtime] = "Your evaOS Workbench session expired or was revoked. Sign in again to open gateways."
+            return
+        }
+        runtimeURLs[runtime] = nil
+        runtimeErrors[runtime] = "This account is not authorized for that gateway or customer."
     }
 
     private func applyDefaultCustomerIfNeeded(_ response: DesktopCustomerTargetsResponse) {
@@ -741,6 +839,17 @@ final class WorkbenchModel: ObservableObject {
             return
         }
         customerId = resolver.sanitizedCustomerId(defaultCustomerId)
+    }
+
+    private func canAccess(_ runtime: RuntimeKey) -> Bool {
+        let definition = RuntimeDefinition.definition(for: runtime)
+        return !definition.requiresAdmin || canAccessAdminRuntimes
+    }
+
+    private func ensureSelectedRuntimeIsVisible() {
+        if !canAccess(selectedRuntime) {
+            selectedRuntime = .openclaw
+        }
     }
 
     private func handleRuntimeNavigationEvent(_ runtime: RuntimeKey, event: RuntimeNavigationEvent) {
@@ -897,7 +1006,10 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
 
     func signIn() async throws -> DesktopSession {
         var components = URLComponents(url: dashboardBaseURL.appendingPathComponent("desktop-auth"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "desktop_app", value: "1")]
+        components.queryItems = [
+            URLQueryItem(name: "desktop_app", value: "1"),
+            URLQueryItem(name: "fresh", value: UUID().uuidString)
+        ]
         let authURL = components.url!
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -923,7 +1035,7 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
             }
 
             session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
+            session.prefersEphemeralWebBrowserSession = true
             authSession = session
             session.start()
         }
@@ -942,6 +1054,8 @@ struct BridgeCommandService {
         bridgeKey(["connector-service", "status", "--json"]),
         bridgeKey(["connector-service", "start", "--json"]),
         bridgeKey(["connector-service", "stop", "--json"]),
+        bridgeKey(["permissions", "prime", "--json", "--permission", "accessibility"]),
+        bridgeKey(["permissions", "prime", "--json", "--permission", "screen-recording"]),
         bridgeKey(["customer-mac", "status", "--json"]),
         bridgeKey(["customer-mac", "capabilities", "--json"]),
         bridgeKey(["customer-mac", "iphone-mirroring", "status", "--json"]),
@@ -1156,6 +1270,21 @@ enum BridgeStatusFormatter {
         let installed = value(at: ["data", "installed"], in: object) as? Bool
         let running = value(at: ["data", "running"], in: object) as? Bool
         return installed == true && running == true
+    }
+
+    static func permissionPrimer(raw: String, fallback: String) -> String {
+        guard let object = object(from: raw), object["ok"] as? Bool == true else {
+            return fallback
+        }
+        let permission = value(at: ["data", "permission"], in: object) as? String ?? "permission"
+        let status = value(at: ["data", "status"], in: object) as? String ?? "requested"
+        let target = value(at: ["data", "target"], in: object) as? String
+        let label = permission == "screen_recording" ? "Screen Recording" : "Accessibility"
+        let suffix = target.map { " Approve \($0) if macOS shows it." } ?? ""
+        if status == "granted" {
+            return "\(label): Ready."
+        }
+        return "\(label): requested.\(suffix)"
     }
 
     static func bridge(raw: String) -> String {

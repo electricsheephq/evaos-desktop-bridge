@@ -136,16 +136,25 @@ struct BridgePanelView: View {
                     state: model.pairedDevices.isEmpty ? .needsAttention : .ready,
                     badge: model.pairedDevices.isEmpty ? "Not paired" : "Ready",
                     actions: {
-                        Button(model.enrollmentCode == nil ? "Create Pairing Code" : "Complete Link") {
+                        Button(model.enrollmentCode == nil ? "Create Pairing Code" : "Copy Agent Prompt") {
                             if model.enrollmentCode == nil {
                                 model.createMacEnrollment()
                             } else {
-                                model.completeLocalMacEnrollment()
+                                model.copyAgentPairingPrompt()
                             }
                         }
                         .disabled(!model.isSignedIn || model.isPairingMac)
                         .buttonStyle(.borderedProminent)
-                        .help("Creates or completes a short-lived secure link between this Mac and evaOS.")
+                        .help("Creates a short-lived code, then copies an OpenClaw prompt that lets David's agent complete the link.")
+
+                        if model.enrollmentCode != nil {
+                            Button("Complete Here") {
+                                model.completeLocalMacEnrollment()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!model.isSignedIn || model.isPairingMac)
+                            .help("Fallback for support: complete pairing from this Mac without the agent.")
+                        }
                     }
                 )
 

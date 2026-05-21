@@ -88,6 +88,10 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
         all.first { $0.key == key } ?? all[0]
     }
 
+    public static func visibleRuntimes(canAccessAdminRuntimes: Bool) -> [RuntimeDefinition] {
+        all.filter { !$0.requiresAdmin || canAccessAdminRuntimes }
+    }
+
     public static func isBrokeredRuntime(_ key: RuntimeKey) -> Bool {
         switch key {
         case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal:

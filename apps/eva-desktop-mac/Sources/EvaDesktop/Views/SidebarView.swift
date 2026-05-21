@@ -8,7 +8,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $selection) {
             Section(AppBrand.runtimeSectionTitle) {
-                ForEach(model.runtimes) { runtime in
+                ForEach(model.visibleRuntimes) { runtime in
                     RuntimeSidebarRow(runtime: runtime)
                         .tag(SidebarSelection.runtime(runtime.key))
                 }

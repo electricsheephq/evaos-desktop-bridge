@@ -25,6 +25,11 @@ struct ContentView: View {
                 model.loadSelectedRuntime()
             }
         }
+        .onChange(of: model.selectedRuntime) { _, runtime in
+            if sidebarSelection != .runtime(runtime) {
+                sidebarSelection = .runtime(runtime)
+            }
+        }
         .task {
             await model.bootstrap()
         }
