@@ -26,6 +26,10 @@ A release is not ready to send to testers until all of these are true:
   `https://www.electricsheephq.com/evaos-workbench/`.
 - The live ZIP has been downloaded, unzipped, rpath-checked, codesign-checked,
   and launch-smoked.
+- Stale public ZIP paths for broken or stale builds are removed or aliased to
+  the current fixed ZIP.
+- For Workbench `0.2.2+`, Copy Agent Prompt is verified to use
+  `customer_mac_complete_pairing`, not support-only shell steps.
 
 ## Source Build
 
@@ -144,4 +148,3 @@ open evaOS.app
 ```
 
 Only after this can the direct download link be sent to a tester.
-

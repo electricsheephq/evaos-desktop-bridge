@@ -23,13 +23,11 @@ if [[ -z "${EVAOS_DESKTOP_BRIDGE_URL:-}" || -z "${EVAOS_DESKTOP_BRIDGE_TOKEN:-}"
   fi
 fi
 
-: "${EVAOS_DESKTOP_BRIDGE_URL:?EVAOS_DESKTOP_BRIDGE_URL is required}"
-: "${EVAOS_DESKTOP_BRIDGE_TOKEN:?EVAOS_DESKTOP_BRIDGE_TOKEN is required}"
-
 python3 - "$command_name" "$params_json" <<'PY'
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 command = sys.argv[1]
@@ -38,27 +36,113 @@ try:
 except json.JSONDecodeError as exc:
     raise SystemExit(f"invalid params JSON: {exc}") from exc
 
-url = os.environ["EVAOS_DESKTOP_BRIDGE_URL"].rstrip("/") + "/v1/commands"
-token = os.environ["EVAOS_DESKTOP_BRIDGE_TOKEN"]
-body = json.dumps({"command": command, "params": params}, separators=(",", ":")).encode()
-request = urllib.request.Request(
-    url,
-    data=body,
-    method="POST",
-    headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    },
-)
+def forbidden_connector_url(message):
+    sys.stdout.write(json.dumps({
+        "ok": False,
+        "errors": [{
+            "code": "bridge_connector_url_forbidden",
+            "message": message,
+            "guidance": "Use the customer Mac Headscale/private connector URL, for example http://100.64.x.y:8765.",
+        }],
+    }, separators=(",", ":")) + "\n")
+    raise SystemExit(0)
+
+
+def validate_connector_url(raw_url):
+    parsed = urllib.parse.urlparse(str(raw_url or ""))
+    if parsed.scheme != "http":
+        forbidden_connector_url("connector_url must use http.")
+    try:
+        port = parsed.port
+    except ValueError:
+        forbidden_connector_url("connector_url must use port 8765.")
+    if port != 8765:
+        forbidden_connector_url("connector_url must use port 8765.")
+    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        forbidden_connector_url("connector_url must be a base connector URL without a path, query, or fragment.")
+    if parsed.username or parsed.password:
+        forbidden_connector_url("connector_url must not include credentials.")
+    hostname = (parsed.hostname or "").lower()
+    if not allowed_connector_host(hostname):
+        forbidden_connector_url("connector_url host must be a private tailnet address or local .local hostname.")
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+
+def allowed_connector_host(hostname):
+    if hostname in ("localhost", "::1") or hostname.endswith(".localhost"):
+        return False
+    if hostname.endswith(".local") and hostname != "localhost.local":
+        return True
+    parts = hostname.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        octets = [int(part, 10) for part in parts]
+    except ValueError:
+        return False
+    if any(part < 0 or part > 255 for part in octets):
+        return False
+    a, b, _c, _d = octets
+    if a in (0, 127):
+        return False
+    return a == 10 or (a == 100 and 64 <= b <= 127) or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
+
+
+def scrub_secrets(value):
+    if isinstance(value, list):
+        return [scrub_secrets(item) for item in value]
+    if isinstance(value, dict):
+        redacted = {}
+        for key, nested in value.items():
+            lowered = str(key).lower()
+            if lowered == "token" or lowered.endswith("_" + "token"):
+                redacted[key] = "[redacted]"
+            else:
+                redacted[key] = scrub_secrets(nested)
+        return redacted
+    return value
+
+
+headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+}
+if command == "completeEnrollment":
+    base_url = validate_connector_url(params.get("connector_url"))
+    url = base_url + "/v1/enrollment/complete"
+    body_params = {"enrollment_code": str(params.get("enrollment_code") or "").strip()}
+    if not body_params["enrollment_code"]:
+        raise SystemExit("enrollment_code is required")
+    for optional_key in ("customer_id", "device_name"):
+        optional_value = str(params.get(optional_key) or "").strip()
+        if optional_value:
+            body_params[optional_key] = optional_value
+    body = json.dumps(body_params, separators=(",", ":")).encode()
+else:
+    if not os.environ.get("EVAOS_DESKTOP_BRIDGE_URL"):
+        raise SystemExit("EVAOS_DESKTOP_BRIDGE_URL is required")
+    if not os.environ.get("EVAOS_DESKTOP_BRIDGE_TOKEN"):
+        raise SystemExit("EVAOS_DESKTOP_BRIDGE_TOKEN is required")
+    url = os.environ["EVAOS_DESKTOP_BRIDGE_URL"].rstrip("/") + "/v1/commands"
+    headers["Authorization"] = f"Bearer {os.environ['EVAOS_DESKTOP_BRIDGE_TOKEN']}"
+    body = json.dumps({"command": command, "params": params}, separators=(",", ":")).encode()
+
+request = urllib.request.Request(url, data=body, method="POST", headers=headers)
 try:
     with urllib.request.urlopen(request, timeout=20) as response:
-        sys.stdout.write(response.read().decode())
+        response_body = response.read().decode()
+        try:
+            sys.stdout.write(json.dumps(scrub_secrets(json.loads(response_body)), separators=(",", ":")))
+        except json.JSONDecodeError:
+            sys.stdout.write(response_body)
         sys.stdout.write("\n")
 except urllib.error.HTTPError as exc:
     error_body = exc.read().decode(errors="replace")
     if error_body.strip().startswith("{"):
-        sys.stdout.write(error_body)
+        try:
+            sys.stdout.write(json.dumps(scrub_secrets(json.loads(error_body)), separators=(",", ":")))
+        except json.JSONDecodeError:
+            sys.stdout.write(error_body)
         sys.stdout.write("\n")
         raise SystemExit(0) from exc
     sys.stderr.write(error_body + "\n")

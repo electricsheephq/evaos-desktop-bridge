@@ -7,8 +7,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.2.1"
-BUILD_NUMBER="3"
+VERSION="0.2.2"
+BUILD_NUMBER="4"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
 UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
 SPARKLE_APPCAST_URL="${EVA_DESKTOP_SPARKLE_APPCAST_URL:-https://www.electricsheephq.com/evaos-workbench/appcast.xml}"
@@ -337,9 +337,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds Sparkle-powered in-app updates.</li>
-  <li>Renames the browser gateway to Shared Browser.</li>
-  <li>Enables Terminal for customer VM owners.</li>
+  <li>Makes Mac pairing self-serve with a copyable agent setup prompt.</li>
+  <li>Adds pre-pairing OpenClaw and Hermes helpers for connector enrollment.</li>
+  <li>Improves stuck-login recovery with manual open and one-time-code fallbacks.</li>
 </ul>
 EOF
 
@@ -363,6 +363,7 @@ import sys
 path = Path(sys.argv[1])
 text = path.read_text()
 text = text.replace("<title>EvaDesktop</title>", "<title>evaOS Workbench</title>", 1)
+text = text.replace("<title>evaOS</title>", "<title>evaOS Workbench</title>", 1)
 path.write_text(text)
 PY
   echo "Created Sparkle appcast: $APPCAST_OUTPUT"

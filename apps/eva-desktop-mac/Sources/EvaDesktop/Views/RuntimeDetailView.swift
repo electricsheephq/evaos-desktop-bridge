@@ -233,7 +233,7 @@ private struct RuntimeSignInView: View {
             .disabled(model.isSigningIn)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("One-time code")
+                Text("Backup code from browser")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 HStack(spacing: 8) {
@@ -253,6 +253,9 @@ private struct RuntimeSignInView: View {
                 Text(model.deviceCodeStatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("Use the Backup code shown on the browser handoff page. Do not paste the URL's fresh= value.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: 420)
             .padding(14)

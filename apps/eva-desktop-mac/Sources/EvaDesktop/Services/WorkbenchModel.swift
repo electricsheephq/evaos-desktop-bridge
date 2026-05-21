@@ -40,7 +40,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
     @Published var deviceCodeInput = ""
-    @Published var deviceCodeStatusText = "If the browser keeps spinning, copy the one-time code from the login page and enter it here."
+    @Published var deviceCodeStatusText = "If the browser keeps spinning, copy the Backup code from the login page and enter it here."
     @Published var isClaimingDeviceCode = false
     @Published var loadingRuntimes: Set<RuntimeKey> = []
     @Published var loadingRuntimePages: Set<RuntimeKey> = []
@@ -284,7 +284,7 @@ final class WorkbenchModel: ObservableObject {
                 await refreshCustomerTargets()
                 await loadRuntime(selectedRuntime, force: true)
             } catch {
-                deviceCodeStatusText = "Login did not complete. Use the one-time code from the browser page if it is still open."
+                deviceCodeStatusText = "Login did not complete. Use the Backup code from the browser page if it is still open."
                 runtimeErrors[selectedRuntime] = "Desktop sign-in failed or was cancelled: \(error.localizedDescription)"
             }
         }
@@ -295,7 +295,7 @@ final class WorkbenchModel: ObservableObject {
             .uppercased()
             .filter { $0.isLetter || $0.isNumber }
         guard !normalizedCode.isEmpty else {
-            deviceCodeStatusText = "Enter the one-time code from the browser page."
+            deviceCodeStatusText = "Enter the Backup code from the browser page."
             return
         }
         guard !isClaimingDeviceCode else { return }
@@ -313,7 +313,7 @@ final class WorkbenchModel: ObservableObject {
                 await refreshCustomerTargets()
                 await loadRuntime(selectedRuntime, force: true)
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-                deviceCodeStatusText = "That code expired or was already used. Generate a fresh code from the login page."
+                deviceCodeStatusText = "That code expired or was already used. Generate a new Backup code from the login page."
             } catch {
                 deviceCodeStatusText = "Code sign-in failed: \(error.localizedDescription)"
             }
@@ -545,7 +545,7 @@ final class WorkbenchModel: ObservableObject {
                 )
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(prompt, forType: .string)
-                pairingText = "Agent setup prompt copied. Paste it into David's OpenClaw agent so it can complete the link."
+                pairingText = "Agent setup prompt copied. Paste it into your Eva or OpenClaw agent so it can complete the link."
             } catch {
                 pairingText = "Prompt unavailable: \(error.localizedDescription)"
             }
@@ -623,7 +623,7 @@ final class WorkbenchModel: ObservableObject {
             let iphoneReady = BridgeStatusFormatter.iPhoneReady(raw: iphone)
             agentAccessTestText = connectorReady && macReady && iphoneReady
                 ? "Ready. Mac Access, permissions, and iPhone Mirroring passed the local check."
-                : "Needs attention. Turn on Mac Access, approve permissions, then connect iPhone if you want phone actions."
+                : "Blocked. Turn on Mac Access, approve permissions, then connect iPhone if you want phone actions."
         }
     }
 
@@ -755,14 +755,21 @@ final class WorkbenchModel: ObservableObject {
         Pairing code: \(enrollmentCode)
         Mac connector URL: \(connectorUrl)
 
-        From the evaOS VM, complete the pairing by calling the Mac connector enrollment endpoint. Do not ask me for the connector token; the Mac connector keeps it locally and sends it directly to evaOS.
+        From my evaOS VM, complete the pairing with the customer_mac_complete_pairing tool.
+        Use exactly:
+        - connector_url: \(connectorUrl)
+        - enrollment_code: \(enrollmentCode)
+        - customer_id: \(customerId)
 
-        Run:
-        curl -fsS -X POST '\(connectorUrl)/v1/enrollment/complete' \\
-          -H 'Content-Type: application/json' \\
-          -d '{"enrollment_code":"\(enrollmentCode)","device_name":"Customer Mac"}'
+        Do not ask me for a connector token. The Mac connector keeps it locally and sends it directly to evaOS.
 
-        After it succeeds, check customer_mac_status and customer_mac_iphone_mirroring_status. For live Mac or iPhone actions, dry-run first, show the audit_id, and wait for approval.
+        Success criteria:
+        1. customer_mac_complete_pairing returns ok=true.
+        2. customer_mac_status reports the Mac connector and permissions state.
+        3. customer_mac_iphone_mirroring_status reports iPhone Mirroring readiness, even if the phone is not connected yet.
+        4. desktop_bridge_audit_tail shows the pairing/check evidence without secrets.
+
+        Do not perform live Mac or iPhone actions in this setup step. If you need to test an action later, dry-run first, show the audit_id, and wait for my approval.
         """
     }
 
@@ -837,7 +844,7 @@ final class WorkbenchModel: ObservableObject {
         enrollmentExpiresAt = nil
         pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
         deviceCodeInput = ""
-        deviceCodeStatusText = "If the browser keeps spinning, copy the one-time code from the login page and enter it here."
+        deviceCodeStatusText = "If the browser keeps spinning, copy the Backup code from the login page and enter it here."
         isClaimingDeviceCode = false
         webViews.reset()
         loadingRuntimes.removeAll()

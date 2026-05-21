@@ -26,6 +26,7 @@ export type BridgeCommandKey =
   | "codexAppServerThreads"
   | "codexAppServerRemoteControlStatus"
   | "customerMacStatus"
+  | "customerMacCompletePairing"
   | "customerMacCapabilities"
   | "customerMacSnapshot"
   | "customerMacAxTree"
@@ -69,6 +70,10 @@ export type BridgeParams = {
   recipient_context?: string;
   target_label?: string;
   approval_audit_id?: string;
+  connector_url?: string;
+  enrollment_code?: string;
+  customer_id?: string;
+  device_name?: string;
 };
 
 const FIXED_COMMANDS: Record<
@@ -85,6 +90,7 @@ const FIXED_COMMANDS: Record<
     | "codexSelectThread"
     | "codexAppServerThreads"
     | "customerMacSnapshot"
+    | "customerMacCompletePairing"
     | "customerMacAxTree"
     | "customerMacAppFocus"
     | "customerMacLocalSiteOpen"
@@ -341,6 +347,10 @@ function requiredString(value: unknown, name: string): string {
 }
 
 export async function runBridge(command: BridgeCommandKey, params: BridgeParams = {}): Promise<unknown> {
+  if (command === "customerMacCompletePairing") {
+    return runEnrollmentBridge(params);
+  }
+
   const remoteURL = process.env.EVAOS_DESKTOP_BRIDGE_URL;
   if (remoteURL) {
     return runRemoteBridge(remoteURL, command, params);
@@ -374,6 +384,78 @@ export async function runBridge(command: BridgeCommandKey, params: BridgeParams 
         },
       ],
     };
+  }
+}
+
+async function runEnrollmentBridge(params: BridgeParams): Promise<unknown> {
+  const connectorURLString = requiredEnrollmentString(params.connector_url, "connector_url");
+  const enrollmentCode = requiredEnrollmentString(params.enrollment_code, "enrollment_code");
+  if (!connectorURLString.ok) {
+    return connectorURLString.error;
+  }
+  if (!enrollmentCode.ok) {
+    return enrollmentCode.error;
+  }
+
+  const connectorURLResult = validateEnrollmentConnectorURL(connectorURLString.value);
+  if (!connectorURLResult.ok) {
+    return connectorURLResult.error;
+  }
+
+  const body: Record<string, string> = {
+    enrollment_code: enrollmentCode.value,
+  };
+  if (typeof params.customer_id === "string" && params.customer_id.trim() !== "") {
+    body.customer_id = params.customer_id.trim();
+  }
+  if (typeof params.device_name === "string" && params.device_name.trim() !== "") {
+    body.device_name = params.device_name.trim();
+  }
+
+  const connectorURL = connectorURLResult.url;
+  const endpoint = new URL("/v1/enrollment/complete", connectorURL);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    try {
+      return redactConnectorSecrets(JSON.parse(text));
+    } catch {
+      return {
+        ok: false,
+        errors: [
+          {
+            code: "bridge_connector_invalid_response",
+            message: text || `Connector returned HTTP ${response.status}`,
+            guidance: "Check the Mac connector enrollment endpoint.",
+          },
+        ],
+      };
+    }
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return {
+      ok: false,
+      errors: [
+        {
+          code: "bridge_connector_failed",
+          message: err.message || "evaos-desktop-bridge enrollment request failed",
+          guidance: "Verify the connector URL, secure network reachability, and enrollment code.",
+        },
+      ],
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -426,6 +508,112 @@ async function runRemoteBridge(remoteURL: string, command: BridgeCommandKey, par
   } finally {
     clearTimeout(timeout);
   }
+}
+
+type ConnectorURLResult = { ok: true; url: URL } | { ok: false; error: unknown };
+
+function validateEnrollmentConnectorURL(rawURL: string): ConnectorURLResult {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawURL);
+  } catch {
+    return forbiddenConnectorURL("connector_url must be a valid URL.");
+  }
+
+  if (parsed.protocol !== "http:") {
+    return forbiddenConnectorURL("connector_url must use http.");
+  }
+  if (parsed.port !== "8765") {
+    return forbiddenConnectorURL("connector_url must use port 8765.");
+  }
+  if (parsed.pathname !== "/" || parsed.search !== "" || parsed.hash !== "") {
+    return forbiddenConnectorURL("connector_url must be a base connector URL without a path, query, or fragment.");
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    return forbiddenConnectorURL("connector_url must not include credentials.");
+  }
+  if (!isAllowedEnrollmentHost(parsed.hostname)) {
+    return forbiddenConnectorURL("connector_url host must be a private tailnet address or local .local hostname.");
+  }
+
+  parsed.pathname = "/";
+  return { ok: true, url: parsed };
+}
+
+function forbiddenConnectorURL(message: string): ConnectorURLResult {
+  return {
+    ok: false,
+    error: {
+      ok: false,
+      errors: [
+        {
+          code: "bridge_connector_url_forbidden",
+          message,
+          guidance: "Use the customer Mac Headscale/private connector URL, for example http://100.64.x.y:8765.",
+        },
+      ],
+    },
+  };
+}
+
+type EnrollmentStringResult = { ok: true; value: string } | { ok: false; error: unknown };
+
+function requiredEnrollmentString(value: unknown, name: string): EnrollmentStringResult {
+  if (typeof value !== "string" || value.trim() === "") {
+    return {
+      ok: false,
+      error: {
+        ok: false,
+        errors: [
+          {
+            code: "bridge_enrollment_missing_field",
+            message: `${name} is required`,
+            guidance: "Use the pairing prompt from Workbench and pass the connector_url plus enrollment_code exactly.",
+          },
+        ],
+      },
+    };
+  }
+  return { ok: true, value: value.trim() };
+}
+
+function isAllowedEnrollmentHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") {
+    return false;
+  }
+  if (host.endsWith(".local") && host !== "localhost.local") {
+    return true;
+  }
+
+  const octets = host.split(".").map((part) => Number(part));
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  const [a, b] = octets;
+  if (a === 127 || a === 0) {
+    return false;
+  }
+  return a === 10 || (a === 100 && b >= 64 && b <= 127) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+function redactConnectorSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactConnectorSecrets(item));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const redacted: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    const normalizedKey = key.toLowerCase();
+    if (normalizedKey === "token" || normalizedKey.endsWith("_" + "token")) {
+      redacted[key] = "[redacted]";
+    } else {
+      redacted[key] = redactConnectorSecrets(nestedValue);
+    }
+  }
+  return redacted;
 }
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {

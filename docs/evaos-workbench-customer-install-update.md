@@ -27,6 +27,9 @@ If browser auth opens but never returns to the app:
 
 - Use the manual callback/open-in-app button when present.
 - If the build supports device-code login, use it instead of browser callback.
+- Paste only the browser page's **Backup code** into Workbench. Do not paste
+  the URL's `fresh=` value; that value is only a cache-busting id and the app
+  will reject it.
 - If both fail, reset the local session from the Workbench sign-in screen and
   try again.
 - If the user is stuck on a dashboard spinner, sign out of the browser
@@ -43,6 +46,7 @@ Manual reinstall is required when:
 
 - the app cannot launch;
 - the user has a known broken build such as `0.2.0`;
+- the user has `0.2.1` and login or Mac pairing looks stale;
 - Sparkle framework/rpath is missing;
 - the app predates Sparkle.
 
@@ -65,6 +69,17 @@ Ask for:
 - whether Settings -> Mac & iPhone shows Ready, Needs permission, Not paired,
   or Blocked.
 
+## Self-Serve Pairing Check
+
+For Workbench `0.2.2+`, the customer should not need hidden support commands:
+
+1. In Settings -> Mac & iPhone, create a pairing code.
+2. Click Copy Agent Prompt.
+3. Paste that prompt into Eva/OpenClaw.
+4. Confirm the agent uses `customer_mac_complete_pairing` or the Hermes
+   `completeEnrollment` wrapper.
+5. Confirm the agent reports Mac status, iPhone status, and audit-tail
+   readiness without asking for secrets in chat.
+
 If the app crashes, ask for the first lines of the crash report. The Sparkle
 rpath crash includes `Library not loaded: @rpath/Sparkle.framework`.
-
