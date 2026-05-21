@@ -31,6 +31,19 @@ unset.
 
 ## Local Connector Server
 
+Workbench's `Start Connector` button uses:
+
+```bash
+evaos-desktop-bridge connector-service start --json
+```
+
+`connector-service start` auto-installs or refreshes the per-user LaunchAgent at
+`~/Library/LaunchAgents/com.electricsheep.evaos-desktop-bridge.plist`. The
+LaunchAgent binds to the current Tailscale/Headscale IPv4 address when one is
+available, otherwise it falls back to `127.0.0.1`. Set
+`EVAOS_DESKTOP_BRIDGE_CONNECTOR_HOST=127.0.0.1` before starting when you need a
+loopback-only debug run.
+
 Run locally for development:
 
 ```bash
@@ -122,7 +135,8 @@ Guarded actions:
 Rules:
 
 - Dry-run defaults on for guarded tools.
-- Remote live actions require `dry_run=false` plus `approval_audit_id`.
+- Remote live actions require `dry_run=false` plus `approval_audit_id`. Omitting
+  `dry_run` from a connector HTTP request remains a dry-run by design.
 - The OpenClaw plugin requests approval for live actions.
 - Sensitive Mac/iPhone apps and dangerous target labels are blocked.
 - Generic coordinates, arbitrary shell, AppleScript passthrough, Screen Sharing
@@ -179,9 +193,44 @@ curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
 ```
 
 For any live action, rerun the exact same command with `dry_run=false` implied
-by omitting `--dry-run` and add the matching `--approval-audit-id`. Never send a
-message unless the human approved the recipient/context and exact message text
-inside the same test flow.
+in CLI form or explicit `"dry_run":false` in connector HTTP form, and add the
+matching approval audit id. Never send a message unless the human approved the
+recipient/context and exact message text inside the same test flow.
+
+## Headscale Notes
+
+For current Tailscale clients, Headscale must be reachable at a valid HTTPS
+`server_url`. The support canary route is:
+
+```text
+https://headscale.ecs.electricsheephq.com
+```
+
+The public Traefik route points to the control host's internal Headscale
+listener at `http://host.docker.internal:8080`. Headscale still listens without
+TLS locally, but clients should enroll through the HTTPS route.
+
+If `acl.policy_mode` is database-backed, update ACLs with:
+
+```bash
+headscale policy set -f /etc/headscale/acl.yaml --force
+```
+
+Do not rely on editing the file plus restarting Headscale; `headscale policy
+get` is the source of truth in DB policy mode.
+
+For the support VM canary, keep access narrow:
+
+```json
+{
+  "action": "accept",
+  "src": ["tag:support-vm"],
+  "dst": ["tag:support-mac:8765", "tag:support-mac:5900", "tag:support-mac:3283"]
+}
+```
+
+Customer rollout should use per-customer tags and must prove cross-customer
+reachability fails before enabling agent tools.
 
 ## Workbench Surface
 
