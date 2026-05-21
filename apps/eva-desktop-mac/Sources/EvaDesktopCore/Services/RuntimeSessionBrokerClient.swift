@@ -101,6 +101,31 @@ public struct RuntimeSessionBrokerClient: Sendable {
         }
     }
 
+    public func claimDeviceCode(_ deviceCode: String) async throws -> DesktopSession {
+        let normalizedCode = deviceCode
+            .uppercased()
+            .filter { $0.isLetter || $0.isNumber }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(DesktopDeviceCodeClaimRequest(deviceCode: normalizedCode))
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw RuntimeSessionBrokerError.httpStatus(httpResponse.statusCode)
+        }
+
+        do {
+            return try EvaDesktopISO8601.decoder().decode(DesktopDeviceCodeClaimResponse.self, from: data).session
+        } catch {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+    }
+
     public func revoke(desktopSession: DesktopSession?) async {
         guard let desktopSession else { return }
 
