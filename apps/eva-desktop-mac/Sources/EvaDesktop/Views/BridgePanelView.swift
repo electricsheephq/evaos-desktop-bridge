@@ -164,9 +164,9 @@ private struct SetupStepCard<Actions: View>: View {
             }
 
             Text(status.isEmpty ? "Not checked yet." : status)
-                .font(.system(.caption, design: .monospaced))
+                .font(.callout)
                 .foregroundStyle(.secondary)
-                .lineLimit(7)
+                .lineLimit(10)
                 .textSelection(.enabled)
 
             HStack(spacing: 8) {
@@ -193,7 +193,8 @@ private struct BridgeOutputCard: View {
 
             ScrollView(.horizontal) {
                 Text(text.isEmpty ? "No output." : text)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

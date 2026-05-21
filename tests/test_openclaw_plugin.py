@@ -159,7 +159,13 @@ def test_hermes_adapter_uses_same_connector_contract() -> None:
     assert "/v1/commands" in adapter
     assert "EVAOS_DESKTOP_BRIDGE_URL" in adapter
     assert "EVAOS_DESKTOP_BRIDGE_TOKEN" in adapter
+    assert 'params_json="${2:-{}}"' not in adapter
+    assert 'params_json="{}"' in adapter
+    assert "/root/.openclaw/evaos-desktop-bridge.env" in adapter
+    assert "EVAOS_DESKTOP_BRIDGE_ENV_FILE" in adapter
     assert "urllib.request" in adapter
+    assert "error_body.strip().startswith(\"{\")" in adapter
     assert "customerMacStatus" in readme
     assert "OpenClaw remains the first native plugin path" in readme
+    assert "structured denials" in readme
     assert "generic shell" in readme

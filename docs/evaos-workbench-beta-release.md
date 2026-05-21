@@ -75,8 +75,10 @@ Development signing for internal canaries or Developer ID signing for release.
 - As admin/customer-service, switch between at least two customer targets and
   confirm gateway sessions do not bleed across targets.
 - Revoke Session and confirm the app returns to the sign-in state.
-- Refresh Desktop Bridge status and confirm only status/capability/audit output
-  appears in the Workbench UI.
+- In Agent Control Setup, start the connector from Workbench, approve the
+  displayed permission target, and confirm status reads Ready without raw JSON.
+- Refresh Desktop Bridge status and confirm only clean status/capability/audit
+  summaries appear in the Workbench UI.
 
 ## Support VM Canary
 
@@ -94,3 +96,4 @@ Customer beta builds must not launch connectors with
 - External friendly-customer canary evidence.
 - Update/distribution policy.
 - Final support matrix for customer-owned Macs.
+- Stable app-owned/helper-owned TCC identity for background connector startup.

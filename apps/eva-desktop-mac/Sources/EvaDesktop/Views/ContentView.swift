@@ -36,6 +36,9 @@ struct ContentView: View {
                 model.applyOpenDesignURLSetting(value)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            model.stopManagedConnectorForAppTermination()
+        }
     }
 }
 

@@ -6,7 +6,10 @@ not expose generic shell, AppleScript, coordinates, or app-server mutation.
 
 ## Runtime contract
 
-Set these on the customer VM after the Mac is paired:
+Set these on the customer VM after the Mac is paired. The wrapper automatically
+sources `/root/.openclaw/evaos-desktop-bridge.env` when the variables are not
+already present, so OpenClaw, Hermes, and direct support smokes all use the same
+connector contract.
 
 ```bash
 export EVAOS_DESKTOP_BRIDGE_URL="http://<mac-headscale-ip>:8765"
@@ -25,6 +28,10 @@ hermes-adapter/bin/evaos-desktop-bridge-command customerMacAppFocus '{"app_name"
 Guarded commands default to dry-run at the connector layer. Live guarded actions
 must include `{"dry_run":false,"approval_audit_id":"..."}` and must match a
 prior local dry-run audit record on the Mac connector.
+
+The wrapper returns connector JSON on stdout even for structured denials such as
+blocked sensitive apps or missing approval ids. Network failures and malformed
+responses still fail as hard command errors.
 
 ## Boundary
 
