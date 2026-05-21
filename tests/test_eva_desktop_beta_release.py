@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.2.2"' in script
-    assert 'BUILD_NUMBER="4"' in script
-    assert 'version = "0.2.2"' in app_brand
-    assert 'buildNumber = "4"' in app_brand
+    assert 'VERSION="0.2.3"' in script
+    assert 'BUILD_NUMBER="5"' in script
+    assert 'version = "0.2.3"' in app_brand
+    assert 'buildNumber = "5"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -106,8 +106,9 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "Copy Agent Prompt" in bridge_panel
     assert "Complete Here" not in bridge_panel
     assert "Backup code from browser" in runtime_detail
-    assert "Do not paste the URL's fresh= value" in runtime_detail
-    assert "copy the Backup code" in model
+    assert "prefilled code if the browser never shows one" in runtime_detail
+    assert "wait a few seconds and press Use Code" in model
+    assert "signIn(fallbackCode: fallbackCode)" in model
 
 
 def test_workbench_setup_primary_badges_use_approved_state_labels() -> None:

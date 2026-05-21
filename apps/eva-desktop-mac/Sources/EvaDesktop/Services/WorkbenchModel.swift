@@ -40,7 +40,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
     @Published var deviceCodeInput = ""
-    @Published var deviceCodeStatusText = "If the browser keeps spinning, copy the Backup code from the login page and enter it here."
+    @Published var deviceCodeStatusText = "If the browser keeps spinning, press Sign In again, wait a few seconds, then press Use Code with the prefilled fallback code."
     @Published var isClaimingDeviceCode = false
     @Published var loadingRuntimes: Set<RuntimeKey> = []
     @Published var loadingRuntimePages: Set<RuntimeKey> = []
@@ -272,19 +272,21 @@ final class WorkbenchModel: ObservableObject {
     func signIn() {
         guard !isSigningIn else { return }
         isSigningIn = true
-        deviceCodeStatusText = "Opening ElectricSheep login..."
+        let fallbackCode = UUID().uuidString
+        deviceCodeInput = fallbackCode
+        deviceCodeStatusText = "Opening ElectricSheep login. If the browser stays on the spinner, wait a few seconds and press Use Code."
 
         Task {
             let coordinator = DesktopAuthCoordinator(dashboardBaseURL: resolver.dashboardBaseURL)
             defer { isSigningIn = false }
 
             do {
-                let newSession = try await coordinator.signIn()
+                let newSession = try await coordinator.signIn(fallbackCode: fallbackCode)
                 try saveAuthenticatedSession(newSession)
                 await refreshCustomerTargets()
                 await loadRuntime(selectedRuntime, force: true)
             } catch {
-                deviceCodeStatusText = "Login did not complete. Use the Backup code from the browser page if it is still open."
+                deviceCodeStatusText = "Login did not complete. If the browser is still open, wait a few seconds and press Use Code."
                 runtimeErrors[selectedRuntime] = "Desktop sign-in failed or was cancelled: \(error.localizedDescription)"
             }
         }
@@ -844,7 +846,7 @@ final class WorkbenchModel: ObservableObject {
         enrollmentExpiresAt = nil
         pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
         deviceCodeInput = ""
-        deviceCodeStatusText = "If the browser keeps spinning, copy the Backup code from the login page and enter it here."
+        deviceCodeStatusText = "If the browser keeps spinning, press Sign In again, wait a few seconds, then press Use Code with the prefilled fallback code."
         isClaimingDeviceCode = false
         webViews.reset()
         loadingRuntimes.removeAll()
@@ -1059,7 +1061,7 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
         self.dashboardBaseURL = dashboardBaseURL
     }
 
-    func signIn() async throws -> DesktopSession {
+    func signIn(fallbackCode: String) async throws -> DesktopSession {
         return try await withCheckedThrowingContinuation { continuation in
             var didComplete = false
             var loopbackReceiver: DesktopAuthLoopbackReceiver?
@@ -1088,7 +1090,7 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
             var components = URLComponents(url: dashboardBaseURL.appendingPathComponent("desktop-auth"), resolvingAgainstBaseURL: false)!
             components.queryItems = [
                 URLQueryItem(name: "desktop_app", value: "1"),
-                URLQueryItem(name: "fresh", value: UUID().uuidString),
+                URLQueryItem(name: "fresh", value: fallbackCode),
                 loopbackReceiver.map { URLQueryItem(name: "desktop_callback", value: $0.callbackURL.absoluteString) }
             ].compactMap { $0 }
             let authURL = components.url!

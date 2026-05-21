@@ -253,7 +253,7 @@ private struct RuntimeSignInView: View {
                 Text(model.deviceCodeStatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Use the Backup code shown on the browser handoff page. Do not paste the URL's fresh= value.")
+                Text("Use the Backup code shown on the browser handoff page, or press Use Code with the prefilled code if the browser never shows one.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
