@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import socket
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
@@ -13,6 +15,11 @@ from .schema import build_envelope, make_error
 from .state import approval_audit_freshness_error, read_audit_record
 
 CommandRunner = Callable[[list[str]], tuple[int, str]]
+
+CUSTOMER_MAC_CONTROL_URL = os.environ.get(
+    "EVAOS_CUSTOMER_MAC_CONTROL_URL",
+    "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/customer-mac-control",
+)
 
 GUARDED_REMOTE_COMMANDS = frozenset(
     {
@@ -241,6 +248,9 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+            if parsed.path == "/v1/enrollment/complete":
+                self._complete_enrollment()
+                return
             if parsed.path != "/v1/commands":
                 self._write_json(404, {"ok": False, "error": "not_found"})
                 return
@@ -274,6 +284,28 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
             except Exception as exc:
                 self._write_json(400, _error_envelope("connector.command", "desktop", "connector_bad_request", str(exc)))
 
+        def _complete_enrollment(self) -> None:
+            try:
+                payload = self._read_json()
+                enrollment_code = str(payload.get("enrollment_code") or "").strip()
+                if not enrollment_code:
+                    self._write_json(400, {"ok": False, "error": "missing_enrollment_code"})
+                    return
+                if not token:
+                    self._write_json(503, {"ok": False, "error": "connector_token_unavailable"})
+                    return
+                connector_url = _connector_url_from_request(self)
+                response = complete_enrollment_via_control(
+                    enrollment_code=enrollment_code,
+                    connector_url=connector_url,
+                    connector_token=token,
+                    device_name=str(payload.get("device_name") or socket.gethostname() or "Customer Mac"),
+                    device_identifier=str(payload.get("device_identifier") or ""),
+                )
+                self._write_json(200, {"ok": True, "data": response})
+            except Exception as exc:
+                self._write_json(400, {"ok": False, "error": "enrollment_complete_failed", "message": str(exc)})
+
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             return
 
@@ -303,6 +335,60 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
             self.wfile.write(body)
 
     return ConnectorHandler
+
+
+def complete_enrollment_via_control(
+    *,
+    enrollment_code: str,
+    connector_url: str,
+    connector_token: str,
+    device_name: str,
+    device_identifier: str = "",
+) -> dict[str, Any]:
+    body = {
+        "action": "complete_enrollment",
+        "enrollment_code": enrollment_code,
+        "device_name": device_name,
+        "device_identifier": device_identifier or None,
+        "connector_url": connector_url,
+        "connector_token": connector_token,
+        "tailnet_ip": _host_without_port(connector_url),
+        "capabilities": {
+            "connector": "evaos-desktop-bridge",
+            "openclaw_tools": "enabled",
+            "iphone_mirroring": "named_actions",
+        },
+        "permission_state": {
+            "accessibility": "check_required",
+            "screen_recording": "check_required",
+        },
+    }
+    request = urllib.request.Request(
+        CUSTOMER_MAC_CONTROL_URL,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=12) as response:  # noqa: S310 - fixed service URL or explicit env override.
+        data = response.read()
+    parsed = json.loads(data.decode("utf-8"))
+    return parsed if isinstance(parsed, dict) else {"response": parsed}
+
+
+def _connector_url_from_request(handler: BaseHTTPRequestHandler) -> str:
+    host = (handler.headers.get("Host") or "").strip()
+    if not host:
+        server_host, server_port = handler.server.server_address[:2]
+        host = f"{server_host}:{server_port}"
+    return f"http://{host}"
+
+
+def _host_without_port(url: str) -> str | None:
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host or host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        return None
+    return host
 
 
 def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool:

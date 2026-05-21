@@ -93,6 +93,14 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("--limit", type=_positive_int, default=20, help="Maximum audit records to return.")
     audit_parser.set_defaults(command_id="audit_tail", target="desktop")
 
+    permissions_parser = subparsers.add_parser("permissions", help="Prime macOS permission prompts for the bridge helper.")
+    permissions_subparsers = permissions_parser.add_subparsers(dest="permissions_command")
+
+    permissions_prime_parser = permissions_subparsers.add_parser("prime", help="Request or check a macOS permission from the bridge helper process.")
+    permissions_prime_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    permissions_prime_parser.add_argument("--permission", required=True, choices=["accessibility", "screen-recording"], help="Permission to request/check.")
+    permissions_prime_parser.set_defaults(command_id="permissions.prime", target="desktop")
+
     serve_parser = subparsers.add_parser("serve", help="Run the token-gated customer Mac connector HTTP server.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host. Prefer loopback or the paired Headscale interface.")
     serve_parser.add_argument("--port", type=_positive_int, default=8765, help="Bind port.")
@@ -464,6 +472,8 @@ def _run_command(
     if command_id == "audit_tail":
         records = read_audit_tail(limit=args.limit, state_dir=getattr(args, "state_dir", None))
         return CommandResult(ok=True, data={"records": records, "count": len(records), "limit": args.limit}, provenance={"source": "audit"})
+    if command_id == "permissions.prime":
+        return _prime_permission(args.permission)
     if command_id == "queue.list":
         return list_queue_events(limit=args.limit, state_dir=getattr(args, "state_dir", None))
     if command_id == "queue.append":
@@ -605,6 +615,7 @@ def _capabilities() -> dict[str, object]:
                 "capabilities",
                 "latest",
                 "audit_tail",
+                "permissions.prime",
                 "queue.list",
                 "queue.append",
                 "codex.frontmost",
@@ -667,6 +678,62 @@ def _capabilities() -> dict[str, object]:
             "append_only_audit_log": True,
         },
     }
+
+
+def _prime_permission(permission: str) -> CommandResult:
+    normalized = "screen_recording" if permission == "screen-recording" else permission
+    target = Path(sys.executable).name or "evaos-desktop-bridge"
+    executable = str(Path(sys.executable))
+    if sys.platform != "darwin":
+        return CommandResult(
+            ok=False,
+            data={"permission": normalized, "status": "unsupported", "target": target},
+            errors=[
+                make_error(
+                    code="permission_platform_unsupported",
+                    message="macOS permissions can only be requested on macOS.",
+                    guidance="Run this from the Mac that will be paired with evaOS.",
+                )
+            ],
+        )
+
+    try:
+        if normalized == "accessibility":
+            import ApplicationServices as AS  # type: ignore
+
+            trusted = bool(AS.AXIsProcessTrustedWithOptions({AS.kAXTrustedCheckOptionPrompt: True}))
+        elif normalized == "screen_recording":
+            import Quartz  # type: ignore
+
+            trusted = bool(Quartz.CGPreflightScreenCaptureAccess())
+            if not trusted:
+                trusted = bool(Quartz.CGRequestScreenCaptureAccess())
+        else:
+            raise ValueError(f"unsupported permission: {permission}")
+    except Exception as exc:
+        return CommandResult(
+            ok=False,
+            data={"permission": normalized, "status": "unavailable", "target": target, "executable": executable},
+            errors=[
+                make_error(
+                    code="permission_prime_failed",
+                    message=f"Unable to request {normalized} permission: {exc}",
+                    guidance="Install the bridge GUI extras, then approve the Workbench app or bridge helper in System Settings.",
+                    permission=normalized,
+                )
+            ],
+        )
+
+    return CommandResult(
+        ok=True,
+        data={
+            "permission": normalized,
+            "status": "granted" if trusted else "requested",
+            "target": target,
+            "executable": executable,
+            "guidance": "If macOS opened Privacy & Security, enable the evaOS Workbench app or bridge helper shown there.",
+        },
+    )
 
 
 def _target_for_command(command: str) -> str:

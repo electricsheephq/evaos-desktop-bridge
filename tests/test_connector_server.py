@@ -217,3 +217,36 @@ def test_connector_rejects_post_without_token_even_on_loopback(tmp_path: Path) -
     finally:
         server.shutdown()
         thread.join(timeout=2)
+
+
+def test_connector_enrollment_complete_posts_local_connector_context(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_complete(**kwargs):
+        captured.update(kwargs)
+        return {"device_id": "device-1"}
+
+    monkeypatch.setattr("evaos_desktop_bridge.connector_server.complete_enrollment_via_control", fake_complete)
+    handler = _make_handler(token="secret-token", command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/enrollment/complete",
+            body=json.dumps({"enrollment_code": "PAIR123", "device_name": "David Mac"}),
+            headers={"Content-Type": "application/json", "Host": f"100.64.1.10:{server.server_port}"},
+        )
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert payload["ok"] is True
+        assert captured["enrollment_code"] == "PAIR123"
+        assert captured["connector_url"] == f"http://100.64.1.10:{server.server_port}"
+        assert captured["connector_token"] == "secret-token"
+        assert captured["device_name"] == "David Mac"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
