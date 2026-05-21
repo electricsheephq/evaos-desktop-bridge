@@ -204,8 +204,8 @@ Repair steps:
 - Customer target is not editable on the main runtime surface.
 - Switching gateway tabs preserves existing `WKWebView` instances and does not
   reload unless the user reconnects/reloads.
-- OpenDesign stays unavailable when no URL is configured and loads directly
-  when Settings includes an OpenDesign URL.
+- OpenDesign launches through the brokered `opendesign` runtime and stays
+  loaded while switching gateways.
 - Desktop Bridge panel refreshes Desktop Bridge, Customer Mac, iPhone
   Mirroring, Codex Remote Control, Screen Sharing, capabilities, and audit tail
   without exposing a generic command runner or raw bridge JSON as the primary
@@ -231,8 +231,7 @@ Before announcing a build:
   `spctl --assess --type execute dist/EvaDesktop.app` accepts the app.
 - Desktop auth opens through `ASWebAuthenticationSession`, returns to
   `evaos://auth/callback`, and launches at least OpenClaw, Hermes, Mission
-  Control, Live Browser, and Terminal for an admin canary.
-- OpenDesign configured route, if present, opens without a dashboard detour.
+  Control, OpenDesign, Live Browser, and Terminal for an admin canary.
 - Connector status can be refreshed locally; paired-Mac control remains behind
   Headscale ACLs, connector tokens, and OpenClaw approval gates.
 - OpenClaw agent proof has run through the actual plugin/tool path, not only a

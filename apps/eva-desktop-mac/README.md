@@ -162,7 +162,7 @@ without exposing a generic command runner.
 
 ## OpenDesign
 
-OpenDesign is configurable before the permanent route is locked. Add an
-OpenDesign URL in Settings and the OpenDesign gateway will load it directly in a
-persistent WebView. If the URL is blank, the tab stays in a clean unavailable
-state instead of detouring through the dashboard.
+OpenDesign uses the same brokered gateway flow as OpenClaw, Hermes, Mission
+Control, Live Browser, and Terminal. The Workbench requests a short-lived
+`opendesign` launch URL from the desktop session broker and keeps the upstream
+OpenDesign UI alive in its persistent WebView while switching gateways.
