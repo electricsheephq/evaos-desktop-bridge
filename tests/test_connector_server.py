@@ -236,7 +236,7 @@ def test_connector_enrollment_complete_posts_local_connector_context(monkeypatch
         conn.request(
             "POST",
             "/v1/enrollment/complete",
-            body=json.dumps({"enrollment_code": "PAIR123", "device_name": "David Mac"}),
+            body=json.dumps({"enrollment_code": "PAIR123", "device_name": "Customer Mac"}),
             headers={"Content-Type": "application/json", "Host": f"100.64.1.10:{server.server_port}"},
         )
         response = conn.getresponse()
@@ -246,7 +246,7 @@ def test_connector_enrollment_complete_posts_local_connector_context(monkeypatch
         assert captured["enrollment_code"] == "PAIR123"
         assert captured["connector_url"] == f"http://100.64.1.10:{server.server_port}"
         assert captured["connector_token"] == "secret-token"
-        assert captured["device_name"] == "David Mac"
+        assert captured["device_name"] == "Customer Mac"
     finally:
         server.shutdown()
         thread.join(timeout=2)

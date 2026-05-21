@@ -26,10 +26,13 @@ update, or recover evaOS Workbench.
 If browser auth opens but never returns to the app:
 
 - Use the manual callback/open-in-app button when present.
-- If the build supports device-code login, use it instead of browser callback.
-- Paste only the browser page's **Backup code** into Workbench. Do not paste
-  the URL's `fresh=` value; that value is only a cache-busting id and the app
-  will reject it.
+- In Workbench `0.2.3+`, the app pre-fills a valid one-time fallback code
+  before it opens the browser. If the browser keeps spinning and never shows
+  the backup-code board, return to Workbench after a few seconds and press
+  **Use Code** with the prefilled value.
+- If the browser does show a **Backup code**, paste that value into Workbench.
+  Do not manually copy URL query parameters unless Workbench already prefilled
+  that exact value for the current sign-in attempt.
 - If both fail, reset the local session from the Workbench sign-in screen and
   try again.
 - If the user is stuck on a dashboard spinner, sign out of the browser
@@ -46,7 +49,7 @@ Manual reinstall is required when:
 
 - the app cannot launch;
 - the user has a known broken build such as `0.2.0`;
-- the user has `0.2.1` and login or Mac pairing looks stale;
+- the user has `0.2.1` or `0.2.2` and login or Mac pairing looks stale;
 - Sparkle framework/rpath is missing;
 - the app predates Sparkle.
 
