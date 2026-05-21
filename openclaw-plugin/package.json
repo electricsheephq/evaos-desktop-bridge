@@ -40,6 +40,7 @@
         "desktop_bridge_codex_app_server_remote_control_status",
         "desktop_bridge_codex_app_server_threads",
         "customer_mac_status",
+        "customer_mac_complete_pairing",
         "customer_mac_capabilities",
         "customer_mac_snapshot",
         "customer_mac_ax_tree",

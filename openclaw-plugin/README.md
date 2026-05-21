@@ -24,6 +24,7 @@ named and approval-gated.
 - `desktop_bridge_codex_app_server_threads`
 - `desktop_bridge_codex_continue_thread`
 - `customer_mac_status`
+- `customer_mac_complete_pairing`
 - `customer_mac_capabilities`
 - `customer_mac_snapshot`
 - `customer_mac_ax_tree`
@@ -76,6 +77,12 @@ plugin at the connector server instead:
 export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
 export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evaos-desktop-bridge/connector.token")"
 ```
+
+Before a VM has a connector token, `customer_mac_complete_pairing` posts the
+one-time enrollment code directly to the Mac connector's
+`/v1/enrollment/complete` endpoint. Its `connector_url` must be an `http://`
+base URL on port `8765` with a private/tailnet host such as `100.64.x.y`,
+`10.x.y.z`, `172.16-31.x.y`, `192.168.x.y`, or a local `.local` hostname.
 
 ## Safety Notes
 

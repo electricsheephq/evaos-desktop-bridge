@@ -16,6 +16,18 @@ export EVAOS_DESKTOP_BRIDGE_URL="http://<mac-headscale-ip>:8765"
 export EVAOS_DESKTOP_BRIDGE_TOKEN="<connector-token>"
 ```
 
+Before the VM has a connector token, Hermes can complete enrollment by posting
+the one-time code directly to the Mac connector:
+
+```bash
+hermes-adapter/bin/evaos-desktop-bridge-command completeEnrollment '{"connector_url":"http://100.64.1.10:8765","enrollment_code":"PAIR123","device_name":"Customer Mac"}'
+```
+
+That pre-pairing mode calls `/v1/enrollment/complete`, requires an `http://`
+base connector URL on port `8765`, and only allows private/tailnet-shaped hosts
+or local `.local` names. It does not require or send
+`EVAOS_DESKTOP_BRIDGE_TOKEN`.
+
 Hermes tools should call `bin/evaos-desktop-bridge-command` with one of the
 fixed connector command names supported by `/v1/commands`, for example:
 

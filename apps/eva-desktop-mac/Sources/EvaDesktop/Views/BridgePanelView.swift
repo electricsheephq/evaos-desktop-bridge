@@ -75,7 +75,7 @@ struct BridgePanelView: View {
 
                 ReadinessTile(
                     title: "Pairing",
-                    value: model.pairedDevices.isEmpty ? "Not paired" : "Linked",
+                    value: model.pairedDevices.isEmpty ? "Not paired" : "Ready",
                     state: model.pairedDevices.isEmpty ? .needsAttention : .ready,
                     help: "Links this Mac to your private evaOS VM."
                 )
@@ -84,7 +84,7 @@ struct BridgePanelView: View {
                     title: "iPhone",
                     value: iPhoneReadiness,
                     state: state(for: model.iPhoneMirroringStatusText),
-                    help: "Optional readiness for Apple iPhone Mirroring actions."
+                    help: "Readiness for Apple iPhone Mirroring actions when you want Eva to help with phone workflows."
                 )
             }
         }
@@ -145,16 +145,7 @@ struct BridgePanelView: View {
                         }
                         .disabled(!model.isSignedIn || model.isPairingMac)
                         .buttonStyle(.borderedProminent)
-                        .help("Creates a short-lived code, then copies an OpenClaw prompt that lets David's agent complete the link.")
-
-                        if model.enrollmentCode != nil {
-                            Button("Complete Here") {
-                                model.completeLocalMacEnrollment()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(!model.isSignedIn || model.isPairingMac)
-                            .help("Fallback for support: complete pairing from this Mac without the agent.")
-                        }
+                        .help("Creates a short-lived code, then copies a prompt your Eva or OpenClaw agent can use to complete the link.")
                     }
                 )
 
@@ -286,6 +277,25 @@ struct BridgePanelView: View {
                 BridgeOutputCard(title: "Screen Sharing", text: model.screenSharingStatusText)
                 BridgeOutputCard(title: "Bridge Capabilities", text: model.bridgeCapabilitiesText)
                 BridgeOutputCard(title: "Pairing Details", text: model.pairingText)
+                if model.enrollmentCode != nil {
+                    LuxuryPanel {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("SUPPORT PAIRING FALLBACK")
+                                .font(.system(.caption, design: .monospaced).weight(.semibold))
+                                .tracking(2)
+                                .foregroundStyle(Color.electricSheepMutedText)
+                            Text("Use this only when an agent cannot reach the connector after the secure network link is ready.")
+                                .font(.callout)
+                                .foregroundStyle(Color.electricSheepSecondaryText)
+                            Button("Pair From This Mac") {
+                                model.completeLocalMacEnrollment()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!model.isSignedIn || model.isPairingMac)
+                            .help("Support fallback: complete pairing from this Mac without the agent.")
+                        }
+                    }
+                }
             }
 
             BridgeOutputCard(title: "Audit Records", text: model.bridgeAuditText)
@@ -311,7 +321,7 @@ struct BridgePanelView: View {
         case .needsAttention:
             return "Needs permission"
         case .warning:
-            return "Review"
+            return "Blocked"
         }
     }
 
@@ -323,9 +333,9 @@ struct BridgePanelView: View {
         case .neutral:
             return "Unchecked"
         case .needsAttention:
-            return "Optional"
+            return "Blocked"
         case .warning:
-            return "Review"
+            return "Blocked"
         }
     }
 
@@ -348,14 +358,14 @@ struct BridgePanelView: View {
         case .needsAttention:
             return "Needs permission"
         case .warning:
-            return "Review"
+            return "Blocked"
         }
     }
 
     private var publicPairingStatus: String {
         if !model.pairedDevices.isEmpty {
             let names = model.pairedDevices.map { $0.deviceName ?? $0.id }.joined(separator: ", ")
-            return "Linked to \(names)."
+            return "Ready: \(names)."
         }
 
         if let code = model.enrollmentCode {
@@ -379,7 +389,7 @@ struct BridgePanelView: View {
             return "iPhone Mirroring is ready for approved phone actions."
         }
         if isUnchecked(model.iPhoneMirroringStatusText) {
-            return "Optional. Open iPhone Mirroring when you want Eva to help with phone workflows."
+            return "Open iPhone Mirroring when you want Eva to help with phone workflows."
         }
         return shortStatus(model.iPhoneMirroringStatusText, unchecked: "Open iPhone Mirroring when needed.")
     }
@@ -389,11 +399,11 @@ struct BridgePanelView: View {
         case .ready:
             return "Ready"
         case .neutral:
-            return "Optional"
+            return "Unchecked"
         case .needsAttention:
-            return "Needs app"
+            return "Blocked"
         case .warning:
-            return "Review"
+            return "Blocked"
         }
     }
 
@@ -439,9 +449,9 @@ struct BridgePanelView: View {
         case .ready:
             return "Ready"
         case .needsAttention:
-            return "Needs setup"
+            return value.lowercased().contains("permission") ? "Needs permission" : "Blocked"
         case .warning:
-            return "Review"
+            return "Blocked"
         case .neutral:
             return fallback
         }

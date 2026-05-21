@@ -5,7 +5,7 @@ Safe bridge between Eva/OpenClaw and visible human desktop agent surfaces.
 This repository is now the monorepo for the **Eva Desktop Mac Workbench**. The
 existing Python bridge remains the guarded local observation/audit layer; the
 new SwiftUI app under `apps/eva-desktop-mac/` is the customer-facing cockpit for
-OpenClaw, Hermes, Mission Control, OpenDesign, Live Browser, and Terminal.
+OpenClaw, Hermes, Mission Control, OpenDesign, Shared Browser, and Terminal.
 
 The workbench MVP is intentionally view-first. The canary bridge now includes a
 customer-Mac connector for named, audited observations and guarded actions. A

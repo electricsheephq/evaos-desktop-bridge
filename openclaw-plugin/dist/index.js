@@ -111,6 +111,20 @@ function readOnlyTools() {
             },
         }),
         tool("customer_mac_status", "Read paired customer Mac connector, iPhone Mirroring, and Screen Sharing readiness.", "customerMacStatus"),
+        tool("customer_mac_complete_pairing", "Complete customer Mac pairing by posting a one-time enrollment code directly to the pre-token Mac connector endpoint.", "customerMacCompletePairing", {
+            type: "object",
+            additionalProperties: false,
+            required: ["connector_url", "enrollment_code"],
+            properties: {
+                connector_url: {
+                    type: "string",
+                    description: "Base http:// private/tailnet Mac connector URL on port 8765, with no path.",
+                },
+                enrollment_code: { type: "string", minLength: 1, maxLength: 160 },
+                customer_id: { type: "string", minLength: 1, maxLength: 160 },
+                device_name: { type: "string", minLength: 1, maxLength: 160 },
+            },
+        }),
         tool("customer_mac_capabilities", "Read supported named customer Mac actions and hard safety boundaries.", "customerMacCapabilities"),
         tool("customer_mac_snapshot", "Read a safe screenshot path for the frontmost non-sensitive app; sensitive apps are blocked.", "customerMacSnapshot", {
             type: "object",

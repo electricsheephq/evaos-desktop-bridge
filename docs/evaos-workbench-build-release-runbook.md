@@ -16,6 +16,14 @@ For release execution, use the shorter gate checklist in
 `docs/evaos-workbench-customer-install-update.md`. For known broken builds, use
 `docs/evaos-workbench-broken-release-recovery.md`.
 
+## Current Customer Release Target
+
+Workbench `0.2.2` / build `4` is the self-serve pairing release. It keeps the
+`0.2.1` Sparkle/rpath repair, adds customer-safe pairing prompt copy, and adds
+pre-token OpenClaw/Hermes pairing helpers. When publishing it, keep the older
+`0.2.0` and `0.2.1` ZIP paths aliased to the fixed current ZIP so stale links
+cannot reinstall a broken or stale build.
+
 ## Edit Map
 
 - Product copy and stable labels:

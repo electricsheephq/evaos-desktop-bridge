@@ -9,8 +9,13 @@ APP_ROOT = ROOT / "apps" / "eva-desktop-mac"
 
 def test_beta_packaging_uses_no_developer_id_path() -> None:
     script = (APP_ROOT / "script" / "build_and_run.sh").read_text(encoding="utf-8")
+    app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
+    assert 'VERSION="0.2.2"' in script
+    assert 'BUILD_NUMBER="4"' in script
+    assert 'version = "0.2.2"' in app_brand
+    assert 'buildNumber = "4"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -83,3 +88,37 @@ def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector()
     assert "Download" in bridge_panel
     assert ".font(.callout)" in bridge_panel
     assert 'design: .monospaced' in bridge_panel
+
+
+def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
+    model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
+    bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
+    runtime_detail = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "RuntimeDetailView.swift").read_text(encoding="utf-8")
+
+    assert "David's" not in model
+    assert "David's" not in bridge_panel
+    assert "customer_mac_complete_pairing" in model
+    assert "customer_mac_status" in model
+    assert "customer_mac_iphone_mirroring_status" in model
+    assert "desktop_bridge_audit_tail" in model
+    assert "Success criteria" in model
+    assert "Do not perform live Mac or iPhone actions" in model
+    assert "Copy Agent Prompt" in bridge_panel
+    assert "Complete Here" not in bridge_panel
+    assert "Backup code from browser" in runtime_detail
+    assert "Do not paste the URL's fresh= value" in runtime_detail
+    assert "copy the Backup code" in model
+
+
+def test_workbench_setup_primary_badges_use_approved_state_labels() -> None:
+    bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
+
+    approved_states = {"Ready", "Needs permission", "Not paired", "Blocked", "Unchecked"}
+    forbidden_primary_states = ["Review", "Optional", "Needs setup", "Needs app", "Needs attention", "Linked"]
+
+    for state in approved_states:
+        assert f'"{state}"' in bridge_panel
+
+    for state in forbidden_primary_states:
+        assert f'return "{state}"' not in bridge_panel
+        assert f'badge: "{state}"' not in bridge_panel

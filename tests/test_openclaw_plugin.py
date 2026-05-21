@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import plistlib
+import subprocess
 from pathlib import Path
 
 
@@ -48,6 +49,7 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_app_server_remote_control_status",
         "desktop_bridge_codex_app_server_threads",
         "customer_mac_status",
+        "customer_mac_complete_pairing",
         "customer_mac_capabilities",
         "customer_mac_snapshot",
         "customer_mac_ax_tree",
@@ -107,6 +109,122 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "customerMacIphoneMirroringSendApprovedMessage" in source
     assert "turn/start" not in source
     assert "session.db" not in source
+
+
+def test_customer_mac_complete_pairing_validates_connector_urls() -> None:
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        const cases = [
+          'https://100.64.1.10:8765',
+          'http://100.64.1.10',
+          'http://127.0.0.1:8765',
+          'http://localhost:8765',
+          'http://8.8.8.8:8765',
+          'http://100.64.1.10:8765/v1/commands',
+        ];
+        const results = [];
+        for (const connector_url of cases) {
+          results.push(await runBridge('customerMacCompletePairing', {
+            connector_url,
+            enrollment_code: 'PAIR123',
+          }));
+        }
+        console.log(JSON.stringify(results));
+    """
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    results = json.loads(completed.stdout)
+
+    assert len(results) == 6
+    for result in results:
+        assert result["ok"] is False
+        assert result["errors"][0]["code"] == "bridge_connector_url_forbidden"
+
+
+def test_customer_mac_complete_pairing_requires_enrollment_code() -> None:
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        const result = await runBridge('customerMacCompletePairing', {
+          connector_url: 'http://100.64.1.10:8765',
+        });
+        console.log(JSON.stringify(result));
+    """
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    result = json.loads(completed.stdout)
+
+    assert result["ok"] is False
+    assert result["errors"][0]["code"] == "bridge_enrollment_missing_field"
+    assert "enrollment_code" in result["errors"][0]["message"]
+
+
+def test_customer_mac_complete_pairing_posts_to_enrollment_endpoint_without_token() -> None:
+    source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
+    dist = (PLUGIN / "dist" / "src" / "bridge.js").read_text(encoding="utf-8")
+
+    for text in [source, dist]:
+        assert "customerMacCompletePairing" in text
+        assert "/v1/enrollment/complete" in text
+        assert "enrollment_code" in text
+        assert "connector_token" not in text
+
+    assert 'new URL("/v1/commands", remoteURL)' in source
+    assert 'new URL("/v1/enrollment/complete", connectorURL)' in source
+
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        let captured = null;
+        globalThis.fetch = async (url, options) => {
+          captured = {
+            url: String(url),
+            body: JSON.parse(options.body),
+            hasAuthorization: Boolean(options.headers.Authorization || options.headers.authorization),
+          };
+          return {
+            async text() {
+              return JSON.stringify({ ok: true, data: { connector_token: 'secret', device_id: 'device-1' } });
+            },
+          };
+        };
+        const result = await runBridge('customerMacCompletePairing', {
+          connector_url: 'http://100.64.1.10:8765',
+          enrollment_code: 'PAIR123',
+          customer_id: 'david-poku',
+          device_name: 'Customer Mac',
+        });
+        console.log(JSON.stringify({ captured, result }));
+    """
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["captured"]["url"] == "http://100.64.1.10:8765/v1/enrollment/complete"
+    assert payload["captured"]["body"] == {
+        "enrollment_code": "PAIR123",
+        "customer_id": "david-poku",
+        "device_name": "Customer Mac",
+    }
+    assert payload["captured"]["hasAuthorization"] is False
+    assert payload["result"]["ok"] is True
+    assert payload["result"]["data"]["connector_token"] == "[redacted]"
 
 
 def test_openclaw_plugin_registers_tool_objects_for_runtime_discovery() -> None:
@@ -190,3 +308,17 @@ def test_hermes_adapter_uses_same_connector_contract() -> None:
     assert "OpenClaw remains the first native plugin path" in readme
     assert "structured denials" in readme
     assert "generic shell" in readme
+
+
+def test_hermes_adapter_supports_pre_token_complete_enrollment() -> None:
+    adapter = (ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command").read_text(encoding="utf-8")
+    readme = (ROOT / "hermes-adapter" / "README.md").read_text(encoding="utf-8")
+
+    assert "completeEnrollment" in adapter
+    assert "/v1/enrollment/complete" in adapter
+    assert "EVAOS_DESKTOP_BRIDGE_TOKEN is required" in adapter
+    assert "connector_url" in adapter
+    assert "enrollment_code" in adapter
+    assert "connector_token" not in adapter
+    assert "completeEnrollment" in readme
+    assert "/v1/enrollment/complete" in readme
