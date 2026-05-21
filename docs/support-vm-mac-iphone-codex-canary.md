@@ -5,6 +5,42 @@ Status: support-only canary.
 This runbook is for the internal support VM paired to an operator Mac through
 Headscale. It is not a customer rollout path.
 
+## 2026-05-21 Support Canary Notes
+
+Live support proof on 2026-05-21 reached:
+
+- Mac joined Headscale as `eva-kira-support` on `100.64.0.4`.
+- Support VM joined the same Headscale server as `evaos-support` on `100.64.0.9`.
+- Headscale public route is `https://headscale.ecs.electricsheephq.com`.
+- Headscale policy must be written with `headscale policy set -f ...` when
+  `policy.mode` is database-backed. Editing `/etc/headscale/acl.yaml` alone is
+  not enough.
+- Support-only tags used for this canary:
+  - support VM: `tag:customer`, `tag:support-vm`
+  - operator Mac: `tag:support-mac`
+- Narrow ACL used for the support canary:
+  - `tag:support-vm` to `tag:support-mac:8765`, `:5900`, `:3283`
+- After both nodes appeared in each other's netmap, one `tailscale ping` from
+  the Mac to the VM warmed the direct path; then VM to Mac TCP `8765` worked.
+
+Validated support VM commands:
+
+- `customerMacStatus` returned `ok:true` with Accessibility granted when the
+  connector was run from an interactive user context.
+- `customerMacSnapshot` wrote a screenshot artifact under the local bridge
+  state directory.
+- `customerMacIphoneMirroringFocus` dry-run returned an audit id; rerunning
+  with `dry_run:false` and the matching `approval_audit_id` focused iPhone
+  Mirroring.
+
+Open release blocker found:
+
+- `connector-service start` now auto-installs the per-user LaunchAgent, but a
+  LaunchAgent-started Python connector did not inherit the same Accessibility
+  grant as the interactive terminal/Codex-launched connector. For customer beta,
+  either guide the user to approve the exact Python/app helper that launchd runs
+  or move the connector into an app-owned helper with a stable TCC identity.
+
 ## Boundary
 
 - Pair only the support VM to the operator Mac.
@@ -34,6 +70,17 @@ Start the connector on the Headscale interface:
 EVAOS_SUPPORT_CANARY_CONTROLS=1 \
   evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 ```
+
+Workbench can also start the LaunchAgent-backed connector:
+
+```bash
+evaos-desktop-bridge connector-service start --json
+evaos-desktop-bridge connector-service status --json
+```
+
+Use the LaunchAgent path for service/restart testing. Use the interactive
+connector command above when validating live Accessibility-dependent actions
+until the app-owned helper/TCC identity is resolved.
 
 If the operator Mac is on a different tailnet than the support VM, keep the
 connector loopback-only and use a temporary SSH reverse tunnel from the Mac to
@@ -172,7 +219,8 @@ curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
 ```
 
 Live gesture: rerun the same command without `--dry-run` and include the
-matching `--approval-audit-id`.
+matching approval id. For connector HTTP calls, live guarded actions must set
+`"dry_run": false`; omitting `dry_run` intentionally defaults back to dry-run.
 
 Approved message send:
 
