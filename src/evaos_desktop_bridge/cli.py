@@ -4,9 +4,12 @@ import argparse
 import io
 import json
 import os
+import plistlib
+import shutil
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Callable, TextIO
 
@@ -685,7 +688,7 @@ def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dic
 
     if action == "start":
         start_result = _launchctl_start()
-        status = _connector_service_status(state_dir=state_dir)
+        status = _wait_for_connector_service(state_dir=state_dir)
         return {"ok": status["ok"], "action": action, "launchctl": start_result, "status": status}
 
     if action == "stop":
@@ -722,21 +725,29 @@ def _connector_service_status(*, state_dir: Path | None = None) -> dict[str, obj
     }
 
 
+def _wait_for_connector_service(*, state_dir: Path | None = None, timeout_sec: float = 8.0) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_sec
+    status = _connector_service_status(state_dir=state_dir)
+    while not status["ok"] and time.monotonic() < deadline:
+        time.sleep(0.25)
+        status = _connector_service_status(state_dir=state_dir)
+    return status
+
+
 def _connector_service_guidance(plist_path: Path | None, token_present: bool, health: dict[str, object]) -> list[str]:
     guidance: list[str] = []
     if plist_path is None:
-        guidance.append("Install the evaOS Desktop Bridge connector package so the LaunchAgent plist exists.")
+        guidance.append("Start the connector service once to install the per-user LaunchAgent.")
     if not token_present:
         guidance.append("Start the connector once to mint the per-user connector token.")
     if health.get("reachable") is not True:
-        guidance.append("Start the connector service and confirm http://127.0.0.1:8765/health responds.")
+        host = health.get("host") or "127.0.0.1"
+        guidance.append(f"Start the connector service and confirm http://{host}:8765/health responds.")
     return guidance
 
 
 def _launchctl_start() -> dict[str, object]:
-    plist_path = _connector_plist_path()
-    if plist_path is None:
-        return {"returncode": 2, "stderr": "connector LaunchAgent plist is not installed"}
+    plist_path = _ensure_connector_user_plist()
     domain = _launchctl_domain()
     bootstrap = _run_launchctl(["bootstrap", domain, str(plist_path)])
     kickstart = _run_launchctl(["kickstart", "-k", f"{domain}/{CONNECTOR_LABEL}"])
@@ -766,18 +777,22 @@ def _run_launchctl(args: list[str]) -> dict[str, object]:
 
 
 def _connector_loopback_health() -> dict[str, object]:
+    plist_path = _connector_plist_path()
+    host = _connector_plist_host(plist_path) or "127.0.0.1"
     try:
-        with socket.create_connection(("127.0.0.1", CONNECTOR_PORT), timeout=1.0) as sock:
-            sock.sendall(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        with socket.create_connection((host, CONNECTOR_PORT), timeout=1.0) as sock:
+            request = f"GET /health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode("utf-8")
+            sock.sendall(request)
             data = sock.recv(512)
         text = data.decode("utf-8", errors="replace")
         return {
             "reachable": text.startswith("HTTP/1.0 200") or text.startswith("HTTP/1.1 200"),
+            "host": host,
             "port": CONNECTOR_PORT,
             "status_line": text.splitlines()[0] if text else "",
         }
     except Exception as exc:
-        return {"reachable": False, "port": CONNECTOR_PORT, "error": str(exc)}
+        return {"reachable": False, "host": host, "port": CONNECTOR_PORT, "error": str(exc)}
 
 
 def _tailscale_ip() -> str | None:
@@ -806,6 +821,71 @@ def _connector_plist_path() -> Path | None:
     if CONNECTOR_SYSTEM_PLIST.exists():
         return CONNECTOR_SYSTEM_PLIST
     return None
+
+
+def _ensure_connector_user_plist() -> Path:
+    host = os.environ.get("EVAOS_DESKTOP_BRIDGE_CONNECTOR_HOST") or _tailscale_ip() or "127.0.0.1"
+    program = _connector_program_path()
+    payload = _connector_plist_payload(program=program, host=host)
+    CONNECTOR_USER_PLIST.parent.mkdir(parents=True, exist_ok=True)
+    current: dict[str, object] | None = None
+    if CONNECTOR_USER_PLIST.exists():
+        try:
+            current = plistlib.loads(CONNECTOR_USER_PLIST.read_bytes())
+        except Exception:
+            current = None
+    if current != payload:
+        CONNECTOR_USER_PLIST.write_bytes(plistlib.dumps(payload, sort_keys=False))
+    return CONNECTOR_USER_PLIST
+
+
+def _connector_program_path() -> str:
+    resolved = shutil.which("evaos-desktop-bridge")
+    if resolved:
+        return resolved
+    argv0 = Path(sys.argv[0]).expanduser()
+    if argv0.exists():
+        return str(argv0.resolve())
+    return "evaos-desktop-bridge"
+
+
+def _connector_plist_payload(*, program: str, host: str) -> dict[str, object]:
+    return {
+        "Label": CONNECTOR_LABEL,
+        "ProgramArguments": [
+            program,
+            "serve",
+            "--host",
+            host,
+            "--port",
+            str(CONNECTOR_PORT),
+        ],
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "EnvironmentVariables": {
+            "EVAOS_DESKTOP_BRIDGE_MODE": "customer-mac-connector",
+        },
+    }
+
+
+def _connector_plist_host(plist_path: Path | None) -> str | None:
+    if plist_path is None:
+        return None
+    try:
+        payload = plistlib.loads(plist_path.read_bytes())
+    except Exception:
+        return None
+    argv = payload.get("ProgramArguments")
+    if not isinstance(argv, list):
+        return None
+    try:
+        host_index = argv.index("--host") + 1
+    except ValueError:
+        return None
+    if host_index >= len(argv):
+        return None
+    host = argv[host_index]
+    return host if isinstance(host, str) and host else None
 
 
 def _launchctl_domain() -> str:
