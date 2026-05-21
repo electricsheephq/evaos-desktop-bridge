@@ -8,11 +8,12 @@ created: 2026-05-20
 
 ## Distribution Default
 
-Current beta: ship outside the Mac App Store as an internal/friendly beta using
-Apple Development signing when available, otherwise ad-hoc signing.
+Current friendly release: ship outside the Mac App Store as a Developer ID
+signed, hardened-runtime app. Notarize the customer-hosted artifact whenever
+notary credentials are available.
 
 Public GA target: ship outside the Mac App Store as a Developer ID signed,
-hardened-runtime, notarized app after Apple approval.
+hardened-runtime, notarized app.
 
 ## MVP Entitlements
 
@@ -43,15 +44,30 @@ swift run EvaDesktopCoreSmoke
 codesign --verify --deep --strict dist/EvaDesktop.app
 ```
 
+Before signed release:
+
+```bash
+cd apps/eva-desktop-mac
+export EVA_DESKTOP_CODESIGN_IDENTITY="B605F28E822AB594CEC82D98BD11F5A02B42BB40"
+export EVA_DESKTOP_CODESIGN_KEYCHAIN="/Volumes/LEXAR/Codex/apple-developer-certs/evaos-release-signing.keychain-db"
+./script/build_and_run.sh --package-release
+codesign --verify --deep --strict dist/EvaDesktop.app
+codesign -dvvv --entitlements :- dist/EvaDesktop.app
+```
+
 Before public GA:
 
 ```bash
+export EVA_DESKTOP_NOTARY_PROFILE="evaos-workbench-notary"
+export EVA_DESKTOP_NOTARY_KEYCHAIN="$EVA_DESKTOP_CODESIGN_KEYCHAIN"
+./script/build_and_run.sh --notarize-release
+xcrun stapler validate dist/EvaDesktop.app
 codesign --verify --deep --strict dist/EvaDesktop.app
 spctl --assess --type execute dist/EvaDesktop.app
 ```
 
-Notarization should be added once the app has a real Developer ID signing
-identity and release artifact path.
+The final hosted zip must be rebuilt after stapling so users download the
+stapled app, not only the pre-notarization submission archive.
 
 ## Keychain Trust Note
 

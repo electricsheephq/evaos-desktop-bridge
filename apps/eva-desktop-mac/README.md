@@ -76,6 +76,13 @@ also writes `dist/updates.json`, the public update manifest the app checks on
 launch. That beta packaging path intentionally rejects Developer
 ID identities until the Apple approval/notarization path is ready.
 
+`./script/build_and_run.sh --package-release` requires a Developer ID
+Application identity, signs with the hardened runtime, writes
+`dist/evaOS-Workbench-0.1.0.zip`, and emits a `release` update manifest.
+`./script/build_and_run.sh --notarize-release` submits that zip to Apple,
+staples the accepted ticket, rebuilds the zip from the stapled app, and runs the
+Gatekeeper assessment.
+
 ## Keychain And Signing
 
 The app reads Keychain non-interactively at launch. If macOS cannot trust the
@@ -134,11 +141,10 @@ stored in Keychain or app model state.
 ## Updates
 
 Workbench checks `https://www.electricsheephq.com/evaos-workbench/updates.json`
-on launch. The manifest points to the newest beta zip and release notes. In the
-no-Developer-ID beta, update install is intentionally user-mediated: Workbench
+on launch. The manifest points to the newest signed release zip and release
+notes. Update install is intentionally user-mediated in this track: Workbench
 opens the download URL, then the user replaces the app. Background
-self-replacement should move to Sparkle once Developer ID signing/notarization
-is available.
+self-replacement should move to Sparkle once the update-signing path is added.
 
 ## Bridge Model
 
