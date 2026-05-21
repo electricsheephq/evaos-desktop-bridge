@@ -14,7 +14,7 @@ struct SettingsView: View {
             TextField("Dashboard URL", text: $dashboardBaseURL)
                 .help("Used for ElectricSheep login and desktop session handoff.")
             TextField("Gateway domain", text: $runtimeBaseDomain)
-                .help("Used to resolve customer-scoped gateway hosts for OpenClaw, Hermes, Mission Control, Live Browser, and Terminal.")
+                .help("Used to resolve customer-scoped gateway hosts for OpenClaw, Hermes, Mission Control, Shared Browser, and Terminal.")
             TextField("Update manifest URL", text: $updateManifestURL)
                 .help("Workbench checks this signed release manifest for app updates.")
 
