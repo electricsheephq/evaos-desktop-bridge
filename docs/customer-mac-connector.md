@@ -31,7 +31,7 @@ evidence.
 
 ## Local Connector Server
 
-Workbench's `Start Connector` button starts a Workbench-managed connector
+Workbench's `Turn On Mac Access` button starts a Workbench-managed connector
 process for the beta. Keep Workbench open while the connector is paired to the
 VM. This is the recommended beta path because macOS permissions are easier to
 reason about when the visible Workbench app starts the helper.
@@ -253,22 +253,22 @@ reachability fails before enabling agent tools.
 
 `evaOS Workbench` owns the customer-facing setup loop:
 
-1. **Connect This Mac** starts or checks the LaunchAgent-backed connector.
-2. **Enable Permissions** opens Accessibility and Screen Recording settings.
-3. **Pair with evaOS VM** creates a short-lived dashboard/Supabase pairing grant
+1. **Turn On Mac Access** starts or checks the Workbench-managed connector.
+2. **Allow Screen & Control** opens Accessibility and Screen Recording settings.
+3. **Link to evaOS** creates a short-lived dashboard/Supabase pairing grant
    and completes the Mac device record after the connector and Headscale client
    are ready. Completion also sends the connector URL and local connector token
    to the service-role-only grant secret table so support-control can configure
    the paired VM without exposing the token to the browser UI.
 4. **Connect iPhone** opens iPhone Mirroring and refreshes readiness.
-5. **Test Agent Access** runs local connector/status smokes and points support
+5. **Check Setup** runs local connector/status smokes and points support
    to the VM-side `evaos-support mac-connector smoke` proof.
-6. **Revoke / Disconnect** signs out the app or revokes the paired Mac grant.
+6. **Disconnect This Mac** revokes the paired Mac grant.
 
 The Workbench customer UI shows setup, permission, audit, and revoke state. Live
 actions run through OpenClaw/Hermes agent tools so approvals and audit ids remain
 attached to the agent turn. The local kill switch for the current desktop
-session is the Workbench `Revoke Session` action; paired connector
+session is the Workbench `Sign Out` action; paired connector
 revocation is represented in Supabase and completed operationally by Headscale
 ACL/token revocation.
 

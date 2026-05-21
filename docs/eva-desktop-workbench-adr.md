@@ -27,7 +27,7 @@ Eva Desktop MVP is a native SwiftUI cockpit with persistent `WKWebView` tabs for
 - evaOS / Hermes
 - Mission Control
 - OpenDesign
-- Live Browser
+- Shared Browser
 - Terminal
 
 The runtime apps remain upstream and unmodified. The desktop app resolves

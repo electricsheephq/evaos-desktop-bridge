@@ -85,7 +85,7 @@ evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 ```
 
 Workbench can start the beta connector from the app. This is the recommended
-friendly beta path: open Workbench, use **Start Connector**, then grant
+friendly beta path: open Workbench, use **Turn On Mac Access**, then grant
 Accessibility/Screen Recording to Workbench or the bridge helper macOS shows in
 Privacy & Security.
 
@@ -283,7 +283,7 @@ Evidence must include:
 
 ## Stop/Revoke
 
-- Use Workbench `Revoke Session` to clear the app session.
+- Use Workbench `Sign Out` to clear the app session.
 - Stop the connector process.
 - Remove the support VM environment variables.
 - Revoke iPhone Mirroring access from the Mac or iPhone if the test is complete.

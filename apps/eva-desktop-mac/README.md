@@ -151,9 +151,10 @@ published temporarily so older Workbench builds can discover the next download.
 
 ## Bridge Model
 
-The `Desktop Bridge` panel is a guided setup surface in the canary. It walks the
-user through Connect This Mac, Enable Permissions, Pair with evaOS VM, Connect
-iPhone, Test Agent Access, and Revoke / Disconnect. The app can start/check the
+The `Settings -> Mac & iPhone` panel is a guided setup surface in the canary. It
+walks the user through Turn On Mac Access, Allow Screen & Control, Link to
+evaOS, Connect iPhone, Check Setup, and Disconnect This Mac. The app can
+start/check the
 LaunchAgent-backed connector, create short-lived pairing grants through
 dashboard/Supabase, and complete the local Mac device record once the connector
 and Headscale client are ready. Completion sends the connector URL and local

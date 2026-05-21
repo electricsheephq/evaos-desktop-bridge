@@ -33,7 +33,7 @@ swift run EvaDesktopCoreSmoke
 The beta artifact is written to:
 
 ```text
-apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.1.zip
+apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-<version>.zip
 apps/eva-desktop-mac/dist/updates.json
 ```
 
@@ -59,8 +59,9 @@ swift run EvaDesktopCoreSmoke
 The release artifact is written to:
 
 ```text
-apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.1.zip
+apps/eva-desktop-mac/dist/evaOS-Workbench-<version>.zip
 apps/eva-desktop-mac/dist/updates.json
+apps/eva-desktop-mac/dist/appcast.xml
 ```
 
 Once notary credentials have been stored with `notarytool`, use the notarized
@@ -93,14 +94,15 @@ install page is:
 https://www.electricsheephq.com/evaos-workbench
 ```
 
-Update installation is user-mediated: Workbench shows that an update is
-available and opens the download URL. Background self-replacement moves to
-Sparkle after update signing is added.
+Workbench `0.2.0+` uses Sparkle for in-app update install/relaunch through the
+public `appcast.xml`. `updates.json` remains as a legacy compatibility manifest
+and download-page smoke check. Older builds may only open the download URL and
+require manual reinstall.
 
 ## Install
 
 1. Unzip the beta artifact.
-2. Drag `EvaDesktop.app` to Applications or run it from the unzipped folder.
+2. Drag `evaOS.app` to Applications or run it from the unzipped folder.
 3. If macOS blocks a non-notarized internal canary, right-click the app and
    choose Open. Notarized release builds should not need this fallback.
 4. Do not globally disable Gatekeeper.
@@ -111,7 +113,7 @@ Startup Keychain reads are non-interactive. If a signing mismatch prevents
 access to an older desktop session item, Workbench should appear signed out
 rather than opening a Keychain prompt repeatedly.
 
-User-initiated sign-in and Revoke Session may still touch Keychain. If a stale
+User-initiated sign-in and Sign Out may still touch Keychain. If a stale
 beta item keeps prompting, use `Reset Local Session` on the Workbench sign-in
 screen or clear only the Workbench desktop session item:
 
@@ -128,17 +130,18 @@ Development signing for internal canaries or Developer ID signing for release.
 
 - Launch `evaOS Workbench`.
 - Sign in through the ElectricSheep popup.
-- Open OpenClaw, Hermes, Mission Control, Live Browser, and Terminal.
+- Open OpenClaw, Hermes, Mission Control, OpenDesign, Shared Browser, and
+  Terminal.
 - Switch tabs repeatedly and confirm WebViews stay loaded.
 - As admin/customer-service, switch between at least two customer targets and
   confirm gateway sessions do not bleed across targets.
-- Revoke Session and confirm the app returns to the sign-in state.
-- In Agent Control Setup, start the connector from Workbench, approve the
+- Sign Out and confirm the app returns to the sign-in state.
+- In Settings -> Mac & iPhone, turn on Mac access from Workbench, approve the
   displayed permission target, and confirm status reads Ready without raw JSON.
-- Refresh Desktop Bridge status and confirm only clean status/capability/audit
+- Refresh Settings -> Mac & iPhone status and confirm only clean status/capability/audit
   summaries appear in the Workbench UI.
-- Confirm Workbench checks the update manifest and shows Download Update when a
-  newer manifest version is hosted.
+- Confirm Workbench checks the update feed and can install/relaunch from a newer
+  Sparkle appcast when testing from an older Sparkle-enabled build.
 
 ## Agent Control
 
@@ -159,3 +162,5 @@ testing.
 
 - External friendly-customer canary evidence.
 - Stable app-owned/helper-owned TCC identity for background connector startup.
+- Accepted notarization, stapled app, and passing `spctl --assess`.
+- Sparkle update proven from an older installed build.
