@@ -1,10 +1,10 @@
 ---
-title: "Eva Desktop Packaging And Notarization"
+title: "evaOS Workbench Packaging And Notarization"
 status: proposed
 created: 2026-05-20
 ---
 
-# Eva Desktop Packaging And Notarization
+# evaOS Workbench Packaging And Notarization
 
 ## Distribution Default
 
@@ -41,7 +41,7 @@ cd apps/eva-desktop-mac
 swift build
 swift run EvaDesktopCoreSmoke
 ./script/build_and_run.sh --package-beta
-codesign --verify --deep --strict dist/EvaDesktop.app
+codesign --verify --deep --strict dist/evaOS.app
 ```
 
 Before signed release:
@@ -51,8 +51,8 @@ cd apps/eva-desktop-mac
 export EVA_DESKTOP_CODESIGN_IDENTITY="B605F28E822AB594CEC82D98BD11F5A02B42BB40"
 export EVA_DESKTOP_CODESIGN_KEYCHAIN="/Volumes/LEXAR/Codex/apple-developer-certs/evaos-release-signing.keychain-db"
 ./script/build_and_run.sh --package-release
-codesign --verify --deep --strict dist/EvaDesktop.app
-codesign -dvvv --entitlements :- dist/EvaDesktop.app
+codesign --verify --deep --strict dist/evaOS.app
+codesign -dvvv --entitlements :- dist/evaOS.app
 ```
 
 Before public GA:
@@ -61,9 +61,9 @@ Before public GA:
 export EVA_DESKTOP_NOTARY_PROFILE="evaos-workbench-notary"
 export EVA_DESKTOP_NOTARY_KEYCHAIN="$EVA_DESKTOP_CODESIGN_KEYCHAIN"
 ./script/build_and_run.sh --notarize-release
-xcrun stapler validate dist/EvaDesktop.app
-codesign --verify --deep --strict dist/EvaDesktop.app
-spctl --assess --type execute dist/EvaDesktop.app
+xcrun stapler validate dist/evaOS.app
+codesign --verify --deep --strict dist/evaOS.app
+spctl --assess --type execute dist/evaOS.app
 ```
 
 The final hosted zip must be rebuilt after stapling so users download the
@@ -80,5 +80,5 @@ identity for internal canaries and Developer ID for release builds.
 ## Reference
 
 OpenClaw's Mac app packaging/update surfaces are a useful reference for Sparkle,
-appcast, and helper-tool patterns. Eva Desktop should borrow patterns, not take a
+appcast, and helper-tool patterns. evaOS Workbench should borrow patterns, not take a
 runtime dependency on the OpenClaw app.

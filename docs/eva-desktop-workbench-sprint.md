@@ -43,10 +43,9 @@ Tracker issues:
 ## Acceptance
 
 - The app launches locally and shows all MVP runtime tabs.
-- OpenClaw, Hermes, Mission Control, Live Browser, Terminal, and OpenDesign are
+- OpenClaw, Hermes, Mission Control, Shared Browser, Terminal, and OpenDesign are
   represented without rewriting upstream UIs.
 - Runtime launch can use broker URLs when signed in and safe fallback routes
   during development.
 - Bridge status is read-only.
 - Local Mac/iPhone/iMessage control remains deferred.
-

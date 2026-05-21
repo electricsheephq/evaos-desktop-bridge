@@ -11,6 +11,11 @@ created: 2026-05-20
 This runbook captures the current repeatable path for editing, validating, and
 packaging the Mac Workbench app under `apps/eva-desktop-mac`.
 
+For release execution, use the shorter gate checklist in
+`docs/evaos-workbench-release-checklist.md`. For customer install recovery, use
+`docs/evaos-workbench-customer-install-update.md`. For known broken builds, use
+`docs/evaos-workbench-broken-release-recovery.md`.
+
 ## Edit Map
 
 - Product copy and stable labels:
@@ -23,7 +28,7 @@ packaging the Mac Workbench app under `apps/eva-desktop-mac`.
   `apps/eva-desktop-mac/Sources/EvaDesktop/Views/SidebarView.swift`
 - Runtime WebView wrapper and toolbar:
   `apps/eva-desktop-mac/Sources/EvaDesktop/Views/RuntimeDetailView.swift`
-- Desktop Bridge panel:
+- Settings -> Mac & iPhone panel:
   `apps/eva-desktop-mac/Sources/EvaDesktop/Views/BridgePanelView.swift`
 - Resource bundling and local app verification:
   `apps/eva-desktop-mac/script/build_and_run.sh`
@@ -64,9 +69,9 @@ Then rebuild:
 
 ```bash
 ./script/build_and_run.sh --verify
-codesign -dvvv --entitlements :- dist/EvaDesktop.app
-codesign --verify --deep --strict dist/EvaDesktop.app
-spctl --assess --type execute dist/EvaDesktop.app
+codesign -dvvv --entitlements :- dist/evaOS.app
+codesign --verify --deep --strict dist/evaOS.app
+spctl --assess --type execute dist/evaOS.app
 ```
 
 If `security find-identity -p codesigning -v` reports zero identities, local
@@ -88,7 +93,7 @@ swift run EvaDesktopCoreSmoke
 The beta artifact is:
 
 ```text
-apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.1.zip
+apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-<version>.zip
 apps/eva-desktop-mac/dist/updates.json
 ```
 
@@ -112,16 +117,27 @@ security unlock-keychain -p "$(cat /Volumes/LEXAR/Codex/apple-developer-certs/.e
 swift build
 swift run EvaDesktopCoreSmoke
 ./script/build_and_run.sh --package-release
-codesign --verify --deep --strict dist/EvaDesktop.app
-codesign -dvvv --entitlements :- dist/EvaDesktop.app
-spctl --assess --type execute dist/EvaDesktop.app
+codesign --verify --deep --strict dist/evaOS.app
+codesign -dvvv --entitlements :- dist/evaOS.app
+spctl --assess --type execute dist/evaOS.app
 ```
 
 `--package-release` requires a Developer ID Application identity, signs with
-hardened runtime, writes `evaOS-Workbench-<version>.zip`, and writes
-`updates.json` with `channel: "release"`. If notarization is not complete,
-`spctl` may still reject the app even though the Developer ID signature is
-valid. Treat that as the remaining notarization gate, not a signing failure.
+hardened runtime, writes `evaOS-Workbench-<version>.zip`, writes
+`updates.json`, and writes the Sparkle `appcast.xml`. If notarization is not
+complete, `spctl` may still reject the app even though the Developer ID
+signature is valid. Treat that as the remaining notarization gate, not a signing
+failure.
+
+Before publishing a Sparkle build, verify the framework and rpath:
+
+```bash
+test -d dist/evaOS.app/Contents/Frameworks/Sparkle.framework
+otool -l dist/evaOS.app/Contents/MacOS/EvaDesktop | grep -A2 LC_RPATH
+```
+
+The executable must include `@executable_path/../Frameworks`. Workbench `0.2.0`
+failed at launch because this rpath was missing.
 
 When notary credentials are stored in the release keychain, use:
 
@@ -132,9 +148,11 @@ export EVA_DESKTOP_NOTARY_KEYCHAIN="$EVA_DESKTOP_CODESIGN_KEYCHAIN"
 ```
 
 `--notarize-release` packages the signed app, submits the zip to Apple, staples
-the accepted ticket to `dist/EvaDesktop.app`, validates the staple, rebuilds the
-zip so it contains the stapled app, regenerates `updates.json`, and runs
-`spctl --assess`.
+the accepted ticket to `dist/evaOS.app`, validates the staple, rebuilds the zip
+so it contains the stapled app, regenerates `updates.json` and `appcast.xml`,
+and runs `spctl --assess` when Apple has accepted the submission. If Apple keeps
+the submission in progress, record the submission id and continue polling out of
+band instead of blocking a terminal for hours.
 
 Host the selected zip and update manifest at:
 
@@ -142,24 +160,27 @@ Host the selected zip and update manifest at:
 https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-Beta-<version>.zip
 https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-<version>.zip
 https://www.electricsheephq.com/evaos-workbench/updates.json
+https://www.electricsheephq.com/evaos-workbench/appcast.xml
 ```
 
 For the Lovable dashboard deploy, copy those two files into the dashboard repo:
 
 ```bash
 mkdir -p public/evaos-workbench
-cp apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.1.zip \
+cp apps/eva-desktop-mac/dist/evaOS-Workbench-<version>.zip \
   /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/
 cp apps/eva-desktop-mac/dist/updates.json \
   /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/updates.json
+cp apps/eva-desktop-mac/dist/appcast.xml \
+  /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/appcast.xml
 ```
 
 Then merge the dashboard install-page PR and publish through Lovable:
 project -> Publish -> Update. The public install page is
 `https://www.electricsheephq.com/evaos-workbench`.
 
-Workbench auto-checks the manifest and opens the download URL. Background
-self-replacement is deferred until the Sparkle path is available.
+Workbench `0.2.0+` uses Sparkle for in-app update install/relaunch. Older builds
+may only discover the new download and require manual reinstall.
 
 ## Keychain Prompt Triage
 
@@ -180,7 +201,7 @@ Repair steps:
 1. Confirm the bundle is signed after assembly:
 
    ```bash
-   codesign -dvvv dist/EvaDesktop.app
+   codesign -dvvv dist/evaOS.app
    ```
 
 2. Prefer installing and using a stable Apple Development or Developer ID
@@ -206,15 +227,17 @@ Repair steps:
   reload unless the user reconnects/reloads.
 - OpenDesign launches through the brokered `opendesign` runtime and stays
   loaded while switching gateways.
-- Desktop Bridge panel refreshes Desktop Bridge, Customer Mac, iPhone
+- Shared Browser is used in customer-facing copy. Do not reintroduce Live
+  Browser unless referring to old implementation history.
+- Settings -> Mac & iPhone refreshes connector, Customer Mac, iPhone
   Mirroring, Codex Remote Control, Screen Sharing, capabilities, and audit tail
   without exposing a generic command runner or raw bridge JSON as the primary
   setup experience.
-- Agent Control Setup shows clean states for connector, permissions, pairing,
+- Settings setup shows clean states for connector, permissions, pairing,
   iPhone readiness, local smoke, and revoke.
-- Agent Control Setup uses customer-facing labels and standard native cards;
+- Settings setup uses customer-facing labels and standard native cards;
   raw CLI/JSON output should never be the primary setup experience.
-- Start Connector uses the Workbench-managed beta connector; LaunchAgent remains
+- Turn On Mac Access uses the Workbench-managed beta connector; LaunchAgent remains
   a background/restart test path until stable helper signing is in place.
 
 ## Release Readiness
@@ -228,10 +251,10 @@ Before announcing a build:
 - Release: app is signed with a stable Developer ID Application identity and
   `--package-release` produced the release zip artifact.
 - GA only: notarization path is proven, `stapler validate` passes, and
-  `spctl --assess --type execute dist/EvaDesktop.app` accepts the app.
+  `spctl --assess --type execute dist/evaOS.app` accepts the app.
 - Desktop auth opens through `ASWebAuthenticationSession`, returns to
   `evaos://auth/callback`, and launches at least OpenClaw, Hermes, Mission
-  Control, OpenDesign, Live Browser, and Terminal for an admin canary.
+  Control, OpenDesign, Shared Browser, and Terminal for an admin canary.
 - Connector status can be refreshed locally; paired-Mac control remains behind
   Headscale ACLs, connector tokens, and OpenClaw approval gates.
 - OpenClaw agent proof has run through the actual plugin/tool path, not only a
