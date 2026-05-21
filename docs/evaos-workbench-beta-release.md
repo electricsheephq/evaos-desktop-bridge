@@ -33,7 +33,7 @@ swift run EvaDesktopCoreSmoke
 The beta artifact is written to:
 
 ```text
-apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.0.zip
+apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.1.zip
 apps/eva-desktop-mac/dist/updates.json
 ```
 
@@ -59,7 +59,7 @@ swift run EvaDesktopCoreSmoke
 The release artifact is written to:
 
 ```text
-apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.0.zip
+apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.1.zip
 apps/eva-desktop-mac/dist/updates.json
 ```
 
