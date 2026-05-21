@@ -21,17 +21,17 @@ precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: true).con
 precondition(RuntimeDefinition.definition(for: .openDesign).availability == .enabled)
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 
-let trustedDownload = URL(string: "https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-0.1.2.zip")!
-let olderManifest = WorkbenchReleaseManifest(version: "0.1.1", build: "1", downloadURL: trustedDownload)
-let newerManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
-let newerBuildManifest = WorkbenchReleaseManifest(version: "0.1.2", build: "2", downloadURL: trustedDownload)
+let trustedDownload = URL(string: "https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-0.1.3.zip")!
+let olderManifest = WorkbenchReleaseManifest(version: "0.1.2", build: "1", downloadURL: trustedDownload)
+let newerManifest = WorkbenchReleaseManifest(version: "0.1.4", build: "1", downloadURL: trustedDownload)
+let newerBuildManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "2", downloadURL: trustedDownload)
 precondition(!olderManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerBuildManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: AppBrand.defaultUpdateManifestURL)!))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(trustedDownload))
 precondition(!WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: "https://example.com/evaOS-Workbench-0.1.1.zip")!))
-try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.1.2", build: "1", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
+try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
@@ -102,6 +102,12 @@ let expectedCallbackExpiry = EvaDesktopISO8601.parse("2026-05-20T10:48:51.123Z")
 precondition(expectedCallbackExpiry != nil)
 precondition(callbackSession.expiresAt != nil)
 precondition(abs(callbackSession.expiresAt!.timeIntervalSince(expectedCallbackExpiry!)) < 0.001)
+
+let loopbackCallbackURL = URL(string: "http://127.0.0.1:49152/auth/callback?desktop_session=eds_loopback&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=david%40example.com")!
+let loopbackCallbackSession = try DesktopSessionCallbackParser.parse(loopbackCallbackURL)
+precondition(loopbackCallbackSession.accessToken == "eds_loopback")
+precondition(loopbackCallbackSession.userEmail == "david@example.com")
+precondition(loopbackCallbackSession.expiresAt != nil)
 
 let fragmentCallbackURL = URL(string: "evaos://auth/callback#desktop_session=eds_fragment&expires_at=2026-05-20T10:48:51Z")!
 let fragmentCallbackSession = try DesktopSessionCallbackParser.parse(fragmentCallbackURL)
