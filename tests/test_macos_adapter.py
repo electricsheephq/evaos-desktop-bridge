@@ -34,6 +34,7 @@ def test_status_redacts_install_paths_and_reports_pid(tmp_path: Path) -> None:
         state_dir=tmp_path,
         platform_name="Darwin",
         accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: False,
     )
 
     result = observer.status()
@@ -41,6 +42,7 @@ def test_status_redacts_install_paths_and_reports_pid(tmp_path: Path) -> None:
     assert result.ok is True
     assert result.data["app"]["running"] is True
     assert result.data["app"]["pid"] == 123
+    assert result.data["permissions"]["screen_recording"]["status"] == "missing"
     assert str(Path.home()) not in str(result.data)
     assert result.data["app"]["paths"] == ["~/Applications/Codex.app"]
 

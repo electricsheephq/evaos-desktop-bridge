@@ -706,12 +706,16 @@ def _connector_service_status(*, state_dir: Path | None = None) -> dict[str, obj
     token_path = (state_dir or default_state_dir()) / "connector.token"
     plist_path = _connector_plist_path()
     loaded = print_result["returncode"] == 0
-    running = loaded and health["reachable"] is True
+    reachable = health["reachable"] is True
+    running = loaded and reachable
     tailnet_ip = _tailscale_ip()
+    managed_by = "launchagent" if running else "workbench-or-manual" if reachable else "offline"
+    program_arguments = _connector_plist_program_arguments(plist_path)
     return {
-        "ok": bool(plist_path and token_path.exists() and health["reachable"]),
+        "ok": bool(token_path.exists() and reachable),
         "label": CONNECTOR_LABEL,
         "domain": domain,
+        "managed_by": managed_by,
         "plist_path": str(plist_path) if plist_path else None,
         "plist_installed": plist_path is not None,
         "token_path": str(token_path),
@@ -721,6 +725,7 @@ def _connector_service_status(*, state_dir: Path | None = None) -> dict[str, obj
         "tailnet_ip": tailnet_ip,
         "health": health,
         "launchctl": print_result,
+        "permission_target": _connector_permission_target(managed_by, health, program_arguments),
         "guidance": _connector_service_guidance(plist_path, token_path.exists(), health),
     }
 
@@ -778,7 +783,7 @@ def _run_launchctl(args: list[str]) -> dict[str, object]:
 
 def _connector_loopback_health() -> dict[str, object]:
     plist_path = _connector_plist_path()
-    host = _connector_plist_host(plist_path) or "127.0.0.1"
+    host = _connector_plist_host(plist_path) or _tailscale_ip() or "127.0.0.1"
     try:
         with socket.create_connection((host, CONNECTOR_PORT), timeout=1.0) as sock:
             request = f"GET /health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode("utf-8")
@@ -793,6 +798,39 @@ def _connector_loopback_health() -> dict[str, object]:
         }
     except Exception as exc:
         return {"reachable": False, "host": host, "port": CONNECTOR_PORT, "error": str(exc)}
+
+
+def _connector_permission_target(
+    managed_by: str,
+    health: dict[str, object],
+    program_arguments: list[str] | None,
+) -> dict[str, object]:
+    launch_program = program_arguments[0] if program_arguments else None
+    target_paths = {
+        "bridge_executable": launch_program or _connector_program_path(),
+        "python_executable": sys.executable,
+        "launch_program": launch_program,
+    }
+    if health.get("reachable") is not True:
+        return {
+            "name": "evaOS Workbench",
+            "mode": "not_running",
+            **target_paths,
+            "guidance": "Start the connector from Workbench, then approve evaOS Workbench or its bridge helper in Accessibility and Screen Recording.",
+        }
+    if managed_by == "launchagent":
+        return {
+            "name": "evaos-desktop-bridge LaunchAgent helper",
+            "mode": "launchagent",
+            **target_paths,
+            "guidance": "If Accessibility is missing through VM tools, approve the exact Python or packaged helper launched by the LaunchAgent.",
+        }
+    return {
+        "name": "evaOS Workbench / evaos-desktop-bridge helper",
+        "mode": "workbench_managed",
+        **target_paths,
+        "guidance": "For beta, keep Workbench open and approve evaOS Workbench or the bridge helper in Accessibility and Screen Recording.",
+    }
 
 
 def _tailscale_ip() -> str | None:
@@ -869,14 +907,8 @@ def _connector_plist_payload(*, program: str, host: str) -> dict[str, object]:
 
 
 def _connector_plist_host(plist_path: Path | None) -> str | None:
-    if plist_path is None:
-        return None
-    try:
-        payload = plistlib.loads(plist_path.read_bytes())
-    except Exception:
-        return None
-    argv = payload.get("ProgramArguments")
-    if not isinstance(argv, list):
+    argv = _connector_plist_program_arguments(plist_path)
+    if not argv:
         return None
     try:
         host_index = argv.index("--host") + 1
@@ -886,6 +918,19 @@ def _connector_plist_host(plist_path: Path | None) -> str | None:
         return None
     host = argv[host_index]
     return host if isinstance(host, str) and host else None
+
+
+def _connector_plist_program_arguments(plist_path: Path | None) -> list[str] | None:
+    if plist_path is None:
+        return None
+    try:
+        payload = plistlib.loads(plist_path.read_bytes())
+    except Exception:
+        return None
+    argv = payload.get("ProgramArguments")
+    if not isinstance(argv, list):
+        return None
+    return [item for item in argv if isinstance(item, str)]
 
 
 def _launchctl_domain() -> str:

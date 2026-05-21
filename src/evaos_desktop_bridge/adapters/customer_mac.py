@@ -20,6 +20,7 @@ from .codex_macos import (
     SCREEN_RECORDING_GUIDANCE,
     RunnerResult,
     check_accessibility_trusted,
+    check_screen_recording_trusted,
     run_command,
 )
 
@@ -363,12 +364,14 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
         state_dir: Path | None = None,
         platform_name: str | None = None,
         accessibility_checker: Callable[[], bool | None] = check_accessibility_trusted,
+        screen_recording_checker: Callable[[], bool | None] = check_screen_recording_trusted,
         now: Callable[[], str] = timestamp_utc,
     ) -> None:
         self.runner = runner
         self.state_dir = state_dir or default_state_dir()
         self.platform_name = platform_name or platform.system()
         self.accessibility_checker = accessibility_checker
+        self.screen_recording_checker = screen_recording_checker
         self.now = now
 
     def status(self) -> CommandResult:
@@ -383,7 +386,7 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
                 "frontmost_app": redact_value(frontmost),
                 "permissions": {
                     "accessibility": self._permission_status("accessibility"),
-                    "screen_recording": {"status": "unknown", "guidance": SCREEN_RECORDING_GUIDANCE},
+                    "screen_recording": self._permission_status("screen_recording"),
                 },
                 "iphone_mirroring": mirroring_status.data,
                 "screen_sharing": screen_sharing.data,
@@ -875,6 +878,14 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
                 return {"status": "granted", "guidance": ACCESSIBILITY_GUIDANCE}
             if trusted is False:
                 return {"status": "missing", "guidance": ACCESSIBILITY_GUIDANCE}
+            return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE}
+        if permission == "screen_recording":
+            trusted = self.screen_recording_checker()
+            if trusted is True:
+                return {"status": "granted", "guidance": SCREEN_RECORDING_GUIDANCE}
+            if trusted is False:
+                return {"status": "missing", "guidance": SCREEN_RECORDING_GUIDANCE}
+            return {"status": "unknown", "guidance": SCREEN_RECORDING_GUIDANCE}
         return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE}
 
     def _permission_error(self, permission: str, action: str) -> dict[str, Any]:

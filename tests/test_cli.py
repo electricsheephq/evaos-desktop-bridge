@@ -611,3 +611,64 @@ def test_connector_start_host_can_be_overridden(monkeypatch, tmp_path: Path) -> 
 
     assert bridge_cli._connector_plist_host(created) == "127.0.0.1"
     assert payload["ProgramArguments"][payload["ProgramArguments"].index("--host") + 1] == "127.0.0.1"
+
+
+def test_connector_status_accepts_workbench_managed_health_without_launchagent(monkeypatch, tmp_path: Path) -> None:
+    token_path = tmp_path / "connector.token"
+    token_path.write_text("fixture-token\n", encoding="utf-8")
+
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_USER_PLIST", tmp_path / "missing-user.plist")
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_SYSTEM_PLIST", tmp_path / "missing-system.plist")
+    monkeypatch.setattr(
+        bridge_cli,
+        "_run_launchctl",
+        lambda args: {"returncode": 113, "stdout": "", "stderr": "not loaded"},
+    )
+    monkeypatch.setattr(
+        bridge_cli,
+        "_connector_loopback_health",
+        lambda: {"reachable": True, "host": "100.64.0.4", "port": 8765, "status_line": "HTTP/1.0 200 OK"},
+    )
+
+    payload = bridge_cli._connector_service_status(state_dir=tmp_path)
+
+    assert payload["ok"] is True
+    assert payload["managed_by"] == "workbench-or-manual"
+    assert payload["loaded"] is False
+    assert payload["running"] is False
+    assert payload["permission_target"]["mode"] == "workbench_managed"
+    assert payload["permission_target"]["bridge_executable"]
+    assert payload["permission_target"]["python_executable"]
+
+
+def test_connector_status_reports_launchagent_program_as_permission_target(monkeypatch, tmp_path: Path) -> None:
+    token_path = tmp_path / "connector.token"
+    token_path.write_text("fixture-token\n", encoding="utf-8")
+    plist_path = tmp_path / "com.electricsheep.evaos-desktop-bridge.plist"
+    plist_path.write_bytes(
+        plistlib.dumps(
+            {
+                "Label": "com.electricsheep.evaos-desktop-bridge",
+                "ProgramArguments": ["/opt/evaos/helper/evaos-desktop-bridge", "serve", "--host", "100.64.0.4", "--port", "8765"],
+            }
+        )
+    )
+
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_USER_PLIST", plist_path)
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_SYSTEM_PLIST", tmp_path / "missing-system.plist")
+    monkeypatch.setattr(
+        bridge_cli,
+        "_run_launchctl",
+        lambda args: {"returncode": 0, "stdout": "loaded", "stderr": ""},
+    )
+    monkeypatch.setattr(
+        bridge_cli,
+        "_connector_loopback_health",
+        lambda: {"reachable": True, "host": "100.64.0.4", "port": 8765, "status_line": "HTTP/1.0 200 OK"},
+    )
+
+    payload = bridge_cli._connector_service_status(state_dir=tmp_path)
+
+    assert payload["managed_by"] == "launchagent"
+    assert payload["permission_target"]["bridge_executable"] == "/opt/evaos/helper/evaos-desktop-bridge"
+    assert payload["permission_target"]["launch_program"] == "/opt/evaos/helper/evaos-desktop-bridge"

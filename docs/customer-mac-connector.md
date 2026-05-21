@@ -31,7 +31,12 @@ unset.
 
 ## Local Connector Server
 
-Workbench's `Start Connector` button uses:
+Workbench's `Start Connector` button starts a Workbench-managed connector
+process for the beta. Keep Workbench open while the connector is paired to the
+VM. This is the recommended beta path because macOS permissions are easier to
+reason about when the visible Workbench app starts the helper.
+
+The CLI still supports a LaunchAgent-backed background connector:
 
 ```bash
 evaos-desktop-bridge connector-service start --json
@@ -43,6 +48,16 @@ LaunchAgent binds to the current Tailscale/Headscale IPv4 address when one is
 available, otherwise it falls back to `127.0.0.1`. Set
 `EVAOS_DESKTOP_BRIDGE_CONNECTOR_HOST=127.0.0.1` before starting when you need a
 loopback-only debug run.
+
+If agent tools report Accessibility missing through the VM while local terminal
+commands show it granted, the connector is running under a different macOS TCC
+identity. For beta, restart from Workbench and approve Workbench or the bridge
+helper macOS displays in Privacy & Security. The future GA path is a stable
+Developer ID signed helper.
+
+`connector-service status --json` reports the permission target plus the bridge
+and Python helper paths. Use those paths when macOS does not show a toggle after
+opening Privacy & Security and you need to add the helper manually.
 
 Run locally for development:
 
@@ -105,6 +120,12 @@ export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evao
 
 The plugin still sends fixed command keys. The connector converts those keys to
 fixed CLI argv lists and rejects unknown commands.
+
+Hermes and other shell-tool adapters should call
+`evaos-desktop-bridge-command`. The wrapper sources
+`/root/.openclaw/evaos-desktop-bridge.env` by default and returns structured
+connector JSON on stdout, including structured denials, so agents can see the
+reason a command was blocked.
 
 ## Safety Contract
 

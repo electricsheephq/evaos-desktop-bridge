@@ -144,7 +144,12 @@ Repair steps:
   when Settings includes an OpenDesign URL.
 - Desktop Bridge panel refreshes Desktop Bridge, Customer Mac, iPhone
   Mirroring, Codex Remote Control, Screen Sharing, capabilities, and audit tail
-  without exposing a generic command runner.
+  without exposing a generic command runner or raw bridge JSON as the primary
+  setup experience.
+- Agent Control Setup shows clean states for connector, permissions, pairing,
+  iPhone readiness, local smoke, and revoke.
+- Start Connector uses the Workbench-managed beta connector; LaunchAgent remains
+  a background/restart test path until stable helper signing is in place.
 
 ## Release Readiness
 
@@ -162,5 +167,10 @@ Before announcing a build:
 - OpenDesign configured route, if present, opens without a dashboard detour.
 - Connector status can be refreshed locally; paired-Mac control remains behind
   Headscale ACLs, connector tokens, and OpenClaw approval gates.
+- OpenClaw agent proof has run through the actual plugin/tool path, not only a
+  raw curl or local CLI call.
+- Hermes proof has run through the same connector command contract.
+- At least one cross-customer reachability check fails closed before customer
+  beta release.
 - Support-VM-only iPhone live controls are not enabled in customer builds unless
   a separate release explicitly sets `EVAOS_SUPPORT_CANARY_CONTROLS=1`.

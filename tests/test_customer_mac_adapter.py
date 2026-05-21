@@ -56,6 +56,22 @@ def test_iphone_open_app_blocks_sensitive_ios_apps_during_dry_run(monkeypatch, t
     assert_no_mutation_commands(observer.runner.commands)
 
 
+def test_status_reports_screen_recording_preflight(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+    )
+
+    result = observer.status()
+
+    assert result.ok is True
+    assert result.data["permissions"]["accessibility"]["status"] == "granted"
+    assert result.data["permissions"]["screen_recording"]["status"] == "granted"
+
+
 def test_iphone_tap_named_target_blocks_dangerous_labels_during_dry_run(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
     observer = CustomerMacObserver(

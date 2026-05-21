@@ -25,13 +25,18 @@ Live support proof on 2026-05-21 reached:
 
 Validated support VM commands:
 
-- `customerMacStatus` returned `ok:true` with Accessibility granted when the
-  connector was run from an interactive user context.
+- `customerMacStatus` returned `ok:true` with Accessibility and Screen Recording
+  granted after the connector was restarted on the updated bridge code.
 - `customerMacSnapshot` wrote a screenshot artifact under the local bridge
   state directory.
 - `customerMacIphoneMirroringFocus` dry-run returned an audit id; rerunning
   with `dry_run:false` and the matching `approval_audit_id` focused iPhone
   Mirroring.
+- The VM wrapper at `/usr/local/bin/evaos-desktop-bridge-command` sources
+  `/root/.openclaw/evaos-desktop-bridge.env` when needed, so direct Hermes-style
+  calls and OpenClaw service calls use the same connector URL/token contract.
+- Golden cross-customer proof: `golden` could not `tailscale ping` or TCP connect
+  to the support Mac connector at `100.64.0.4:8765`; `evaos-support` could.
 
 Open release blocker found:
 
@@ -40,6 +45,14 @@ Open release blocker found:
   grant as the interactive terminal/Codex-launched connector. For customer beta,
   either guide the user to approve the exact Python/app helper that launchd runs
   or move the connector into an app-owned helper with a stable TCC identity.
+- Workbench beta now prefers a Workbench-managed connector process for normal
+  setup. That path avoids the manual `screen` workaround and keeps the
+  permission target closer to the visible app. The LaunchAgent path remains for
+  background/restart testing and future packaged-helper work.
+- OpenClaw support-agent proof is blocked by the support VM's expired
+  `openai-codex` OAuth refresh. The plugin and connector path are installed, but
+  the real agent turn fails before tool execution until the support VM auth is
+  refreshed or a release-smoke model route is authorized.
 
 ## Boundary
 
@@ -71,7 +84,12 @@ EVAOS_SUPPORT_CANARY_CONTROLS=1 \
   evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 ```
 
-Workbench can also start the LaunchAgent-backed connector:
+Workbench can start the beta connector from the app. This is the recommended
+friendly beta path: open Workbench, use **Start Connector**, then grant
+Accessibility/Screen Recording to Workbench or the bridge helper macOS shows in
+Privacy & Security.
+
+Workbench can also test the LaunchAgent-backed connector:
 
 ```bash
 evaos-desktop-bridge connector-service start --json
@@ -80,7 +98,8 @@ evaos-desktop-bridge connector-service status --json
 
 Use the LaunchAgent path for service/restart testing. Use the interactive
 connector command above when validating live Accessibility-dependent actions
-until the app-owned helper/TCC identity is resolved.
+or the Workbench-managed connector for beta validation until the app-owned
+helper/TCC identity is fully productized.
 
 If the operator Mac is on a different tailnet than the support VM, keep the
 connector loopback-only and use a temporary SSH reverse tunnel from the Mac to

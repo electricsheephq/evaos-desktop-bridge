@@ -70,6 +70,19 @@ def check_accessibility_trusted() -> bool | None:
         return None
 
 
+def check_screen_recording_trusted() -> bool | None:
+    if platform.system() != "Darwin":
+        return None
+    try:
+        core_graphics = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+        )
+        core_graphics.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
+        return bool(core_graphics.CGPreflightScreenCaptureAccess())
+    except Exception:
+        return None
+
+
 class MacOSCodexObserver:
     AX_SNAPSHOT_SCRIPT = """
 import json
@@ -181,6 +194,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         state_dir: Path | None = None,
         platform_name: str | None = None,
         accessibility_checker: Callable[[], bool | None] = check_accessibility_trusted,
+        screen_recording_checker: Callable[[], bool | None] = check_screen_recording_trusted,
         now: Callable[[], str] = timestamp_utc,
     ) -> None:
         self.runner = runner
@@ -192,6 +206,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         self.state_dir = state_dir or default_state_dir()
         self.platform_name = platform_name or platform.system()
         self.accessibility_checker = accessibility_checker
+        self.screen_recording_checker = screen_recording_checker
         self.now = now
 
     def status(self) -> CommandResult:
@@ -215,10 +230,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 },
                 "permissions": {
                     "accessibility": accessibility,
-                    "screen_recording": {
-                        "status": "unknown",
-                        "guidance": SCREEN_RECORDING_GUIDANCE,
-                    },
+                    "screen_recording": self._permission_status("screen_recording"),
                 },
                 "safety": {
                     "read_only": True,
@@ -709,6 +721,14 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 return {"status": "granted", "guidance": ACCESSIBILITY_GUIDANCE}
             if trusted is False:
                 return {"status": "missing", "guidance": ACCESSIBILITY_GUIDANCE}
+            return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE}
+        if permission == "screen_recording":
+            trusted = self.screen_recording_checker()
+            if trusted is True:
+                return {"status": "granted", "guidance": SCREEN_RECORDING_GUIDANCE}
+            if trusted is False:
+                return {"status": "missing", "guidance": SCREEN_RECORDING_GUIDANCE}
+            return {"status": "unknown", "guidance": SCREEN_RECORDING_GUIDANCE}
         return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE}
 
     def _osascript_value(self, script: str) -> str | None:

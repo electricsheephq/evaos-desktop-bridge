@@ -70,6 +70,7 @@ final class WorkbenchModel: ObservableObject {
     private var resolver: RuntimeURLResolver
     private let bridge = BridgeCommandService()
     private let macControl = CustomerMacControlClient()
+    private let connectorProcess = WorkbenchConnectorProcessManager()
     private var fallbackReloadAttempts: [RuntimeKey: Int] = [:]
 
     init() {
@@ -343,29 +344,45 @@ final class WorkbenchModel: ObservableObject {
         isRefreshingBridgeStatus = true
         Task { @MainActor in
             defer { isRefreshingBridgeStatus = false }
-            bridgeStatusText = await bridge.run(arguments: ["status", "--json"])
-            connectorServiceText = await bridge.run(arguments: ["connector-service", "status", "--json"])
-            customerMacStatusText = await bridge.run(arguments: ["customer-mac", "status", "--json"])
-            iPhoneMirroringStatusText = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
-            screenSharingStatusText = await bridge.run(arguments: ["customer-mac", "screen-sharing", "status", "--json"])
-            codexRemoteControlStatusText = await bridge.run(arguments: ["codex", "app-server", "remote-control-status", "--json"])
-            bridgeCapabilitiesText = await bridge.run(arguments: ["capabilities", "--json"])
-            customerMacCapabilitiesText = await bridge.run(arguments: ["customer-mac", "capabilities", "--json"])
-            bridgeAuditText = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
+            let bridgeRaw = await bridge.run(arguments: ["status", "--json"])
+            let serviceRaw = await bridge.run(arguments: ["connector-service", "status", "--json"])
+            let macRaw = await bridge.run(arguments: ["customer-mac", "status", "--json"])
+            let iphoneRaw = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
+            let screenRaw = await bridge.run(arguments: ["customer-mac", "screen-sharing", "status", "--json"])
+            let codexRaw = await bridge.run(arguments: ["codex", "app-server", "remote-control-status", "--json"])
+            let bridgeCapsRaw = await bridge.run(arguments: ["capabilities", "--json"])
+            let macCapsRaw = await bridge.run(arguments: ["customer-mac", "capabilities", "--json"])
+            let auditRaw = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
+
+            bridgeStatusText = BridgeStatusFormatter.bridge(raw: bridgeRaw)
+            connectorServiceText = BridgeStatusFormatter.connector(raw: serviceRaw)
+            customerMacStatusText = BridgeStatusFormatter.customerMac(raw: macRaw)
+            iPhoneMirroringStatusText = BridgeStatusFormatter.iPhone(raw: iphoneRaw)
+            screenSharingStatusText = BridgeStatusFormatter.screenSharing(raw: screenRaw)
+            codexRemoteControlStatusText = BridgeStatusFormatter.codex(raw: codexRaw)
+            bridgeCapabilitiesText = BridgeStatusFormatter.capabilities(raw: bridgeCapsRaw, title: "Bridge")
+            customerMacCapabilitiesText = BridgeStatusFormatter.capabilities(raw: macCapsRaw, title: "Agent tools")
+            bridgeAuditText = BridgeStatusFormatter.audit(raw: auditRaw)
             await refreshMacPairing()
         }
     }
 
     func startConnectorService() {
         Task { @MainActor in
-            connectorServiceText = await bridge.run(arguments: ["connector-service", "start", "--json"])
+            connectorServiceText = await connectorProcess.start()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            let serviceRaw = await bridge.run(arguments: ["connector-service", "status", "--json"])
+            connectorServiceText = BridgeStatusFormatter.connector(raw: serviceRaw)
             refreshBridgeStatus()
         }
     }
 
     func stopConnectorService() {
         Task { @MainActor in
-            connectorServiceText = await bridge.run(arguments: ["connector-service", "stop", "--json"])
+            let appManagedStop = connectorProcess.stop()
+            _ = await bridge.run(arguments: ["connector-service", "stop", "--json"])
+            let serviceRaw = await bridge.run(arguments: ["connector-service", "status", "--json"])
+            connectorServiceText = "\(appManagedStop)\n\(BridgeStatusFormatter.connector(raw: serviceRaw))"
             refreshBridgeStatus()
         }
     }
@@ -407,7 +424,7 @@ final class WorkbenchModel: ObservableObject {
             defer { isPairingMac = false }
             do {
                 let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
-                connectorServiceText = service
+                connectorServiceText = BridgeStatusFormatter.connector(raw: service)
                 let connector = try Self.localConnectorEnrollmentContext(from: service)
                 _ = try await macControl.completeEnrollment(
                     enrollmentCode: enrollmentCode,
@@ -461,11 +478,20 @@ final class WorkbenchModel: ObservableObject {
             let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
             let localStatus = await bridge.run(arguments: ["customer-mac", "status", "--json"])
             let iphone = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
-            connectorServiceText = service
-            customerMacStatusText = localStatus
-            iPhoneMirroringStatusText = iphone
-            pairingText = "Local smoke finished. For VM proof, run evaos-support mac-connector smoke --targets \(sanitizedCustomerId)."
+            connectorServiceText = BridgeStatusFormatter.connector(raw: service)
+            customerMacStatusText = BridgeStatusFormatter.customerMac(raw: localStatus)
+            iPhoneMirroringStatusText = BridgeStatusFormatter.iPhone(raw: iphone)
+            let connectorReady = BridgeStatusFormatter.connectorReady(raw: service)
+            let macReady = BridgeStatusFormatter.customerMacReady(raw: localStatus)
+            let iphoneReady = BridgeStatusFormatter.iPhoneReady(raw: iphone)
+            pairingText = connectorReady && macReady && iphoneReady
+                ? "Test passed locally. Next proof: run support-control mac-connector smoke for \(sanitizedCustomerId)."
+                : "Test failed locally. Fix the connector or macOS permissions before VM agent proof."
         }
+    }
+
+    func stopManagedConnectorForAppTermination() {
+        _ = connectorProcess.stop()
     }
 
     func openAccessibilitySettings() {
@@ -977,5 +1003,322 @@ struct BridgeCommandService {
             return URL(fileURLWithPath: path)
         }
         return nil
+    }
+}
+
+@MainActor
+final class WorkbenchConnectorProcessManager {
+    private var process: Process?
+    private var logHandle: FileHandle?
+
+    func start() async -> String {
+        if let process, process.isRunning {
+            return "Starting connector: already running from Workbench."
+        }
+        guard let bridgeURL = Self.resolveBridgeExecutable() else {
+            return "Connector offline: install evaos-desktop-bridge before starting this Mac connector."
+        }
+
+        let host = await Self.tailnetIPv4() ?? "127.0.0.1"
+        let logURL = Self.logURL()
+        do {
+            try FileManager.default.createDirectory(
+                at: logURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: logURL.path) {
+                FileManager.default.createFile(atPath: logURL.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: logURL)
+            try handle.seekToEnd()
+
+            let next = Process()
+            next.executableURL = bridgeURL
+            next.arguments = ["serve", "--host", host, "--port", "8765"]
+            var environment = ProcessInfo.processInfo.environment
+            environment["EVAOS_DESKTOP_BRIDGE_MODE"] = "customer-mac-connector"
+            next.environment = environment
+            next.standardOutput = handle
+            next.standardError = handle
+            try next.run()
+            process = next
+            logHandle = handle
+            return "Starting connector on \(host):8765. Keep Workbench open during the beta."
+        } catch {
+            return "Connector failed to start: \(error.localizedDescription)"
+        }
+    }
+
+    func stop() -> String {
+        guard let process else {
+            return "Workbench-managed connector was not running."
+        }
+        if process.isRunning {
+            process.terminate()
+        }
+        self.process = nil
+        try? logHandle?.close()
+        logHandle = nil
+        return "Workbench-managed connector stopped."
+    }
+
+    deinit {
+        if let process, process.isRunning {
+            process.terminate()
+        }
+        try? logHandle?.close()
+    }
+
+    private static func resolveBridgeExecutable() -> URL? {
+        [
+            "/opt/homebrew/bin/evaos-desktop-bridge",
+            "/usr/local/bin/evaos-desktop-bridge"
+        ]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    private static func tailnetIPv4() async -> String? {
+        await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["tailscale", "ip", "-4"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+            do {
+                try process.run()
+            } catch {
+                return nil
+            }
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            return output
+                .split(separator: "\n")
+                .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                .first { $0.hasPrefix("100.") }
+        }.value
+    }
+
+    private static func logURL() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return base
+            .appendingPathComponent("evaos-desktop-bridge", isDirectory: true)
+            .appendingPathComponent("workbench-connector.log")
+    }
+}
+
+enum BridgeStatusFormatter {
+    static func rawLooksOK(_ raw: String) -> Bool {
+        guard let object = object(from: raw) else { return false }
+        if let ok = object["ok"] as? Bool {
+            return ok
+        }
+        if let status = object["status"] as? [String: Any], let ok = status["ok"] as? Bool {
+            return ok
+        }
+        return false
+    }
+
+    static func connectorReady(raw: String) -> Bool {
+        guard let object = object(from: raw) else { return false }
+        let status = (object["status"] as? [String: Any]) ?? object
+        let health = status["health"] as? [String: Any]
+        return status["ok"] as? Bool == true
+            && status["token_present"] as? Bool == true
+            && health?["reachable"] as? Bool == true
+    }
+
+    static func customerMacReady(raw: String) -> Bool {
+        guard let object = object(from: raw), object["ok"] as? Bool == true else { return false }
+        let accessibility = value(at: ["data", "permissions", "accessibility", "status"], in: object) as? String
+        let screenRecording = value(at: ["data", "permissions", "screen_recording", "status"], in: object) as? String
+        return accessibility == "granted" && screenRecording == "granted"
+    }
+
+    static func iPhoneReady(raw: String) -> Bool {
+        guard let object = object(from: raw), object["ok"] as? Bool == true else { return false }
+        let installed = value(at: ["data", "installed"], in: object) as? Bool
+        let running = value(at: ["data", "running"], in: object) as? Bool
+        return installed == true && running == true
+    }
+
+    static func bridge(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        if object["ok"] as? Bool == true {
+            let frontmost = value(at: ["data", "frontmost_app"], in: object) as? String
+            return compact(["Ready", frontmost.map { "Frontmost app: \($0)" }])
+        }
+        return errorSummary(object, fallback: "Bridge needs attention")
+    }
+
+    static func connector(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        let status = (object["status"] as? [String: Any]) ?? object
+        let ok = status["ok"] as? Bool == true
+        let health = status["health"] as? [String: Any]
+        let host = health?["host"] as? String
+        let port = health?["port"] as? Int
+        let managedBy = (status["managed_by"] as? String) ?? ((status["loaded"] as? Bool == true) ? "launchagent" : "workbench")
+        let permissionTarget = value(at: ["permission_target", "name"], in: status) as? String
+        let permissionPath = value(at: ["permission_target", "bridge_executable"], in: status) as? String
+        let pythonPath = value(at: ["permission_target", "python_executable"], in: status) as? String
+        let tokenPresent = status["token_present"] as? Bool == true
+        let reachable = health?["reachable"] as? Bool == true
+        let mode = managedBy == "launchagent" ? "Background helper" : reachable ? "Workbench-managed beta connector" : "Offline"
+        return compact([
+            ok ? "Ready" : "Needs attention",
+            "Mode: \(mode)",
+            (host != nil && port != nil) ? "Address: \(host!):\(port!)" : nil,
+            "Token: \(tokenPresent ? "ready" : "missing")",
+            permissionTarget.map { "Permission target: \($0)" },
+            permissionPath.map { "Bridge file: \($0)" },
+            pythonPath.map { "Python helper: \($0)" },
+            ok ? nil : firstGuidance(status)
+        ])
+    }
+
+    static func customerMac(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        guard object["ok"] as? Bool == true else { return errorSummary(object, fallback: "Customer Mac needs attention") }
+        let frontmost = value(at: ["data", "frontmost_app"], in: object) as? String
+        let accessibility = value(at: ["data", "permissions", "accessibility", "status"], in: object) as? String
+        let screenRecording = value(at: ["data", "permissions", "screen_recording", "status"], in: object) as? String
+        let iphoneRunning = value(at: ["data", "iphone_mirroring", "running"], in: object) as? Bool
+        let supportCanary = value(at: ["data", "safety", "support_canary_controls_enabled"], in: object) as? Bool
+        return compact([
+            customerMacReady(raw: raw) ? "Ready" : "Needs Permission",
+            frontmost.map { "Frontmost: \($0)" },
+            accessibility.map { "Accessibility: \($0)" },
+            screenRecording.map { "Screen Recording: \($0)" },
+            iphoneRunning.map { "iPhone Mirroring: \($0 ? "running" : "not running")" },
+            supportCanary.map { "Support canary controls: \($0 ? "enabled" : "disabled")" }
+        ])
+    }
+
+    static func iPhone(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        guard object["ok"] as? Bool == true else { return errorSummary(object, fallback: "iPhone Mirroring needs attention") }
+        let installed = value(at: ["data", "installed"], in: object) as? Bool
+        let running = value(at: ["data", "running"], in: object) as? Bool
+        let frontmost = value(at: ["data", "frontmost"], in: object) as? Bool
+        let supportEnabled = value(at: ["data", "support_canary", "enabled"], in: object) as? Bool
+        return compact([
+            iPhoneReady(raw: raw) ? "Ready" : "Needs iPhone Mirroring",
+            installed.map { "Installed: \($0 ? "yes" : "no")" },
+            running.map { "App: \($0 ? "running" : "not running")" },
+            frontmost.map { "Focused: \($0 ? "yes" : "no")" },
+            supportEnabled.map { "Support-only gestures: \($0 ? "enabled" : "disabled")" }
+        ])
+    }
+
+    static func screenSharing(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        guard object["ok"] as? Bool == true else { return errorSummary(object, fallback: "Screen Sharing status unavailable") }
+        let enabled = value(at: ["data", "enabled"], in: object) as? Bool
+        let vnc = value(at: ["data", "vnc_5900_listening"], in: object) as? Bool
+        return compact([
+            enabled == true ? "Available" : "Disabled",
+            vnc.map { "VNC listener: \($0 ? "present" : "not present")" },
+            "Status only; Workbench does not enable Screen Sharing."
+        ])
+    }
+
+    static func codex(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        let ok = object["ok"] as? Bool == true
+        let data = object["data"] as? [String: Any]
+        let available = data?["available"] as? Bool
+        let socket = data?["socket_path"] as? String
+        return compact([
+            ok ? "Checked" : "Needs attention",
+            available.map { "Native remote-control: \($0 ? "available" : "not available")" },
+            socket == nil ? nil : "Socket detected",
+            ok ? nil : errorSummary(object, fallback: "Codex readiness check failed")
+        ])
+    }
+
+    static func capabilities(raw: String, title: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        guard object["ok"] as? Bool == true else { return errorSummary(object, fallback: "\(title) capabilities unavailable") }
+        if let actions = value(at: ["data", "actions"], in: object) as? [String: Any] {
+            let groups = actions.keys.sorted().joined(separator: ", ")
+            return groups.isEmpty ? "\(title): ready" : "\(title): \(groups)"
+        }
+        if let commands = value(at: ["data", "commands"], in: object) as? [Any] {
+            return "\(title): \(commands.count) commands allowlisted"
+        }
+        return "\(title): ready"
+    }
+
+    static func audit(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        guard object["ok"] as? Bool == true else { return errorSummary(object, fallback: "Audit unavailable") }
+        let records = value(at: ["data", "records"], in: object) as? [[String: Any]] ?? []
+        guard !records.isEmpty else { return "No audit events yet." }
+        return records.prefix(6).map { record in
+            let command = record["command"] as? String ?? "unknown"
+            let ok = record["ok"] as? Bool == true ? "ok" : "failed"
+            let auditId = record["audit_id"] as? String ?? ""
+            return "\(ok) \(command) \(auditId)"
+        }.joined(separator: "\n")
+    }
+
+    private static func object(from raw: String) -> [String: Any]? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+        return object
+    }
+
+    private static func value(at path: [String], in object: [String: Any]) -> Any? {
+        var current: Any = object
+        for key in path {
+            guard let dict = current as? [String: Any], let next = dict[key] else {
+                return nil
+            }
+            current = next
+        }
+        return current
+    }
+
+    private static func errorSummary(_ object: [String: Any], fallback: String) -> String {
+        if let errors = object["errors"] as? [[String: Any]], let first = errors.first {
+            return compact([
+                fallback,
+                first["message"] as? String,
+                first["guidance"] as? String
+            ])
+        }
+        return compact([fallback, firstGuidance(object)])
+    }
+
+    private static func firstGuidance(_ object: [String: Any]) -> String? {
+        if let guidance = object["guidance"] as? [String] {
+            return guidance.first
+        }
+        return nil
+    }
+
+    private static func cleanFallback(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Not checked yet."
+        }
+        if trimmed.lowercased().contains("usage:") || trimmed.lowercased().contains("invalid choice") {
+            return "Check failed: the installed bridge CLI does not match this Workbench build."
+        }
+        return trimmed.count > 240 ? String(trimmed.prefix(240)) + "..." : trimmed
+    }
+
+    private static func compact(_ lines: [String?]) -> String {
+        lines.compactMap { line in
+            let trimmed = line?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }.joined(separator: "\n")
     }
 }

@@ -37,3 +37,26 @@ def test_customer_beta_keeps_bridge_status_only_boundary_documented() -> None:
     assert "does not\nexpose live local-control buttons" in readme
     assert "EVAOS_SUPPORT_CANARY_CONTROLS=1" in canary
     assert "Do not copy it into customer VM images or\nGolden provisioning" in canary
+
+
+def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector() -> None:
+    model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
+    bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
+    content_view = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "ContentView.swift").read_text(encoding="utf-8")
+
+    assert "WorkbenchConnectorProcessManager" in model
+    assert "BridgeStatusFormatter.connector(raw:" in model
+    assert "BridgeStatusFormatter.customerMac(raw:" in model
+    assert "BridgeStatusFormatter.customerMacReady(raw:" in model
+    assert "BridgeStatusFormatter.iPhoneReady(raw:" in model
+    assert "rawLooksOK(localStatus)" not in model
+    assert 'next.arguments = ["serve", "--host", host, "--port", "8765"]' in model
+    assert "deinit" in model
+    assert "stopManagedConnectorForAppTermination" in model
+    assert "NSApplication.willTerminateNotification" in content_view
+    assert "Bridge file:" in model
+    assert "Python helper:" in model
+    assert 'Text(status.isEmpty ? "Not checked yet." : status)' in bridge_panel
+    assert ".font(.callout)" in bridge_panel
+    assert ".lineLimit(10)" in bridge_panel
+    assert 'design: .monospaced' not in bridge_panel
