@@ -21,17 +21,17 @@ precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: true).con
 precondition(RuntimeDefinition.definition(for: .openDesign).availability == .enabled)
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 
-let trustedDownload = URL(string: "https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-0.1.3.zip")!
-let olderManifest = WorkbenchReleaseManifest(version: "0.1.2", build: "1", downloadURL: trustedDownload)
-let newerManifest = WorkbenchReleaseManifest(version: "0.1.4", build: "1", downloadURL: trustedDownload)
-let newerBuildManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "2", downloadURL: trustedDownload)
+let trustedDownload = URL(string: "https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-0.1.4.zip")!
+let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
+let newerManifest = WorkbenchReleaseManifest(version: "0.1.5", build: "1", downloadURL: trustedDownload)
+let newerBuildManifest = WorkbenchReleaseManifest(version: "0.1.4", build: "2", downloadURL: trustedDownload)
 precondition(!olderManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerBuildManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: AppBrand.defaultUpdateManifestURL)!))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(trustedDownload))
 precondition(!WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: "https://example.com/evaOS-Workbench-0.1.1.zip")!))
-try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
+try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.1.4", build: "1", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
@@ -59,6 +59,18 @@ precondition(targetsRequestJSON.contains("\"action\":\"list_customer_targets\"")
 let encodedRevoke = try JSONEncoder().encode(DesktopSessionRevokeRequest())
 let revokeJSON = try JSONSerialization.jsonObject(with: encodedRevoke) as? [String: String]
 precondition(revokeJSON?["action"] == "revoke_desktop_session")
+
+let encodedDeviceCodeClaim = try JSONEncoder().encode(DesktopDeviceCodeClaimRequest(deviceCode: "ABCD-EFGH-IJKL"))
+let deviceCodeClaimJSON = String(data: encodedDeviceCodeClaim, encoding: .utf8) ?? ""
+precondition(deviceCodeClaimJSON.contains("\"action\":\"claim_desktop_device_code\""))
+precondition(deviceCodeClaimJSON.contains("\"device_code\":\"ABCD-EFGH-IJKL\""))
+
+let deviceCodeResponse = """
+{"desktop_session":"eds_device","desktop_session_expires_at":"2026-05-20T10:48:51.123Z","email":"david@example.com"}
+""".data(using: .utf8)!
+let decodedDeviceCodeResponse = try EvaDesktopISO8601.decoder().decode(DesktopDeviceCodeClaimResponse.self, from: deviceCodeResponse)
+precondition(decodedDeviceCodeResponse.session.accessToken == "eds_device")
+precondition(decodedDeviceCodeResponse.session.userEmail == "david@example.com")
 
 let encodedPairing = try JSONEncoder().encode(CustomerMacActionRequest(action: "create_enrollment", customerId: "golden", deviceName: "Test Mac", screenSharingOptIn: false))
 let pairingJSON = String(data: encodedPairing, encoding: .utf8) ?? ""

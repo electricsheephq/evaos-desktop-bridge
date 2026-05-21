@@ -39,6 +39,9 @@ final class WorkbenchModel: ObservableObject {
     @Published var selectedRuntime: RuntimeKey = .openclaw
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
+    @Published var deviceCodeInput = ""
+    @Published var deviceCodeStatusText = "If the browser keeps spinning, copy the one-time code from the login page and enter it here."
+    @Published var isClaimingDeviceCode = false
     @Published var loadingRuntimes: Set<RuntimeKey> = []
     @Published var loadingRuntimePages: Set<RuntimeKey> = []
     @Published var runtimeURLs: [RuntimeKey: URL] = [:]
@@ -269,6 +272,7 @@ final class WorkbenchModel: ObservableObject {
     func signIn() {
         guard !isSigningIn else { return }
         isSigningIn = true
+        deviceCodeStatusText = "Opening ElectricSheep login..."
 
         Task {
             let coordinator = DesktopAuthCoordinator(dashboardBaseURL: resolver.dashboardBaseURL)
@@ -280,7 +284,38 @@ final class WorkbenchModel: ObservableObject {
                 await refreshCustomerTargets()
                 await loadRuntime(selectedRuntime, force: true)
             } catch {
+                deviceCodeStatusText = "Login did not complete. Use the one-time code from the browser page if it is still open."
                 runtimeErrors[selectedRuntime] = "Desktop sign-in failed or was cancelled: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func claimDeviceCode() {
+        let normalizedCode = deviceCodeInput
+            .uppercased()
+            .filter { $0.isLetter || $0.isNumber }
+        guard !normalizedCode.isEmpty else {
+            deviceCodeStatusText = "Enter the one-time code from the browser page."
+            return
+        }
+        guard !isClaimingDeviceCode else { return }
+
+        isClaimingDeviceCode = true
+        deviceCodeStatusText = "Checking code..."
+
+        Task { @MainActor in
+            defer { isClaimingDeviceCode = false }
+            do {
+                let newSession = try await broker.claimDeviceCode(normalizedCode)
+                try saveAuthenticatedSession(newSession)
+                deviceCodeInput = ""
+                deviceCodeStatusText = "Signed in."
+                await refreshCustomerTargets()
+                await loadRuntime(selectedRuntime, force: true)
+            } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+                deviceCodeStatusText = "That code expired or was already used. Generate a fresh code from the login page."
+            } catch {
+                deviceCodeStatusText = "Code sign-in failed: \(error.localizedDescription)"
             }
         }
     }
@@ -795,6 +830,9 @@ final class WorkbenchModel: ObservableObject {
         enrollmentCode = nil
         enrollmentExpiresAt = nil
         pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
+        deviceCodeInput = ""
+        deviceCodeStatusText = "If the browser keeps spinning, copy the one-time code from the login page and enter it here."
+        isClaimingDeviceCode = false
         webViews.reset()
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()
@@ -812,6 +850,9 @@ final class WorkbenchModel: ObservableObject {
         isOperatorSession = false
         customerTargetError = nil
         runtimeErrors.removeAll()
+        deviceCodeInput = ""
+        deviceCodeStatusText = "Signed in."
+        isClaimingDeviceCode = false
         webViews.reset()
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()

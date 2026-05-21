@@ -232,6 +232,32 @@ private struct RuntimeSignInView: View {
             .controlSize(.large)
             .disabled(model.isSigningIn)
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("One-time code")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    TextField("ABCD-EFGH-IJKL", text: $model.deviceCodeInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .onSubmit {
+                            model.claimDeviceCode()
+                        }
+
+                    Button(model.isClaimingDeviceCode ? "Checking..." : "Use Code") {
+                        model.claimDeviceCode()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isClaimingDeviceCode || model.deviceCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                Text(model.deviceCodeStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: 420)
+            .padding(14)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+
             Button {
                 model.resetLocalSession()
             } label: {

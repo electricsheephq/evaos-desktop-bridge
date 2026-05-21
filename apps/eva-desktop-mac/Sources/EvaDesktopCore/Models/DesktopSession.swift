@@ -134,6 +134,37 @@ public struct DesktopSessionRevokeRequest: Codable, Equatable, Sendable {
     }
 }
 
+public struct DesktopDeviceCodeClaimRequest: Codable, Equatable, Sendable {
+    public let action: String
+    public let deviceCode: String
+
+    public init(deviceCode: String) {
+        self.action = "claim_desktop_device_code"
+        self.deviceCode = deviceCode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case deviceCode = "device_code"
+    }
+}
+
+public struct DesktopDeviceCodeClaimResponse: Codable, Equatable, Sendable {
+    public let desktopSession: String
+    public let desktopSessionExpiresAt: Date
+    public let email: String?
+
+    public var session: DesktopSession {
+        DesktopSession(accessToken: desktopSession, userEmail: email, expiresAt: desktopSessionExpiresAt)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case desktopSession = "desktop_session"
+        case desktopSessionExpiresAt = "desktop_session_expires_at"
+        case email
+    }
+}
+
 public struct DesktopCustomerTarget: Codable, Equatable, Identifiable, Sendable {
     public let customerId: String
     public let displayName: String
