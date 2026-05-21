@@ -71,14 +71,14 @@ identity is used. Otherwise the script uses the first local Apple Development
 identity it can find, falling back to ad-hoc signing for local development.
 
 `./script/build_and_run.sh --package-beta` writes
-`dist/evaOS-Workbench-Beta-0.1.0.zip` with the `.app` and beta install notes. It
+`dist/evaOS-Workbench-Beta-0.1.1.zip` with the `.app` and beta install notes. It
 also writes `dist/updates.json`, the public update manifest the app checks on
 launch. That beta packaging path intentionally rejects Developer
 ID identities until the Apple approval/notarization path is ready.
 
 `./script/build_and_run.sh --package-release` requires a Developer ID
 Application identity, signs with the hardened runtime, writes
-`dist/evaOS-Workbench-0.1.0.zip`, and emits a `release` update manifest.
+`dist/evaOS-Workbench-0.1.1.zip`, and emits a `release` update manifest.
 `./script/build_and_run.sh --notarize-release` submits that zip to Apple,
 staples the accepted ticket, rebuilds the zip from the stapled app, and runs the
 Gatekeeper assessment.

@@ -88,7 +88,7 @@ swift run EvaDesktopCoreSmoke
 The beta artifact is:
 
 ```text
-apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.0.zip
+apps/eva-desktop-mac/dist/evaOS-Workbench-Beta-0.1.1.zip
 apps/eva-desktop-mac/dist/updates.json
 ```
 
@@ -148,7 +148,7 @@ For the Lovable dashboard deploy, copy those two files into the dashboard repo:
 
 ```bash
 mkdir -p public/evaos-workbench
-cp apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.0.zip \
+cp apps/eva-desktop-mac/dist/evaOS-Workbench-0.1.1.zip \
   /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/
 cp apps/eva-desktop-mac/dist/updates.json \
   /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/updates.json
