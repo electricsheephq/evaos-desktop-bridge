@@ -1060,12 +1060,17 @@ except Exception as exc:
                 str(peekaboo["path"]),
                 "see",
                 "--json",
+                "--mode",
+                "frontmost",
+                "--capture-engine",
+                "classic",
+                "--no-remote",
                 "--path",
                 str(screenshot_path),
                 "--timeout-seconds",
-                "60",
+                "30",
             ],
-            75.0,
+            40.0,
         )
         warnings = self._stderr_warning(result)
         if result.returncode != 0:
