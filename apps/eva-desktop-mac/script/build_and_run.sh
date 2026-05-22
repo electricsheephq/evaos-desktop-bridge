@@ -135,7 +135,21 @@ sign_app_bundle() {
   if [ -d "$APP_FRAMEWORKS/Sparkle.framework" ]; then
     codesign "${args[@]}" "$APP_FRAMEWORKS/Sparkle.framework"
   fi
+  sign_nested_bridge_binaries "${args[@]}"
   codesign --deep "${args[@]}" "$APP_BUNDLE"
+}
+
+sign_nested_bridge_binaries() {
+  local args=("$@")
+  local bridge_bin_dir="$APP_RESOURCES/Bridge/bin"
+  if [ ! -d "$bridge_bin_dir" ]; then
+    return
+  fi
+  while IFS= read -r binary; do
+    if file "$binary" | grep -q "Mach-O"; then
+      codesign "${args[@]}" "$binary"
+    fi
+  done < <(find "$bridge_bin_dir" -type f -perm +111)
 }
 
 copy_sparkle_framework() {
