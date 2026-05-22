@@ -145,9 +145,10 @@ Development signing for internal canaries or Developer ID signing for release.
 
 ## Agent Control
 
-Customer beta agents can use named Mac and iPhone tools once the customer pairs
-their Mac. Reads are available by default; live actions require a prior dry-run,
-human approval, and a matching approval audit id.
+Customer beta agents can use Mac and iPhone tools once the customer pairs their
+Mac. Full Access mode lets the active agent operate continuously until the user
+stops the session or hits the kill switch. Ask Permission mode keeps the same
+tool surface but prompts at high-impact boundaries.
 
 Allowed customer-facing controls include app focus, localhost/browser actions,
 iPhone Mirroring focus/Home/App Switcher/Spotlight/open-app/tap named target,

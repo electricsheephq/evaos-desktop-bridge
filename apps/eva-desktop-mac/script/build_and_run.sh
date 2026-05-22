@@ -7,8 +7,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.2.3"
-BUILD_NUMBER="5"
+VERSION="0.3.0"
+BUILD_NUMBER="6"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
 UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
 SPARKLE_APPCAST_URL="${EVA_DESKTOP_SPARKLE_APPCAST_URL:-https://www.electricsheephq.com/evaos-workbench/appcast.xml}"
@@ -338,9 +338,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Makes Mac pairing self-serve with a copyable agent setup prompt.</li>
-  <li>Adds pre-pairing OpenClaw and Hermes helpers for connector enrollment.</li>
-  <li>Improves stuck-login recovery with manual open and one-time-code fallbacks.</li>
+  <li>Adds Desktop Control Engine V2 with customer-granted Full Access and Ask Permission modes.</li>
+  <li>Expands OpenClaw and Hermes Mac/iPhone tools for screen, mouse, keyboard, browser, and iPhone Mirroring workflows.</li>
+  <li>Keeps private VM-to-Mac pairing, visible session state, audit logs, and the Workbench kill switch.</li>
 </ul>
 EOF
 
@@ -453,6 +453,23 @@ PY
   write_release_zip
   write_update_manifest "$RELEASE_ZIP" "release"
   write_sparkle_appcast
+  local final_artifact_sha
+  final_artifact_sha="$(shasum -a 256 "$RELEASE_ZIP" | awk '{print $1}')"
+  python3 - "$submission_id" "$final_artifact_sha" "$RELEASE_ZIP" "$VERSION" "$BUILD_NUMBER" "$NOTARY_TIMEOUT" > "$NOTARY_RELEASE_JSON" <<'PY'
+import json
+import pathlib
+import sys
+submission_id, artifact_sha, artifact, version, build, timeout = sys.argv[1:]
+print(json.dumps({
+    "submission_id": submission_id,
+    "artifact": str(pathlib.Path(artifact).resolve()),
+    "artifact_sha256": artifact_sha,
+    "version": version,
+    "build": build,
+    "notary_timeout": timeout,
+    "status": "accepted",
+}, indent=2))
+PY
   codesign --verify --deep --strict "$APP_BUNDLE"
   spctl --assess --type execute "$APP_BUNDLE"
   echo "Created notarized release artifact: $RELEASE_ZIP"
