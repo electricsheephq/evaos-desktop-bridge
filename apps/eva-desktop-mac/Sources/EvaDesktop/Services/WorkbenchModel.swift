@@ -1384,7 +1384,7 @@ struct BridgeCommandService {
         guard arguments.count == 8,
               arguments[0...3].elementsEqual(["customer-mac", "control", "start", "--json"]),
               arguments[4] == "--mode",
-              ["full_access", "ask_permission"].contains(arguments[5]),
+              ["full-access", "ask-permission"].contains(arguments[5]),
               arguments[6] == "--agent-label" else {
             return false
         }
