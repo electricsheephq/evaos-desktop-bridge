@@ -24,8 +24,8 @@ Read-only tools:
 - `customer_mac_status`: paired Mac, permission, iPhone Mirroring, and Screen Sharing readiness.
 - `customer_mac_capabilities`: supported customer Mac targets and forbidden actions.
 - `desktop_control_status`: current Full Access / Ask Permission session state.
-- `desktop_see`: desktop observation through Peekaboo or built-in screen/AX fallback.
-- `iphone_see`: iPhone Mirroring observation through the same visible Mac surface.
+- `desktop_see`: desktop observation through Peekaboo or built-in screen/AX fallback, with visual artifact metadata, screenshot bytes when small enough, element bounds, and a `snapshot_id`.
+- `iphone_see`: iPhone Mirroring observation through the same visible Mac surface, with the same visual artifact and element contract.
 - `customer_mac_snapshot`: safe screenshot path for the frontmost non-sensitive app.
 - `customer_mac_ax_tree`: capped Accessibility tree for the frontmost non-sensitive app.
 - `customer_mac_iphone_mirroring_status`: iPhone Mirroring readiness.
@@ -43,12 +43,12 @@ Guarded visible action:
 - `customer_mac_iphone_mirroring_app_switcher`: open App Switcher.
 - `customer_mac_iphone_mirroring_spotlight`: open Spotlight.
 - `customer_mac_iphone_mirroring_type_spotlight`: type short disposable/search text.
-- `customer_mac_iphone_mirroring_open_app`: open a non-sensitive app.
+- `customer_mac_iphone_mirroring_open_app`: open an app in iPhone Mirroring.
 - `customer_mac_iphone_mirroring_tap_named_target`: press an exact visible AX label.
 - `customer_mac_iphone_mirroring_scroll`: scroll by named direction.
 - `customer_mac_iphone_mirroring_swipe_left/right/up/down`: named gestures; no generic coordinates.
 - `customer_mac_iphone_mirroring_type_approved_text`: same-turn-approved text entry.
-- `customer_mac_iphone_mirroring_send_approved_message`: same-turn-approved message send with exact recipient/context and text.
+- `customer_mac_iphone_mirroring_send_approved_message`: visible message send through iPhone Mirroring. Full Access allows it continuously; Ask Permission gates it.
 
 Full-access computer-control tools:
 
@@ -57,6 +57,11 @@ Full-access computer-control tools:
   `desktop_hotkey`, `desktop_focus_app`, `desktop_window`, `desktop_menu`,
   `desktop_browser_action`
 - `iphone_tap`, `iphone_swipe`, `iphone_type`
+
+`desktop_click` and `iphone_tap` accept `snapshot_id` plus either `element_id`,
+`target_label`, or `x/y` coordinates. Prefer `element_id` from the latest
+`desktop_see` / `iphone_see` result; stale snapshots are rejected by the
+connector so the agent does not act on an old screen.
 
 No plugin tool exposes arbitrary Codex app-server RPCs, hidden shell, session
 database reads, Screen Sharing enablement, public VNC/SSH/CDP, or arbitrary
@@ -85,6 +90,13 @@ Workbench control session. Full Access permits continuous live actions. Ask
 Permission permits navigation actions and requires approval evidence only for
 risky clicks, taps, hotkeys, typing, sends, and other high-impact actions. The
 kill switch blocks future live commands.
+
+For visual commands, the OpenClaw wrapper materializes screenshot evidence under
+`/root/agent-files/downloads/desktop-bridge/` by default and removes inline
+base64 from the tool response after writing the file. If the screenshot is too
+large to inline, the wrapper fetches the short-lived connector artifact over the
+same authenticated `/v1/artifacts/...` route and writes that file instead. Set
+`EVAOS_DESKTOP_BRIDGE_ARTIFACT_DIR` to override the VM-side artifact path.
 
 ## Firewall Hook
 

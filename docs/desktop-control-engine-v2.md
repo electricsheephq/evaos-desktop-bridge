@@ -39,6 +39,10 @@ falls back to built-in macOS Accessibility, Quartz, and System Events for core
 actions. The fallback exists so customers can still use basic control while
 Peekaboo installation/packaging is being finalized.
 
+For `0.4.0`, release parity means Peekaboo is ready on the support/customer
+canary. The app bundle includes a `Bridge/bin/peekaboo` launcher and will use a
+bundled or Homebrew Peekaboo binary when present.
+
 ## Agent Tools
 
 OpenClaw exposes these first-class tools:
@@ -49,6 +53,12 @@ OpenClaw exposes these first-class tools:
   `desktop_drag`, `desktop_hotkey`, `desktop_focus_app`, `desktop_window`,
   `desktop_menu`, `desktop_browser_action`
 - `iphone_see`, `iphone_tap`, `iphone_swipe`, `iphone_type`
+
+`desktop_see` and `iphone_see` return Codex-style visual grounding:
+`snapshot_id`, screenshot metadata, short-lived connector artifact URL, image
+bytes when small enough, active app/window context, and clickable elements with
+labels and bounds. `desktop_click` and `iphone_tap` can target an `element_id`
+from that latest snapshot, a unique `target_label`, or explicit coordinates.
 
 Hermes should call the same connector command keys through its existing wrapper
 instead of creating a second backend.

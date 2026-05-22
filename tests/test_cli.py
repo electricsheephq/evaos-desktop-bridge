@@ -151,7 +151,7 @@ class FakeCustomerMac:
                 "permissions": {"accessibility": {"status": "granted"}, "screen_recording": {"status": "unknown"}},
                 "iphone_mirroring": {"installed": True, "running": True, "supported_actions": ["home", "spotlight"]},
                 "screen_sharing": {"enabled": self.mode == "screen_sharing_enabled", "bridge_can_enable": False},
-                "safety": {"named_actions_only": True, "generic_coordinates_blocked": True},
+                "safety": {"full_access_allows_coordinates": True, "kill_switch_available": True},
             },
         )
 
@@ -160,7 +160,7 @@ class FakeCustomerMac:
             ok=True,
             data={
                 "supported_targets": ["mac", "local_site", "iphone_mirroring", "screen_sharing_status"],
-                "forbidden": ["generic_remote_desktop_passthrough", "generic_coordinates"],
+                "forbidden": ["public_mac_ports", "hidden_shell", "credential_collection", "security_bypass"],
                 "approval_gates": {"screen_sharing_enablement": "explicit approval required"},
             },
         )
@@ -180,8 +180,8 @@ class FakeCustomerMac:
     def desktop_see(self, *, max_chars: int, max_nodes: int) -> CommandResult:
         return CommandResult(ok=True, data={"engine": "fallback", "frontmost_app": "Safari", "max_chars": max_chars, "max_nodes": max_nodes})
 
-    def desktop_click(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
-        return CommandResult(ok=True, data={"clicked": not dry_run, "would_click": dry_run, "target_label": target_label, "point": {"x": x, "y": y} if x is not None and y is not None else None})
+    def desktop_click(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, snapshot_id: str | None = None, element_id: str | None = None, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"clicked": not dry_run, "would_click": dry_run, "target_label": target_label, "snapshot_id": snapshot_id, "element_id": element_id, "point": {"x": x, "y": y} if x is not None and y is not None else None})
 
     def desktop_type(self, *, text: str, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"typed": not dry_run, "would_type": dry_run, "text_preview": text})
@@ -233,8 +233,8 @@ class FakeCustomerMac:
     def iphone_see(self, *, max_chars: int, max_nodes: int) -> CommandResult:
         return CommandResult(ok=True, data={"target": "iphone_mirroring", "max_chars": max_chars, "max_nodes": max_nodes})
 
-    def iphone_tap(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
-        return CommandResult(ok=True, data={"performed": not dry_run, "would_tap": dry_run, "target_label": target_label})
+    def iphone_tap(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, snapshot_id: str | None = None, element_id: str | None = None, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_tap": dry_run, "target_label": target_label, "snapshot_id": snapshot_id, "element_id": element_id})
 
     def iphone_swipe(self, *, direction: str, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "direction": direction})
@@ -481,7 +481,8 @@ def test_customer_mac_status_reports_device_and_safety(tmp_path: Path) -> None:
     assert payload["command"] == "customer_mac.status"
     assert payload["target"] == "customer_mac"
     assert payload["data"]["device"]["id"] == "mac-test"
-    assert payload["data"]["safety"]["generic_coordinates_blocked"] is True
+    assert payload["data"]["safety"]["full_access_allows_coordinates"] is True
+    assert payload["data"]["safety"]["kill_switch_available"] is True
 
 
 def test_customer_mac_capabilities_names_supported_surfaces(tmp_path: Path) -> None:
@@ -489,7 +490,7 @@ def test_customer_mac_capabilities_names_supported_surfaces(tmp_path: Path) -> N
 
     assert payload["_exit_code"] == 0
     assert "iphone_mirroring" in payload["data"]["supported_targets"]
-    assert "generic_coordinates" in payload["data"]["forbidden"]
+    assert "hidden_shell" in payload["data"]["forbidden"]
 
 
 def test_customer_mac_snapshot_is_latest_observation(tmp_path: Path) -> None:
@@ -650,6 +651,19 @@ def test_customer_mac_iphone_mirroring_send_approved_message_is_guarded(tmp_path
     assert approved["_exit_code"] == 0
     assert approved["data"]["action"] == "send_approved_message"
     assert approved["data"]["recipient_context"] == "Bumble canary profile"
+
+
+def test_full_access_allows_legacy_iphone_message_without_approval(tmp_path: Path) -> None:
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+
+    payload = run_cli(
+        ["customer-mac", "iphone-mirroring", "send-approved-message", "--json", "--text", "Hello", "--recipient-context", "Bumble canary profile"],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["action"] == "send_approved_message"
 
 
 def test_customer_mac_screen_sharing_status_cannot_enable(tmp_path: Path) -> None:

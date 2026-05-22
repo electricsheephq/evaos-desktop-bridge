@@ -231,6 +231,8 @@ function readOnlyTools(): ToolDefinition[] {
         additionalProperties: false,
         properties: {
           target_label: { type: "string", minLength: 1, maxLength: 200 },
+          snapshot_id: { type: "string", minLength: 1, maxLength: 120 },
+          element_id: { type: "string", minLength: 1, maxLength: 80 },
           x: { type: "integer" },
           y: { type: "integer" },
           dry_run: { type: "boolean", default: false },
@@ -453,6 +455,8 @@ function readOnlyTools(): ToolDefinition[] {
         additionalProperties: false,
         properties: {
           target_label: { type: "string", minLength: 1, maxLength: 200 },
+          snapshot_id: { type: "string", minLength: 1, maxLength: 120 },
+          element_id: { type: "string", minLength: 1, maxLength: 80 },
           x: { type: "integer" },
           y: { type: "integer" },
           dry_run: { type: "boolean", default: false },
@@ -615,7 +619,7 @@ function readOnlyTools(): ToolDefinition[] {
     ),
     tool(
       "customer_mac_iphone_mirroring_send_approved_message",
-      "Approval-gated named action: send one exact same-turn-approved message after recipient/context approval.",
+      "Full Access iPhone action: type and send one exact message through visible iPhone Mirroring; Ask Permission gates it.",
       "customerMacIphoneMirroringSendApprovedMessage",
       {
         type: "object",

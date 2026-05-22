@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const FIXED_COMMANDS = {
@@ -113,6 +115,8 @@ export function buildBridgeArgv(command, params = {}) {
             "desktop",
             "click",
             "--json",
+            ...optionalStringArg(params.snapshot_id, "--snapshot-id"),
+            ...optionalStringArg(params.element_id, "--element-id"),
             ...optionalStringArg(params.target_label, "--target-label"),
             ...optionalNumberArg(params.x, "--x"),
             ...optionalNumberArg(params.y, "--y"),
@@ -233,6 +237,8 @@ export function buildBridgeArgv(command, params = {}) {
             "iphone-mirroring",
             "tap",
             "--json",
+            ...optionalStringArg(params.snapshot_id, "--snapshot-id"),
+            ...optionalStringArg(params.element_id, "--element-id"),
             ...optionalStringArg(params.target_label, "--target-label"),
             ...optionalNumberArg(params.x, "--x"),
             ...optionalNumberArg(params.y, "--y"),
@@ -388,10 +394,10 @@ export async function runBridge(command, params = {}) {
     try {
         const { stdout } = await execFileAsync(bin, argv, {
             shell: false,
-            timeout: 10000,
-            maxBuffer: 1024 * 1024,
+            timeout: timeoutForCommand(command),
+            maxBuffer: 8 * 1024 * 1024,
         });
-        return JSON.parse(stdout);
+        return materializeVisualEvidence(command, JSON.parse(stdout));
     }
     catch (error) {
         const err = error;
@@ -488,7 +494,7 @@ async function runEnrollmentBridge(params) {
 async function runRemoteBridge(remoteURL, command, params) {
     const endpoint = new URL("/v1/commands", remoteURL);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), timeoutForCommand(command));
     const headers = {
         "Content-Type": "application/json",
     };
@@ -505,7 +511,7 @@ async function runRemoteBridge(remoteURL, command, params) {
         });
         const text = await response.text();
         try {
-            return JSON.parse(text);
+            return await materializeVisualEvidence(command, JSON.parse(text), remoteURL, headers.Authorization);
         }
         catch {
             return {
@@ -536,6 +542,160 @@ async function runRemoteBridge(remoteURL, command, params) {
     finally {
         clearTimeout(timeout);
     }
+}
+function timeoutForCommand(command) {
+    if (command === "desktopSee" || command === "iphoneSee" || command === "customerMacSnapshot" || command === "customerMacAxTree") {
+        return 30_000;
+    }
+    if (command === "desktopDrag" ||
+        command === "desktopScroll" ||
+        command === "iphoneSwipe" ||
+        command === "customerMacIphoneMirroringScroll" ||
+        command === "customerMacIphoneMirroringSwipeLeft" ||
+        command === "customerMacIphoneMirroringSwipeRight" ||
+        command === "customerMacIphoneMirroringSwipeUp" ||
+        command === "customerMacIphoneMirroringSwipeDown") {
+        return 20_000;
+    }
+    if (command === "desktopMenu" ||
+        command === "desktopWindow" ||
+        command === "desktopBrowserAction" ||
+        command === "desktopFocusApp" ||
+        command === "customerMacIphoneMirroringOpenApp") {
+        return 20_000;
+    }
+    if (command === "desktopClick" ||
+        command === "desktopType" ||
+        command === "desktopHotkey" ||
+        command === "iphoneTap" ||
+        command === "iphoneType" ||
+        command === "customerMacIphoneMirroringTypeApprovedText" ||
+        command === "customerMacIphoneMirroringSendApprovedMessage") {
+        return 15_000;
+    }
+    return 10_000;
+}
+async function materializeVisualEvidence(command, payload, remoteURL, authHeader) {
+    if (!isRecord(payload)) {
+        return payload;
+    }
+    const data = payload.data;
+    if (!isRecord(data)) {
+        return payload;
+    }
+    const image = findVisualImage(data);
+    if (!image) {
+        return payload;
+    }
+    let imageBytes;
+    let materializedFrom = "inline";
+    if (typeof image.bytes_base64 === "string") {
+        imageBytes = Buffer.from(image.bytes_base64, "base64");
+    }
+    else if (typeof image.artifact_url === "string" && remoteURL) {
+        const fetched = await fetchVisualArtifact(remoteURL, image.artifact_url, authHeader);
+        if (!fetched.ok) {
+            const warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+            warnings.push(fetched.warning);
+            payload.warnings = warnings;
+            return payload;
+        }
+        imageBytes = fetched.bytes;
+        materializedFrom = "connector_artifact";
+    }
+    else {
+        return payload;
+    }
+    const snapshotId = (typeof data.snapshot_id === "string" && data.snapshot_id) ||
+        (isRecord(data.screenshot) && typeof data.screenshot.snapshot_id === "string" && data.screenshot.snapshot_id) ||
+        (typeof image.artifact_id === "string" && image.artifact_id) ||
+        (typeof payload.audit_id === "string" && payload.audit_id) ||
+        command;
+    const artifactDir = process.env.EVAOS_DESKTOP_BRIDGE_ARTIFACT_DIR || "/root/agent-files/downloads/desktop-bridge";
+    const safeName = snapshotId.replace(/[^A-Za-z0-9_.-]+/g, "-").slice(0, 160);
+    const artifactPath = path.join(artifactDir, `${safeName}.png`);
+    try {
+        await mkdir(artifactDir, { recursive: true });
+        await writeFile(artifactPath, imageBytes);
+        image.vm_artifact_path = artifactPath;
+        image.bytes_base64_present = true;
+        image.vm_artifact_source = materializedFrom;
+        delete image.bytes_base64;
+        data.vm_visual_artifact_path = artifactPath;
+    }
+    catch (error) {
+        const warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+        warnings.push(`Unable to write VM visual artifact: ${error.message || "unknown error"}`);
+        payload.warnings = warnings;
+    }
+    return payload;
+}
+function findVisualImage(data) {
+    const direct = data.image;
+    if (isRecord(direct) && hasImageMaterial(direct)) {
+        return direct;
+    }
+    const screenshot = data.screenshot;
+    if (isRecord(screenshot)) {
+        const screenshotRecord = screenshot;
+        if (hasImageMaterial(screenshotRecord)) {
+            return screenshotRecord;
+        }
+        const screenshotImage = screenshotRecord.screenshot;
+        if (isRecord(screenshotImage) && hasImageMaterial(screenshotImage)) {
+            return screenshotImage;
+        }
+        const image = screenshotRecord.image;
+        if (isRecord(image) && hasImageMaterial(image)) {
+            return image;
+        }
+    }
+    return undefined;
+}
+function hasImageMaterial(value) {
+    return typeof value.bytes_base64 === "string" || typeof value.artifact_url === "string";
+}
+async function fetchVisualArtifact(remoteURL, artifactURL, authHeader) {
+    let endpoint;
+    try {
+        endpoint = new URL(artifactURL, remoteURL);
+    }
+    catch {
+        return { ok: false, warning: "Unable to fetch VM visual artifact: connector returned an invalid artifact URL" };
+    }
+    const base = new URL(remoteURL);
+    if (endpoint.origin !== base.origin || !endpoint.pathname.startsWith("/v1/artifacts/")) {
+        return { ok: false, warning: "Unable to fetch VM visual artifact: connector artifact URL was outside the paired connector" };
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+        const headers = {};
+        if (authHeader) {
+            headers.Authorization = authHeader;
+        }
+        const response = await fetch(endpoint, {
+            method: "GET",
+            headers,
+            signal: controller.signal,
+        });
+        if (!response.ok) {
+            return { ok: false, warning: `Unable to fetch VM visual artifact: connector returned HTTP ${response.status}` };
+        }
+        return { ok: true, bytes: Buffer.from(await response.arrayBuffer()) };
+    }
+    catch (error) {
+        return {
+            ok: false,
+            warning: `Unable to fetch VM visual artifact: ${error.message || "unknown error"}`,
+        };
+    }
+    finally {
+        clearTimeout(timeout);
+    }
+}
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function validateEnrollmentConnectorURL(rawURL) {
     let parsed;

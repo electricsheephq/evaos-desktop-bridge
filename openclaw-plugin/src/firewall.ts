@@ -22,23 +22,12 @@ type HookDecision =
     };
 
 const SAFE_TOOL_PREFIXES = ["desktop_bridge_", "customer_mac_", "desktop_", "iphone_"];
-const FULL_ACCESS_TOOL_PREFIXES = ["desktop_", "iphone_"];
+const FULL_ACCESS_TOOL_PREFIXES = ["desktop_", "iphone_", "customer_mac_iphone_mirroring_"];
 const APPROVAL_GATED_TOOL_PREFIXES = [
   "desktop_bridge_codex_select_thread",
   "desktop_bridge_codex_continue_thread",
   "customer_mac_app_focus",
   "customer_mac_local_site_",
-  "customer_mac_iphone_mirroring_focus",
-  "customer_mac_iphone_mirroring_home",
-  "customer_mac_iphone_mirroring_app_switcher",
-  "customer_mac_iphone_mirroring_spotlight",
-  "customer_mac_iphone_mirroring_type_spotlight",
-  "customer_mac_iphone_mirroring_open_app",
-  "customer_mac_iphone_mirroring_tap_named_target",
-  "customer_mac_iphone_mirroring_scroll",
-  "customer_mac_iphone_mirroring_swipe_",
-  "customer_mac_iphone_mirroring_type_approved_text",
-  "customer_mac_iphone_mirroring_send_approved_message",
 ];
 
 const IPHONE_GESTURE_TOOL_NAMES = new Set([

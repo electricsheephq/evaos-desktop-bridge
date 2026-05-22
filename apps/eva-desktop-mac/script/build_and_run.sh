@@ -7,8 +7,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.3.3"
-BUILD_NUMBER="9"
+VERSION="0.4.0"
+BUILD_NUMBER="10"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
 UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
 SPARKLE_APPCAST_URL="${EVA_DESKTOP_SPARKLE_APPCAST_URL:-https://www.electricsheephq.com/evaos-workbench/appcast.xml}"
@@ -153,10 +153,12 @@ copy_sparkle_framework() {
 copy_bridge_helper() {
   local bridge_dir="$APP_RESOURCES/Bridge"
   local bridge_script="$bridge_dir/evaos-desktop-bridge"
+  local bridge_bin_dir="$bridge_dir/bin"
 
   rm -rf "$bridge_dir"
-  mkdir -p "$bridge_dir/src"
+  mkdir -p "$bridge_dir/src" "$bridge_bin_dir"
   cp -R "$REPO_ROOT/src/evaos_desktop_bridge" "$bridge_dir/src/"
+  copy_peekaboo_helper "$bridge_bin_dir"
   cat > "$bridge_script" <<'EOF'
 #!/bin/sh
 set -eu
@@ -181,11 +183,45 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 export PYTHONPATH="$BRIDGE_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+export PATH="$BRIDGE_DIR/bin:$PATH"
 export PYTHONDONTWRITEBYTECODE=1
 exec "$PYTHON_BIN" -m evaos_desktop_bridge.cli "$@"
 EOF
   find "$bridge_dir" -name "__pycache__" -type d -prune -exec rm -rf {} +
   chmod +x "$bridge_script"
+}
+
+copy_peekaboo_helper() {
+  local bridge_bin_dir="$1"
+  local peekaboo_source="${EVAOS_PEEKABOO_BIN:-}"
+  if [ -z "$peekaboo_source" ]; then
+    peekaboo_source="$(command -v peekaboo 2>/dev/null || true)"
+  fi
+  if [ -z "$peekaboo_source" ]; then
+    for candidate in /opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo; do
+      if [ -x "$candidate" ]; then
+        peekaboo_source="$candidate"
+        break
+      fi
+    done
+  fi
+  if [ -n "$peekaboo_source" ] && [ -x "$peekaboo_source" ]; then
+    cp "$peekaboo_source" "$bridge_bin_dir/peekaboo"
+    chmod +x "$bridge_bin_dir/peekaboo"
+  else
+    cat > "$bridge_bin_dir/peekaboo" <<'EOF'
+#!/bin/sh
+set -eu
+for candidate in /opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    exec "$candidate" "$@"
+  fi
+done
+echo "peekaboo not installed. Install with: brew install steipete/tap/peekaboo" >&2
+exit 127
+EOF
+    chmod +x "$bridge_bin_dir/peekaboo"
+  fi
 }
 
 ensure_app_rpaths() {

@@ -447,7 +447,7 @@ struct BridgePanelView: View {
 
     private var agentControlDetail: String {
         if isUnchecked(model.controlSessionText) {
-            return "Start a visible session when you want your paired agent to operate this Mac or iPhone Mirroring."
+            return "Your agent can control this Mac and iPhone until you stop it."
         }
         return shortStatus(model.controlSessionText, unchecked: "Start a visible agent control session.")
     }

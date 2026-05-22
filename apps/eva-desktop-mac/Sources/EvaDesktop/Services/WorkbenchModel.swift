@@ -1649,7 +1649,7 @@ enum BridgeStatusFormatter {
             installed.map { "Installed: \($0 ? "yes" : "no")" },
             running.map { "App: \($0 ? "running" : "not running")" },
             frontmost.map { "Focused: \($0 ? "yes" : "no")" },
-            guardedActions.map { "Agent controls: \($0.count) approval-gated actions" }
+            guardedActions.map { "Agent controls: \($0.count) visible actions" }
         ])
     }
 
