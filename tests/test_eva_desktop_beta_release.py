@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.3.1"' in script
-    assert 'BUILD_NUMBER="7"' in script
-    assert 'version = "0.3.1"' in app_brand
-    assert 'buildNumber = "7"' in app_brand
+    assert 'VERSION="0.3.2"' in script
+    assert 'BUILD_NUMBER="8"' in script
+    assert 'version = "0.3.2"' in app_brand
+    assert 'buildNumber = "8"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -104,8 +104,8 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "customer-mac\", \"control\", \"status\", \"--json" in model
     assert "customer-mac\", \"control\", \"stop\", \"--json" in model
     assert "customer-mac\", \"control\", \"kill-switch\", \"--json" in model
-    assert "full_access" in model
-    assert "ask_permission" in model
+    assert "full-access" in model
+    assert "ask-permission" in model
 
 
 def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
