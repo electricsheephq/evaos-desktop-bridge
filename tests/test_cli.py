@@ -734,6 +734,17 @@ def test_connector_start_autoinstalls_user_launchagent(monkeypatch, tmp_path: Pa
     assert ["kickstart", "-k", "gui/501/com.electricsheep.evaos-desktop-bridge"] in launchctl_calls
 
 
+def test_connector_program_path_prefers_packaged_executable(monkeypatch, tmp_path: Path) -> None:
+    packaged_bridge = tmp_path / "evaOS.app" / "Contents" / "Resources" / "Bridge" / "evaos-desktop-bridge"
+    packaged_bridge.parent.mkdir(parents=True)
+    packaged_bridge.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(bridge_cli.sys, "argv", [str(packaged_bridge)])
+    monkeypatch.setattr(bridge_cli.shutil, "which", lambda name: "/opt/homebrew/bin/evaos-desktop-bridge")
+
+    assert bridge_cli._connector_program_path() == str(packaged_bridge)
+
+
 def test_connector_start_host_can_be_overridden(monkeypatch, tmp_path: Path) -> None:
     plist_path = tmp_path / "agent.plist"
 
