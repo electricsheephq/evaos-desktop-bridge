@@ -398,7 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     desktop_window_parser = desktop_subparsers.add_parser("window", help="Perform a named window action.")
     desktop_window_parser.add_argument("--json", action="store_true", help="Emit JSON.")
-    desktop_window_parser.add_argument("--action", choices=["focus", "minimize", "zoom", "close"], required=True, help="Window action.")
+    desktop_window_parser.add_argument("--action", choices=["focus", "minimize", "maximize", "zoom", "close"], required=True, help="Window action.")
     desktop_window_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
     desktop_window_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
     desktop_window_parser.set_defaults(command_id="customer_mac.desktop_window", target="customer_mac")

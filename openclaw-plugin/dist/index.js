@@ -211,12 +211,12 @@ function readOnlyTools() {
                 approval_audit_id: approvalAuditIdProperty,
             },
         }),
-        tool("desktop_window", "Perform a focused-window action: focus, minimize, zoom, or close.", "desktopWindow", {
+        tool("desktop_window", "Perform a focused-window action: focus, minimize, maximize, or close.", "desktopWindow", {
             type: "object",
             additionalProperties: false,
             required: ["action"],
             properties: {
-                action: { type: "string", enum: ["focus", "minimize", "zoom", "close"] },
+                action: { type: "string", enum: ["focus", "minimize", "maximize", "zoom", "close"] },
                 dry_run: { type: "boolean", default: false },
                 approval_audit_id: approvalAuditIdProperty,
             },

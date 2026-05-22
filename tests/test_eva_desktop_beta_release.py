@@ -12,10 +12,15 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.4.9"' in script
-    assert 'BUILD_NUMBER="19"' in script
-    assert 'version = "0.4.9"' in app_brand
-    assert 'buildNumber = "19"' in app_brand
+    assert 'VERSION="0.4.10"' in script
+    assert 'BUILD_NUMBER="20"' in script
+    assert 'version = "0.4.10"' in app_brand
+    assert 'buildNumber = "20"' in app_brand
+    assert 'REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2}"' in script
+    assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"' in script
+    assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-0}"' in script
+    assert "REQUIRED_PEEKABOO_VERSION_RE" in script
+    assert 'grep -Eq "$REQUIRED_PEEKABOO_VERSION_RE"' in script
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -101,6 +106,10 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "copy_bridge_helper" in script
     assert 'cp -R "$REPO_ROOT/src/evaos_desktop_bridge" "$bridge_dir/src/"' in script
     assert "copy_peekaboo_helper" in script
+    assert "Local Peekaboo:" in script
+    assert "Bundled Peekaboo:" in script
+    assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
+    assert "verification skipped for local mode" in script
     assert 'export PATH="$BRIDGE_DIR/bin:$PATH"' in script
     assert "/opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo" in script
     assert "/usr/local/bin/peekaboo peekaboo" not in script

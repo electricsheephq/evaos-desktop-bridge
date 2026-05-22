@@ -2,13 +2,23 @@
 set -euo pipefail
 
 MODE="${1:-run}"
+case "$MODE" in
+  --package-beta|package-beta|--package-release|package-release|--notarize-release|notarize-release|--verify|verify)
+    STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"
+    ;;
+  *)
+    STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-0}"
+    ;;
+esac
 APP_EXECUTABLE_NAME="EvaDesktop"
 APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.4.9"
-BUILD_NUMBER="19"
+VERSION="0.4.10"
+BUILD_NUMBER="20"
+REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2}"
+REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-(^|[^0-9.])${REQUIRED_PEEKABOO_VERSION//./\\.}([^0-9.]|$)}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
 UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
 SPARKLE_APPCAST_URL="${EVA_DESKTOP_SPARKLE_APPCAST_URL:-https://www.electricsheephq.com/evaos-workbench/appcast.xml}"
@@ -220,6 +230,17 @@ copy_peekaboo_helper() {
     done
   fi
   if [ -n "$peekaboo_source" ] && [ -x "$peekaboo_source" ]; then
+    local local_peekaboo_version
+    local_peekaboo_version="$("$peekaboo_source" --version 2>&1 || true)"
+    echo "Local Peekaboo: $local_peekaboo_version"
+    if ! printf '%s' "$local_peekaboo_version" | grep -Eq "$REQUIRED_PEEKABOO_VERSION_RE"; then
+      if [ "$STRICT_PEEKABOO_CHECK" != "1" ]; then
+        echo "Warning: Peekaboo $REQUIRED_PEEKABOO_VERSION is recommended for this release; found: $local_peekaboo_version" >&2
+      else
+        echo "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release; found: $local_peekaboo_version" >&2
+        exit 2
+      fi
+    fi
     cp "$peekaboo_source" "$bridge_bin_dir/peekaboo"
     chmod +x "$bridge_bin_dir/peekaboo"
   else
@@ -235,6 +256,17 @@ echo "peekaboo not installed. Install with: brew install steipete/tap/peekaboo" 
 exit 127
 EOF
     chmod +x "$bridge_bin_dir/peekaboo"
+  fi
+  local bundled_peekaboo_version
+  bundled_peekaboo_version="$("$bridge_bin_dir/peekaboo" --version 2>&1 || true)"
+  echo "Bundled Peekaboo: $bundled_peekaboo_version"
+  if ! printf '%s' "$bundled_peekaboo_version" | grep -Eq "$REQUIRED_PEEKABOO_VERSION_RE"; then
+    if [ "$STRICT_PEEKABOO_CHECK" != "1" ]; then
+      echo "Warning: bundled Peekaboo $REQUIRED_PEEKABOO_VERSION verification skipped for local mode; found: $bundled_peekaboo_version" >&2
+      return
+    fi
+    echo "Bundled Peekaboo $REQUIRED_PEEKABOO_VERSION verification failed; found: $bundled_peekaboo_version" >&2
+    exit 2
   fi
 }
 
@@ -428,9 +460,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds Desktop Control Engine V2 with customer-granted Full Access and Ask Permission modes.</li>
-  <li>Expands OpenClaw and Hermes Mac/iPhone tools for screen, mouse, keyboard, browser, and iPhone Mirroring workflows.</li>
-  <li>Keeps private VM-to-Mac pairing, visible session state, audit logs, and the Workbench kill switch.</li>
+  <li>Upgrades the bundled Peekaboo helper to $REQUIRED_PEEKABOO_VERSION.</li>
+  <li>Uses native Peekaboo click, drag, swipe, menu, window, and browser-open paths before fallback.</li>
+  <li>Keeps the tailnet connector bind fix, private VM-to-Mac pairing, audit logs, and the Workbench kill switch.</li>
 </ul>
 EOF
 

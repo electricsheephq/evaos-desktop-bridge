@@ -110,6 +110,10 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
 
     assert "Full Access iPhone action: type and send one exact message" in dist
     assert "Support-only canary action" not in dist
+    assert "focus, minimize, maximize, or close" in source
+    assert "focus, minimize, maximize, or close" in dist
+    assert 'enum: ["focus", "minimize", "maximize", "zoom", "close"]' in dist
+    assert "focus, minimize, zoom, or close" not in dist
 
 
 def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
