@@ -411,6 +411,12 @@ def test_desktop_see_prefers_peekaboo_json_without_python_tcc_fallback(monkeypat
     assert result.data["screenshot"]["screenshot"]["width"] == 800
     assert result.data["elements"][0]["element_id"] == "elem_123"
     assert click.data["point"] == {"x": 60, "y": 40}
+    see_command = next(command for command in commands if command[:2] == ("/test/peekaboo", "see"))
+    assert "--mode" in see_command
+    assert see_command[see_command.index("--mode") + 1] == "frontmost"
+    assert "--capture-engine" in see_command
+    assert see_command[see_command.index("--capture-engine") + 1] == "classic"
+    assert "--no-remote" in see_command
     assert not any(command and command[0] == sys.executable for command in commands)
     assert not any(command and command[0] == "screencapture" for command in commands)
 

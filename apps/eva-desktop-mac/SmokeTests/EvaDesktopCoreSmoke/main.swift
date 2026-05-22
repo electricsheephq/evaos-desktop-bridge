@@ -22,17 +22,17 @@ precondition(RuntimeDefinition.definition(for: .openDesign).availability == .ena
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 precondition(RuntimeDefinition.definition(for: .liveBrowser).title == "Shared Browser")
 
-let trustedDownload = URL(string: "https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-0.4.5.zip")!
+let trustedDownload = URL(string: "https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-0.4.6.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
-let newerManifest = WorkbenchReleaseManifest(version: "0.4.6", build: "1", downloadURL: trustedDownload)
-let newerBuildManifest = WorkbenchReleaseManifest(version: "0.4.5", build: "16", downloadURL: trustedDownload)
+let newerManifest = WorkbenchReleaseManifest(version: "0.4.7", build: "1", downloadURL: trustedDownload)
+let newerBuildManifest = WorkbenchReleaseManifest(version: "0.4.6", build: "17", downloadURL: trustedDownload)
 precondition(!olderManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerBuildManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: AppBrand.defaultUpdateManifestURL)!))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(trustedDownload))
 precondition(!WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: "https://example.com/evaOS-Workbench-0.1.1.zip")!))
-try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.4.5", build: "15", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
+try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.4.6", build: "16", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
