@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.3.2"' in script
-    assert 'BUILD_NUMBER="8"' in script
-    assert 'version = "0.3.2"' in app_brand
-    assert 'buildNumber = "8"' in app_brand
+    assert 'VERSION="0.3.3"' in script
+    assert 'BUILD_NUMBER="9"' in script
+    assert 'version = "0.3.3"' in app_brand
+    assert 'buildNumber = "9"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script

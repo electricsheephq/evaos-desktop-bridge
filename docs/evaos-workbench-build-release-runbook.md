@@ -19,12 +19,14 @@ For release execution, use the shorter gate checklist in
 ## Current Customer Release Target
 
 Workbench `0.3.0` / build `6` introduced Desktop Control Engine V2. Workbench
-`0.3.2` / build `8` is the first releasable V2 build because it bundles the
-matching bridge helper inside the app and uses the CLI's hyphenated
-`full-access` / `ask-permission` mode values from the Agent Control buttons.
-Earlier `0.3.0` builds could rely on a stale global bridge helper, and `0.3.1`
+`0.3.3` / build `9` is the current V2 release candidate because it bundles the
+matching bridge helper inside the app, uses the CLI's hyphenated
+`full-access` / `ask-permission` mode values from the Agent Control buttons,
+and blocks remote connector commands after the local kill switch is activated.
+Earlier `0.3.0` builds could rely on a stale global bridge helper, `0.3.1`
 fixed that bundle issue but still blocked Full Access at the app command
-allowlist.
+allowlist, and `0.3.2` exposed the V2 tool path but allowed read commands such
+as `desktop_see` after kill switch.
 
 The release keeps the `0.2.3` self-serve pairing and stuck-login recovery, then
 adds customer-granted Full Access and Ask Permission control sessions for paired
