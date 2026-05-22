@@ -310,6 +310,110 @@ def test_desktop_see_returns_snapshot_artifact_and_clickable_elements(monkeypatc
     assert click.data["point"] == {"x": 60, "y": 40}
 
 
+def test_desktop_see_prefers_peekaboo_json_without_python_tcc_fallback(monkeypatch, tmp_path: Path) -> None:
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + (800).to_bytes(4, "big") + (600).to_bytes(4, "big") + b"payload"
+    commands: list[tuple[str, ...]] = []
+
+    def runner(command: list[str], timeout: float = 5.0) -> RunnerResult:
+        key = tuple(command)
+        commands.append(key)
+        if key == ("/test/peekaboo", "--version"):
+            return RunnerResult(returncode=0, stdout="Peekaboo 3.2.1\n", stderr="")
+        if key[:2] == ("/test/peekaboo", "see"):
+            screenshot_path = Path(command[command.index("--path") + 1])
+            screenshot_path.write_bytes(png)
+            return RunnerResult(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "success": True,
+                        "data": {
+                            "snapshot_id": "PEEKABOO-SNAPSHOT",
+                            "application_name": "Safari",
+                            "window_title": "Example",
+                            "screenshot_raw": str(screenshot_path),
+                            "capture_mode": "frontmost",
+                            "element_count": 1,
+                            "interactable_count": 1,
+                            "ui_elements": [
+                                {
+                                    "id": "elem_123",
+                                    "role": "button",
+                                    "label": "Continue",
+                                    "bounds": {"x": 10, "y": 20, "width": 100, "height": 40},
+                                    "is_actionable": True,
+                                }
+                            ],
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        if key == (
+            "osascript",
+            "-e",
+            'tell application "System Events" to get name of first application process whose frontmost is true',
+        ):
+            return RunnerResult(returncode=0, stdout="Safari\n", stderr="")
+        return RunnerResult(returncode=1, stdout="", stderr="")
+
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
+
+    result = observer.desktop_see(max_nodes=10)
+    click = observer.desktop_click(snapshot_id=result.data["snapshot_id"], element_id="elem_123", dry_run=True)
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert result.data["snapshot_id"].startswith("snap-desktop-")
+    assert result.data["screenshot"]["screenshot"]["width"] == 800
+    assert result.data["elements"][0]["element_id"] == "elem_123"
+    assert click.data["point"] == {"x": 60, "y": 40}
+    assert not any(command and command[0] == sys.executable for command in commands)
+    assert not any(command and command[0] == "screencapture" for command in commands)
+
+
+def test_status_prefers_peekaboo_bridge_permissions_over_python_probe(monkeypatch, tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.1\n", stderr=""),
+            (
+                "/test/peekaboo",
+                "list",
+                "permissions",
+                "--json",
+            ): RunnerResult(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "success": True,
+                        "data": {
+                            "permissions": [
+                                {"name": "Screen Recording", "isGranted": True},
+                                {"name": "Accessibility", "isGranted": True},
+                            ]
+                        },
+                    }
+                ),
+                stderr="",
+            ),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(
+        runner=runner,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: False,
+        screen_recording_checker=lambda: False,
+    )
+
+    result = observer.status()
+
+    assert result.data["permissions"]["accessibility"]["status"] == "granted"
+    assert result.data["permissions"]["screen_recording"]["status"] == "granted"
+
+
 def test_local_site_action_dry_run_requires_local_browser_url(tmp_path: Path) -> None:
     observer = CustomerMacObserver(
         runner=FakeRunner(

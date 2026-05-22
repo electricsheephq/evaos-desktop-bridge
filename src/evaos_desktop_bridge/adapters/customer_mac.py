@@ -531,17 +531,13 @@ except Exception as exc:
     def desktop_see(self, *, max_chars: int = 4000, max_nodes: int = 200) -> CommandResult:
         peekaboo = self._peekaboo_status()
         frontmost = self._frontmost_app()
-        peekaboo_output = None
-        peekaboo_truncated = False
         warnings: list[str] = []
         if peekaboo.get("available"):
-            result = self.runner([str(peekaboo["path"]), "see"], 20.0)
-            if result.returncode == 0:
-                peekaboo_output, peekaboo_truncated = cap_text(redact_value(result.stdout.strip() or result.stderr.strip()), max_chars)
-                if peekaboo_truncated:
-                    warnings.append("Peekaboo see output truncated")
-            else:
-                warnings.extend(self._stderr_warning(result))
+            peekaboo_seen = self._peekaboo_see(peekaboo=peekaboo, target="desktop", max_chars=max_chars, max_nodes=max_nodes)
+            if peekaboo_seen.ok:
+                return peekaboo_seen
+            warnings.extend(peekaboo_seen.warnings)
+            warnings.extend(str(error.get("message") or error.get("code") or "Peekaboo see failed") for error in peekaboo_seen.errors)
         screenshot = self.snapshot(max_chars=max_chars)
         ax = self.ax_tree(max_nodes=max_nodes)
         snapshot_id = screenshot.data.get("snapshot_id") if screenshot.ok else None
@@ -549,21 +545,21 @@ except Exception as exc:
         if snapshot_id and elements:
             self._write_snapshot_index(snapshot_id=snapshot_id, target="desktop", elements=elements)
         return CommandResult(
-            ok=bool(peekaboo_output) or screenshot.ok or ax.ok,
+            ok=screenshot.ok or ax.ok,
             data={
-                "engine": "peekaboo" if peekaboo.get("available") else "fallback",
+                "engine": "fallback",
                 "frontmost_app": redact_value(frontmost),
                 "snapshot_id": snapshot_id,
                 "peekaboo": peekaboo,
-                "peekaboo_output": peekaboo_output,
-                "peekaboo_truncated": peekaboo_truncated,
+                "peekaboo_output": None,
+                "peekaboo_truncated": False,
                 "screenshot": screenshot.data if screenshot.ok else None,
                 "ax": ax.data if ax.ok else None,
                 "elements": elements,
             },
             warnings=warnings + screenshot.warnings + ax.warnings + ([] if peekaboo.get("available") else ["Peekaboo not installed; used built-in fallback."]),
-            errors=[] if peekaboo_output or screenshot.ok or ax.ok else screenshot.errors + ax.errors,
-            provenance={"source": "peekaboo_visual" if peekaboo.get("available") else "peekaboo_fallback"},
+            errors=[] if screenshot.ok or ax.ok else screenshot.errors + ax.errors,
+            provenance={"source": "peekaboo_fallback"},
         )
 
     def desktop_click(
@@ -1054,6 +1050,99 @@ except Exception as exc:
             warnings=[] if enabled else ["Screen Sharing/Remote Management is not enabled; this bridge will not enable it without explicit approval."],
         )
 
+    def _peekaboo_see(self, *, peekaboo: dict[str, Any], target: str, max_chars: int, max_nodes: int) -> CommandResult:
+        snapshot_id = self._new_snapshot_id(target)
+        screenshot_dir = self.state_dir / "screenshots"
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        screenshot_path = screenshot_dir / f"{snapshot_id}.png"
+        result = self.runner(
+            [
+                str(peekaboo["path"]),
+                "see",
+                "--json",
+                "--path",
+                str(screenshot_path),
+                "--timeout-seconds",
+                "60",
+            ],
+            75.0,
+        )
+        warnings = self._stderr_warning(result)
+        if result.returncode != 0:
+            return CommandResult(
+                ok=False,
+                data={"engine": "peekaboo", "snapshot_id": None, "elements": []},
+                warnings=warnings,
+                errors=[make_error(code="peekaboo_see_failed", message="Peekaboo could not capture visual evidence.", guidance="Check Peekaboo readiness, Accessibility, and Screen Recording permissions.")],
+            )
+        try:
+            payload = json.loads(result.stdout.strip() or "{}")
+        except json.JSONDecodeError:
+            return CommandResult(
+                ok=False,
+                data={"engine": "peekaboo", "snapshot_id": None, "elements": []},
+                warnings=warnings,
+                errors=[make_error(code="peekaboo_see_parse_failed", message="Peekaboo returned non-JSON visual evidence.", guidance="Run Peekaboo permissions/status from Workbench and retry.")],
+            )
+        if payload.get("success") is not True:
+            error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+            return CommandResult(
+                ok=False,
+                data={"engine": "peekaboo", "snapshot_id": None, "elements": []},
+                warnings=warnings,
+                errors=[
+                    make_error(
+                        code=str(error.get("code") or "peekaboo_see_unsuccessful"),
+                        message=str(redact_value(error.get("message") or "Peekaboo did not return a successful visual observation.")),
+                        guidance="Check Peekaboo readiness, Accessibility, and Screen Recording permissions.",
+                    )
+                ],
+            )
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        raw_path = data.get("screenshot_raw")
+        image_path = Path(str(raw_path)).expanduser() if raw_path else screenshot_path
+        image = self._image_artifact(image_path, snapshot_id=snapshot_id) if image_path.exists() else None
+        elements = self._elements_from_peekaboo(data.get("ui_elements", []), snapshot_id=snapshot_id, max_nodes=max_nodes)
+        if elements:
+            self._write_snapshot_index(snapshot_id=snapshot_id, target=target, elements=elements)
+        observation = data.get("observation") if isinstance(data.get("observation"), dict) else {}
+        target_info = observation.get("target") if isinstance(observation.get("target"), dict) else {}
+        truncation = data.get("truncation") if isinstance(data.get("truncation"), dict) else None
+        if truncation and truncation.get("warning"):
+            warning, _ = cap_text(str(redact_value(truncation["warning"])), 240)
+            warnings.append(warning)
+        if len(elements) >= max_nodes and int(data.get("element_count") or 0) > max_nodes:
+            warnings.append(f"Peekaboo elements capped at {max_nodes}; rerun with a higher max_nodes value if needed.")
+        return CommandResult(
+            ok=image is not None or bool(elements),
+            data={
+                "engine": "peekaboo",
+                "frontmost_app": redact_value(data.get("application_name") or self._frontmost_app()),
+                "window_title": redact_value(data.get("window_title")),
+                "snapshot_id": snapshot_id,
+                "peekaboo_snapshot_id": redact_value(data.get("snapshot_id")),
+                "peekaboo": peekaboo,
+                "peekaboo_output": None,
+                "peekaboo_truncated": False,
+                "screenshot": {"screenshot": image} if image else None,
+                "ax": {
+                    "source": "peekaboo",
+                    "element_count": data.get("element_count"),
+                    "interactable_count": data.get("interactable_count"),
+                    "ui_map": redact_value(data.get("ui_map")),
+                },
+                "elements": elements,
+                "capture": {
+                    "mode": data.get("capture_mode"),
+                    "target": redact_value(target_info),
+                    "execution_time": data.get("execution_time"),
+                },
+            },
+            warnings=warnings,
+            errors=[] if image is not None or elements else [make_error(code="peekaboo_see_empty", message="Peekaboo succeeded but returned no screenshot or elements.", guidance="Bring a normal app window to the front and retry.")],
+            provenance={"source": "peekaboo_visual"},
+        )
+
     def _peekaboo_status(self) -> dict[str, Any]:
         path: str | None = None
         for candidate in PEEKABOO_BIN_CANDIDATES:
@@ -1075,6 +1164,25 @@ except Exception as exc:
         result = self.runner([path, "--version"], 3.0)
         version = result.stdout.strip() or result.stderr.strip() or None
         return {"available": result.returncode == 0, "path": path, "version": redact_value(version)}
+
+    def _peekaboo_permission_status(self, permission: str) -> bool | None:
+        peekaboo = self._peekaboo_status()
+        if not peekaboo.get("available"):
+            return None
+        result = self.runner([str(peekaboo["path"]), "list", "permissions", "--json"], 10.0)
+        if result.returncode != 0:
+            return None
+        try:
+            payload = json.loads(result.stdout.strip() or "{}")
+        except json.JSONDecodeError:
+            return None
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        permissions = data.get("permissions") if isinstance(data.get("permissions"), list) else []
+        wanted = "Screen Recording" if permission == "screen_recording" else "Accessibility"
+        for item in permissions:
+            if isinstance(item, dict) and item.get("name") == wanted:
+                return bool(item.get("isGranted"))
+        return None
 
     def _press_frontmost_target(self, *, target_label: str) -> CommandResult:
         if self.accessibility_checker() is False:
@@ -1346,20 +1454,24 @@ except Exception as exc:
 
     def _permission_status(self, permission: str) -> dict[str, str]:
         if permission == "accessibility":
-            trusted = self.accessibility_checker()
+            trusted = self._peekaboo_permission_status(permission)
+            if trusted is None:
+                trusted = self.accessibility_checker()
             if trusted is True:
-                return {"status": "granted", "guidance": ACCESSIBILITY_GUIDANCE}
+                return {"status": "granted", "guidance": ACCESSIBILITY_GUIDANCE, "source": "peekaboo_or_bridge"}
             if trusted is False:
-                return {"status": "missing", "guidance": ACCESSIBILITY_GUIDANCE}
-            return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE}
+                return {"status": "missing", "guidance": ACCESSIBILITY_GUIDANCE, "source": "peekaboo_or_bridge"}
+            return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE, "source": "peekaboo_or_bridge"}
         if permission == "screen_recording":
-            trusted = self.screen_recording_checker()
+            trusted = self._peekaboo_permission_status(permission)
+            if trusted is None:
+                trusted = self.screen_recording_checker()
             if trusted is True:
-                return {"status": "granted", "guidance": SCREEN_RECORDING_GUIDANCE}
+                return {"status": "granted", "guidance": SCREEN_RECORDING_GUIDANCE, "source": "peekaboo_or_bridge"}
             if trusted is False:
-                return {"status": "missing", "guidance": SCREEN_RECORDING_GUIDANCE}
-            return {"status": "unknown", "guidance": SCREEN_RECORDING_GUIDANCE}
-        return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE}
+                return {"status": "missing", "guidance": SCREEN_RECORDING_GUIDANCE, "source": "peekaboo_or_bridge"}
+            return {"status": "unknown", "guidance": SCREEN_RECORDING_GUIDANCE, "source": "peekaboo_or_bridge"}
+        return {"status": "unknown", "guidance": ACCESSIBILITY_GUIDANCE, "source": "peekaboo_or_bridge"}
 
     def _permission_error(self, permission: str, action: str) -> dict[str, Any]:
         return make_error(code="permission_missing", message=f"Accessibility permission is required to {action}.", guidance=ACCESSIBILITY_GUIDANCE, permission=permission)
@@ -1472,6 +1584,48 @@ except Exception as exc:
                     "bounds": {"x": x, "y": y, "width": width, "height": height},
                     "center": {"x": x + width // 2, "y": y + height // 2},
                     "actions": item.get("actions", []),
+                }
+            )
+        return elements
+
+    def _elements_from_peekaboo(self, nodes: Any, *, snapshot_id: str, max_nodes: int) -> list[dict[str, Any]]:
+        elements: list[dict[str, Any]] = []
+        if not isinstance(nodes, list):
+            return elements
+        for index, item in enumerate(nodes):
+            if len(elements) >= max_nodes:
+                break
+            if not isinstance(item, dict):
+                continue
+            bounds = item.get("bounds")
+            label = item.get("label") or item.get("title") or item.get("description") or item.get("role")
+            if not isinstance(bounds, dict) or not label:
+                continue
+            try:
+                x = int(round(float(bounds.get("x"))))
+                y = int(round(float(bounds.get("y"))))
+                width = int(round(float(bounds.get("width"))))
+                height = int(round(float(bounds.get("height"))))
+            except (TypeError, ValueError):
+                continue
+            if width <= 0 or height <= 0:
+                continue
+            label_text, _ = cap_text(str(redact_value(label)), 160)
+            role_text, _ = cap_text(str(redact_value(item.get("role") or "unknown")), 80)
+            actions: list[str] = []
+            if item.get("is_actionable") is True:
+                actions.append("click")
+            element_id = str(item.get("id") or f"peekaboo-{index + 1:04d}")
+            elements.append(
+                {
+                    "element_id": element_id,
+                    "snapshot_id": snapshot_id,
+                    "label": label_text,
+                    "role": role_text,
+                    "bounds": {"x": x, "y": y, "width": width, "height": height},
+                    "center": {"x": x + width // 2, "y": y + height // 2},
+                    "actions": actions,
+                    "engine": "peekaboo",
                 }
             )
         return elements
