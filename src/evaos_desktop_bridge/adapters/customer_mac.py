@@ -1256,7 +1256,7 @@ except Exception as exc:
         parts = [part.strip().lower() for part in re.split(r"[+ ]+", keys) if part.strip()]
         aliases = {"command": "cmd", "control": "ctrl", "option": "opt", "alt": "opt", "escape": "esc", "return": "enter"}
         normalized = [aliases.get(part, part) for part in parts]
-        if not normalized or any(not re.fullmatch(r"[a-z0-9_\-\[\]`=,./;']", part) for part in normalized):
+        if not normalized or any(not re.fullmatch(r"[a-z0-9_\-\[\]`=,./;']+", part) for part in normalized):
             return None
         return "+".join(normalized)
 

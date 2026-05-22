@@ -110,6 +110,27 @@ def test_desktop_type_dry_run_records_hash_without_typing(tmp_path: Path) -> Non
     assert_no_keystroke_commands(observer.runner.commands)
 
 
+def test_desktop_hotkey_accepts_multi_character_keys(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    expected = {
+        "cmd+n": "cmd+n",
+        "command shift 4": "cmd+shift+4",
+        "escape": "esc",
+        "cmd+space": "cmd+space",
+    }
+
+    for keys, normalized in expected.items():
+        result = observer.desktop_hotkey(keys=keys, dry_run=True)
+        assert result.ok is True
+        assert result.data["keys"] == normalized
+        assert result.data["would_press"] is True
+
+    invalid = observer.desktop_hotkey(keys="cmd+🚀", dry_run=True)
+    assert invalid.ok is False
+    assert invalid.errors[0]["code"] == "desktop_hotkey_required"
+
+
 def test_iphone_see_does_not_focus_mirroring_as_read_only(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
     runner = FakeRunner(
