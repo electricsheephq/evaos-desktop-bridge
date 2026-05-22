@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.2.3"' in script
-    assert 'BUILD_NUMBER="5"' in script
-    assert 'version = "0.2.3"' in app_brand
-    assert 'buildNumber = "5"' in app_brand
+    assert 'VERSION="0.3.0"' in script
+    assert 'BUILD_NUMBER="6"' in script
+    assert 'version = "0.3.0"' in app_brand
+    assert 'buildNumber = "6"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -46,7 +46,8 @@ def test_customer_beta_documents_guarded_agent_control_boundary() -> None:
     assert "Mac and iPhone actions run through" in readme
     assert "audited OpenClaw/Hermes tools" in readme
     assert "customer-facing Mac and iPhone control" in release
-    assert "matching approval audit id" in release
+    assert "Full Access" in release
+    assert "Ask Permission" in release
 
 
 def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector() -> None:

@@ -18,13 +18,12 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.2.3` / build `5` is the self-serve pairing release. It keeps the
-`0.2.1` Sparkle/rpath repair, adds customer-safe pairing prompt copy, adds
-pre-token OpenClaw/Hermes pairing helpers, and makes the app-generated
-sign-in fallback code valid even when the browser never reaches the backup-code
-board. When publishing it, keep the older `0.2.0`, `0.2.1`, and `0.2.2` ZIP
-paths aliased to the fixed current ZIP so stale links cannot reinstall a broken
-or stale build.
+Workbench `0.3.0` / build `6` is the Desktop Control Engine V2 release. It
+keeps the `0.2.3` self-serve pairing and stuck-login recovery, then adds
+customer-granted Full Access and Ask Permission control sessions for paired Mac
+and iPhone Mirroring workflows. When publishing it, keep older ZIP paths
+aliased to the fixed current ZIP so stale links cannot reinstall a broken or
+stale build.
 
 ## Edit Map
 
