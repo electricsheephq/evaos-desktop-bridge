@@ -1311,6 +1311,9 @@ struct BridgeCommandService {
         bridgeKey(["permissions", "prime", "--json", "--permission", "screen-recording"]),
         bridgeKey(["customer-mac", "status", "--json"]),
         bridgeKey(["customer-mac", "capabilities", "--json"]),
+        bridgeKey(["customer-mac", "control", "status", "--json"]),
+        bridgeKey(["customer-mac", "control", "stop", "--json"]),
+        bridgeKey(["customer-mac", "control", "kill-switch", "--json"]),
         bridgeKey(["customer-mac", "iphone-mirroring", "status", "--json"]),
         bridgeKey(["customer-mac", "screen-sharing", "status", "--json"]),
         bridgeKey(["codex", "app-server", "remote-control-status", "--json"])
@@ -1318,11 +1321,11 @@ struct BridgeCommandService {
 
     func run(arguments: [String]) async -> String {
         await Task.detached {
-            guard Self.allowedArgumentLists.contains(Self.bridgeKey(arguments)) else {
+            guard Self.isAllowed(arguments) else {
                 return "Blocked unsupported bridge command."
             }
             guard let bridgeURL = Self.resolveBridgeExecutable() else {
-                return "evaos-desktop-bridge was not found at /opt/homebrew/bin/evaos-desktop-bridge or /usr/local/bin/evaos-desktop-bridge. Install the bridge CLI before refreshing local status."
+                return "evaos-desktop-bridge was not found in this app bundle, /opt/homebrew/bin, or /usr/local/bin. Reinstall evaOS Workbench before refreshing local status."
             }
 
             let process = Process()
@@ -1374,7 +1377,25 @@ struct BridgeCommandService {
         arguments.joined(separator: "\u{1f}")
     }
 
+    private static func isAllowed(_ arguments: [String]) -> Bool {
+        if allowedArgumentLists.contains(bridgeKey(arguments)) {
+            return true
+        }
+        guard arguments.count == 8,
+              arguments[0...3].elementsEqual(["customer-mac", "control", "start", "--json"]),
+              arguments[4] == "--mode",
+              ["full_access", "ask_permission"].contains(arguments[5]),
+              arguments[6] == "--agent-label" else {
+            return false
+        }
+        let label = arguments[7]
+        return !label.isEmpty && label.count <= 80 && !label.contains(where: { $0.isNewline })
+    }
+
     private static func resolveBridgeExecutable() -> URL? {
+        if let bundled = bundledBridgeExecutable() {
+            return bundled
+        }
         let paths = [
             "/opt/homebrew/bin/evaos-desktop-bridge",
             "/usr/local/bin/evaos-desktop-bridge"
@@ -1383,6 +1404,16 @@ struct BridgeCommandService {
             return URL(fileURLWithPath: path)
         }
         return nil
+    }
+
+    private static func bundledBridgeExecutable() -> URL? {
+        guard let url = Bundle.main.resourceURL?
+            .appendingPathComponent("Bridge", isDirectory: true)
+            .appendingPathComponent("evaos-desktop-bridge"),
+            FileManager.default.isExecutableFile(atPath: url.path) else {
+            return nil
+        }
+        return url
     }
 }
 
@@ -1450,12 +1481,25 @@ final class WorkbenchConnectorProcessManager {
     }
 
     private static func resolveBridgeExecutable() -> URL? {
-        [
+        if let bundled = bundledBridgeExecutable() {
+            return bundled
+        }
+        return [
             "/opt/homebrew/bin/evaos-desktop-bridge",
             "/usr/local/bin/evaos-desktop-bridge"
         ]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
             .map { URL(fileURLWithPath: $0) }
+    }
+
+    private static func bundledBridgeExecutable() -> URL? {
+        guard let url = Bundle.main.resourceURL?
+            .appendingPathComponent("Bridge", isDirectory: true)
+            .appendingPathComponent("evaos-desktop-bridge"),
+            FileManager.default.isExecutableFile(atPath: url.path) else {
+            return nil
+        }
+        return url
     }
 
     private static func tailnetIPv4() async -> String? {
