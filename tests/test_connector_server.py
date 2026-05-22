@@ -14,6 +14,7 @@ from evaos_desktop_bridge.connector_server import (
     _make_handler,
     _remote_kill_switch_error,
     build_bridge_argv,
+    normalize_connector_command,
     read_token,
 )
 from evaos_desktop_bridge.state import kill_control_session, start_control_session
@@ -34,6 +35,32 @@ def test_connector_builds_fixed_status_argv() -> None:
     assert build_bridge_argv("customerMacStatus") == ["customer-mac", "status", "--json"]
     assert build_bridge_argv("customerMacIphoneMirroringStatus") == ["customer-mac", "iphone-mirroring", "status", "--json"]
     assert build_bridge_argv("codexAppServerRemoteControlStatus") == ["codex", "app-server", "remote-control-status", "--json"]
+
+
+def test_connector_accepts_openclaw_tool_name_aliases() -> None:
+    assert normalize_connector_command("customer_mac_status") == "customerMacStatus"
+    assert normalize_connector_command("desktop_see") == "desktopSee"
+    assert normalize_connector_command("iphone_swipe") == "iphoneSwipe"
+    assert normalize_connector_command("desktop_bridge_audit_tail") == "auditTail"
+    assert build_bridge_argv("customer_mac_status") == ["customer-mac", "status", "--json"]
+    assert build_bridge_argv("desktop_see", {"max_chars": 800, "max_nodes": 40}) == [
+        "customer-mac",
+        "desktop",
+        "see",
+        "--json",
+        "--max-chars",
+        "800",
+        "--max-nodes",
+        "40",
+    ]
+    assert build_bridge_argv("iphone_swipe", {"direction": "left", "dry_run": False}) == [
+        "customer-mac",
+        "iphone-mirroring",
+        "swipe",
+        "--json",
+        "--direction",
+        "left",
+    ]
 
 
 def test_connector_defaults_guarded_commands_to_dry_run() -> None:

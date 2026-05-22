@@ -1156,9 +1156,10 @@ def _connector_service_guidance(plist_path: Path | None, token_present: bool, he
 def _launchctl_start() -> dict[str, object]:
     plist_path = _ensure_connector_user_plist()
     domain = _launchctl_domain()
+    bootout = _run_launchctl(["bootout", f"{domain}/{CONNECTOR_LABEL}"])
     bootstrap = _run_launchctl(["bootstrap", domain, str(plist_path)])
     kickstart = _run_launchctl(["kickstart", "-k", f"{domain}/{CONNECTOR_LABEL}"])
-    return {"bootstrap": bootstrap, "kickstart": kickstart}
+    return {"bootout": bootout, "bootstrap": bootstrap, "kickstart": kickstart}
 
 
 def _launchctl_stop() -> dict[str, object]:
@@ -1236,6 +1237,14 @@ def _connector_permission_target(
 
 
 def _tailscale_ip() -> str | None:
+    interface_ip = _active_tailnet_interface_ip()
+    if interface_ip:
+        return interface_ip
+
+    status_ip = _online_tailscale_status_ip()
+    if status_ip:
+        return status_ip
+
     commands: list[list[str]] = []
     seen: set[str] = set()
     for candidate in [
@@ -1264,9 +1273,71 @@ def _tailscale_ip() -> str | None:
             continue
         for line in completed.stdout.splitlines():
             value = line.strip()
-            if value.startswith("100.") or value.startswith("fd7a:"):
+            if _looks_like_tailnet_ipv4(value):
                 return value
     return None
+
+
+def _active_tailnet_interface_ip() -> str | None:
+    try:
+        completed = subprocess.run(
+            ["/sbin/ifconfig"],
+            text=True,
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[0] == "inet" and _looks_like_tailnet_ipv4(parts[1]):
+            return parts[1]
+    return None
+
+
+def _online_tailscale_status_ip() -> str | None:
+    command = shutil.which("tailscale") or "/opt/homebrew/bin/tailscale"
+    try:
+        completed = subprocess.run(
+            [command, "status", "--json"],
+            text=True,
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    if payload.get("BackendState") != "Running":
+        return None
+    self_node = payload.get("Self")
+    if not isinstance(self_node, dict) or self_node.get("Online") is not True:
+        return None
+    addresses = self_node.get("TailscaleIPs")
+    if not isinstance(addresses, list):
+        return None
+    for value in addresses:
+        if isinstance(value, str) and _looks_like_tailnet_ipv4(value):
+            return value
+    return None
+
+
+def _looks_like_tailnet_ipv4(value: str) -> bool:
+    parts = value.split(".")
+    if len(parts) != 4 or parts[0] != "100":
+        return False
+    try:
+        return all(0 <= int(part) <= 255 for part in parts)
+    except ValueError:
+        return False
 
 
 def _connector_plist_path() -> Path | None:
@@ -1304,7 +1375,8 @@ def _connector_program_path() -> str:
             and packaged_launcher.exists()
         ):
             return str(packaged_launcher.resolve())
-        return str(argv0.resolve())
+        if argv0.name != "cli.py" or os.access(argv0, os.X_OK):
+            return str(argv0.resolve())
     resolved = shutil.which("evaos-desktop-bridge")
     if resolved:
         return resolved

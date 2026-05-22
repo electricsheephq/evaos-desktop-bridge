@@ -730,6 +730,7 @@ def test_connector_start_autoinstalls_user_launchagent(monkeypatch, tmp_path: Pa
     ]
     assert payload["RunAtLoad"] is True
     assert payload["KeepAlive"] is True
+    assert ["bootout", "gui/501/com.electricsheep.evaos-desktop-bridge"] in launchctl_calls
     assert ["bootstrap", "gui/501", str(plist_path)] in launchctl_calls
     assert ["kickstart", "-k", "gui/501/com.electricsheep.evaos-desktop-bridge"] in launchctl_calls
 
@@ -741,6 +742,10 @@ def test_tailscale_ip_uses_homebrew_path_when_gui_path_is_minimal(monkeypatch) -
 
     def fake_run(command: list[str], **kwargs: object):
         calls.append(command)
+        if command[0] == "/sbin/ifconfig":
+            return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="missing")
+        if command == ["/opt/homebrew/bin/tailscale", "status", "--json"]:
+            return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="not running")
         if command[0] == "/opt/homebrew/bin/tailscale":
             return bridge_cli.subprocess.CompletedProcess(command, 0, stdout="100.64.0.42\n", stderr="")
         return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="missing")
@@ -748,7 +753,62 @@ def test_tailscale_ip_uses_homebrew_path_when_gui_path_is_minimal(monkeypatch) -
     monkeypatch.setattr(bridge_cli.subprocess, "run", fake_run)
 
     assert bridge_cli._tailscale_ip() == "100.64.0.42"
-    assert calls[0] == ["/opt/homebrew/bin/tailscale", "ip", "-4"]
+    assert ["/opt/homebrew/bin/tailscale", "ip", "-4"] in calls
+
+
+def test_tailscale_ip_prefers_active_interface_over_stale_tailscale_cli(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(bridge_cli.shutil, "which", lambda name: "/opt/homebrew/bin/tailscale")
+
+    def fake_run(command: list[str], **kwargs: object):
+        calls.append(command)
+        if command[0] == "/sbin/ifconfig":
+            return bridge_cli.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="utun0: flags=8051<UP,POINTOPOINT,RUNNING>\n\tinet 100.64.0.4 --> 100.64.0.4 netmask 0xffffffff\n",
+                stderr="",
+            )
+        if command == ["/opt/homebrew/bin/tailscale", "ip", "-4"]:
+            return bridge_cli.subprocess.CompletedProcess(command, 0, stdout="100.107.14.6\n", stderr="")
+        return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(bridge_cli.subprocess, "run", fake_run)
+
+    assert bridge_cli._tailscale_ip() == "100.64.0.4"
+    assert calls == [["/sbin/ifconfig"]]
+
+
+def test_tailscale_ip_uses_online_status_before_stale_ip_command(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(bridge_cli.shutil, "which", lambda name: "/opt/homebrew/bin/tailscale")
+
+    def fake_run(command: list[str], **kwargs: object):
+        calls.append(command)
+        if command[0] == "/sbin/ifconfig":
+            return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="missing")
+        if command == ["/opt/homebrew/bin/tailscale", "status", "--json"]:
+            return bridge_cli.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "BackendState": "Running",
+                        "Self": {"Online": True, "TailscaleIPs": ["100.64.0.5", "fd7a:115c:a1e0::5"]},
+                    }
+                ),
+                stderr="",
+            )
+        if command == ["/opt/homebrew/bin/tailscale", "ip", "-4"]:
+            return bridge_cli.subprocess.CompletedProcess(command, 0, stdout="100.107.14.6\n", stderr="")
+        return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(bridge_cli.subprocess, "run", fake_run)
+
+    assert bridge_cli._tailscale_ip() == "100.64.0.5"
+    assert ["/opt/homebrew/bin/tailscale", "ip", "-4"] not in calls
 
 
 def test_connector_program_path_prefers_packaged_executable(monkeypatch, tmp_path: Path) -> None:
@@ -773,6 +833,17 @@ def test_connector_program_path_resolves_packaged_module_to_launcher(monkeypatch
     monkeypatch.setattr(bridge_cli.shutil, "which", lambda name: "/opt/homebrew/bin/evaos-desktop-bridge")
 
     assert bridge_cli._connector_program_path() == str(packaged_bridge)
+
+
+def test_connector_program_path_skips_non_executable_source_module(monkeypatch, tmp_path: Path) -> None:
+    source_module = tmp_path / "src" / "evaos_desktop_bridge" / "cli.py"
+    source_module.parent.mkdir(parents=True)
+    source_module.write_text("print('cli')\n", encoding="utf-8")
+
+    monkeypatch.setattr(bridge_cli.sys, "argv", [str(source_module)])
+    monkeypatch.setattr(bridge_cli.shutil, "which", lambda name: "/opt/homebrew/bin/evaos-desktop-bridge")
+
+    assert bridge_cli._connector_program_path() == "/opt/homebrew/bin/evaos-desktop-bridge"
 
 
 def test_connector_start_host_can_be_overridden(monkeypatch, tmp_path: Path) -> None:

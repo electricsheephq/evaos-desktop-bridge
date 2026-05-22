@@ -131,6 +131,72 @@ ASK_PERMISSION_SAFE_HOTKEYS = frozenset(
     }
 )
 
+CONNECTOR_COMMAND_ALIASES = {
+    "desktop_bridge_status": "status",
+    "desktop_bridge_capabilities": "capabilities",
+    "desktop_bridge_latest": "latest",
+    "desktop_bridge_audit_tail": "auditTail",
+    "desktop_bridge_queue_list": "queueList",
+    "desktop_bridge_queue_append": "queueAppend",
+    "desktop_bridge_codex_frontmost": "codexFrontmost",
+    "desktop_bridge_codex_windows": "codexWindows",
+    "desktop_bridge_codex_threads": "codexThreads",
+    "desktop_bridge_codex_continue_thread": "codexContinueThread",
+    "desktop_bridge_codex_select_thread": "codexSelectThread",
+    "desktop_bridge_codex_snapshot": "codexSnapshot",
+    "desktop_bridge_codex_inspect": "codexInspect",
+    "desktop_bridge_codex_ax_tree": "codexAxTree",
+    "desktop_bridge_codex_app_server_status": "codexAppServerStatus",
+    "desktop_bridge_codex_app_server_remote_control_status": "codexAppServerRemoteControlStatus",
+    "desktop_bridge_codex_app_server_threads": "codexAppServerThreads",
+    "customer_mac_status": "customerMacStatus",
+    "customer_mac_capabilities": "customerMacCapabilities",
+    "customer_mac_snapshot": "customerMacSnapshot",
+    "customer_mac_ax_tree": "customerMacAxTree",
+    "customer_mac_app_focus": "customerMacAppFocus",
+    "customer_mac_local_site_open": "customerMacLocalSiteOpen",
+    "customer_mac_local_site_action": "customerMacLocalSiteAction",
+    "customer_mac_iphone_mirroring_status": "customerMacIphoneMirroringStatus",
+    "customer_mac_iphone_mirroring_focus": "customerMacIphoneMirroringFocus",
+    "customer_mac_iphone_mirroring_home": "customerMacIphoneMirroringHome",
+    "customer_mac_iphone_mirroring_app_switcher": "customerMacIphoneMirroringAppSwitcher",
+    "customer_mac_iphone_mirroring_spotlight": "customerMacIphoneMirroringSpotlight",
+    "customer_mac_iphone_mirroring_type_spotlight": "customerMacIphoneMirroringTypeSpotlight",
+    "customer_mac_iphone_mirroring_open_app": "customerMacIphoneMirroringOpenApp",
+    "customer_mac_iphone_mirroring_tap_named_target": "customerMacIphoneMirroringTapNamedTarget",
+    "customer_mac_iphone_mirroring_scroll": "customerMacIphoneMirroringScroll",
+    "customer_mac_iphone_mirroring_swipe_left": "customerMacIphoneMirroringSwipeLeft",
+    "customer_mac_iphone_mirroring_swipe_right": "customerMacIphoneMirroringSwipeRight",
+    "customer_mac_iphone_mirroring_swipe_up": "customerMacIphoneMirroringSwipeUp",
+    "customer_mac_iphone_mirroring_swipe_down": "customerMacIphoneMirroringSwipeDown",
+    "customer_mac_iphone_mirroring_type_approved_text": "customerMacIphoneMirroringTypeApprovedText",
+    "customer_mac_iphone_mirroring_send_approved_message": "customerMacIphoneMirroringSendApprovedMessage",
+    "customer_mac_screen_sharing_status": "customerMacScreenSharingStatus",
+    "desktop_control_status": "customerMacControlStatus",
+    "desktop_control_start": "customerMacControlStart",
+    "desktop_control_stop": "customerMacControlStop",
+    "desktop_kill_switch": "customerMacControlKillSwitch",
+    "desktop_see": "desktopSee",
+    "desktop_click": "desktopClick",
+    "desktop_type": "desktopType",
+    "desktop_scroll": "desktopScroll",
+    "desktop_drag": "desktopDrag",
+    "desktop_hotkey": "desktopHotkey",
+    "desktop_focus_app": "desktopFocusApp",
+    "desktop_window": "desktopWindow",
+    "desktop_menu": "desktopMenu",
+    "desktop_browser_action": "desktopBrowserAction",
+    "iphone_see": "iphoneSee",
+    "iphone_tap": "iphoneTap",
+    "iphone_swipe": "iphoneSwipe",
+    "iphone_type": "iphoneType",
+}
+
+
+def normalize_connector_command(command: str) -> str:
+    return CONNECTOR_COMMAND_ALIASES.get(command, command)
+
+
 CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "codexSelectThread": ("codex.select_thread", ("thread_id",)),
     "codexContinueThread": ("codex.continue_thread", ("title", "prompt")),
@@ -167,6 +233,7 @@ CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
 
 
 def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> list[str]:
+    command = normalize_connector_command(command)
     params = params or {}
     fixed: dict[str, list[str]] = {
         "status": ["status", "--json"],
@@ -440,7 +507,7 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                 return
             try:
                 payload = self._read_json()
-                command = str(payload.get("command") or "")
+                command = normalize_connector_command(str(payload.get("command") or ""))
                 params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
                 kill_switch_error = _remote_kill_switch_error(command, state_dir=state_dir)
                 if kill_switch_error is not None:
@@ -608,10 +675,17 @@ def _host_without_port(url: str) -> str | None:
 
 
 def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool:
-    return _live_guarded_approval_error(command, params, state_dir=None, require_lookup=False) is not None
+    command = normalize_connector_command(command)
+    if command not in GUARDED_REMOTE_COMMANDS:
+        return False
+    if params.get("dry_run") is not False:
+        return False
+    approval = params.get("approval_audit_id")
+    return not isinstance(approval, str) or not approval.strip()
 
 
 def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_dir: Path | None, require_lookup: bool = True) -> str | None:
+    command = normalize_connector_command(command)
     if command in CONTROLLED_REMOTE_COMMANDS and params.get("dry_run") is False:
         session = read_control_session(state_dir)
         if session.get("kill_switch") is True:
@@ -650,6 +724,7 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
 
 
 def _remote_kill_switch_error(command: str, *, state_dir: Path | None) -> str | None:
+    command = normalize_connector_command(command)
     if command in KILL_SWITCH_REMOTE_COMMAND_ALLOWLIST:
         return None
     session = read_control_session(state_dir)
@@ -661,6 +736,7 @@ def _remote_kill_switch_error(command: str, *, state_dir: Path | None) -> str | 
 
 
 def _ask_permission_requires_approval(command: str, params: dict[str, Any]) -> bool:
+    command = normalize_connector_command(command)
     if command in ASK_PERMISSION_HIGH_IMPACT_REMOTE_COMMANDS:
         return True
     if command in {"desktopClick", "iphoneTap"}:

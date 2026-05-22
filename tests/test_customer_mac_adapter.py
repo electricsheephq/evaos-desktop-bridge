@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import struct
 import sys
 from pathlib import Path
 
 from evaos_desktop_bridge.adapters import customer_mac
 from evaos_desktop_bridge.adapters.codex_macos import RunnerResult
 from evaos_desktop_bridge.adapters.customer_mac import CustomerMacObserver
+from evaos_desktop_bridge.types import CommandResult
 
 
 class FakeRunner:
@@ -23,6 +25,10 @@ class FakeRunner:
             if key[: len(prefix)] == prefix:
                 return result
         return RunnerResult(returncode=1, stdout="", stderr="")
+
+
+def png_header(width: int = 4, height: int = 4) -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + struct.pack(">II", width, height) + b"\x00" * 16
 
 
 def installed_mirroring(monkeypatch, tmp_path: Path) -> None:
@@ -110,6 +116,48 @@ def test_desktop_type_dry_run_records_hash_without_typing(tmp_path: Path) -> Non
     assert_no_keystroke_commands(observer.runner.commands)
 
 
+def test_desktop_type_prefers_peekaboo_paste_for_exact_text(monkeypatch, tmp_path: Path) -> None:
+    peekaboo = tmp_path / "peekaboo"
+    peekaboo.write_text("#!/bin/sh\n", encoding="utf-8")
+    peekaboo.chmod(0o755)
+    monkeypatch.setattr(customer_mac, "PEEKABOO_BIN_CANDIDATES", (str(peekaboo),))
+    runner = FakeRunner(
+        {
+            (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            (str(peekaboo), "paste", "--text", "Hello?", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_type(text="Hello?")
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert result.data["input_method"] == "paste"
+    assert (str(peekaboo), "paste", "--text", "Hello?", "--json", "--no-remote") in runner.commands
+    assert not any(command[:2] == (str(peekaboo), "type") for command in runner.commands)
+
+
+def test_iphone_type_prefers_system_events_for_exact_mirrored_text(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            ("osascript", "-e", 'tell application "iPhone Mirroring" to activate'): RunnerResult(returncode=0, stdout="", stderr=""),
+            ("osascript", "-e", 'tell application "System Events" to get name of first application process whose frontmost is true'): RunnerResult(returncode=0, stdout="iPhone Mirroring\n", stderr=""),
+            ("osascript", "-e", 'tell application "System Events" to keystroke "Hello?"'): RunnerResult(returncode=0, stdout="", stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.iphone_type(text="Hello?")
+
+    assert result.ok is True
+    assert result.data["engine"] == "system_events"
+    assert result.provenance == {"source": "system_events", "customer_control": True, "reason": "iphone_mirroring_exact_text"}
+    assert ("osascript", "-e", 'tell application "System Events" to keystroke "Hello?"') in runner.commands
+
+
 def test_desktop_hotkey_accepts_multi_character_keys(tmp_path: Path) -> None:
     observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
 
@@ -129,6 +177,27 @@ def test_desktop_hotkey_accepts_multi_character_keys(tmp_path: Path) -> None:
     invalid = observer.desktop_hotkey(keys="cmd+🚀", dry_run=True)
     assert invalid.ok is False
     assert invalid.errors[0]["code"] == "desktop_hotkey_required"
+
+
+def test_desktop_hotkey_uses_current_peekaboo_keys_shape(monkeypatch, tmp_path: Path) -> None:
+    peekaboo = tmp_path / "peekaboo"
+    peekaboo.write_text("#!/bin/sh\n", encoding="utf-8")
+    peekaboo.chmod(0o755)
+    monkeypatch.setattr(customer_mac, "PEEKABOO_BIN_CANDIDATES", (str(peekaboo),))
+    runner = FakeRunner(
+        {
+            (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            (str(peekaboo), "hotkey", "--keys", "cmd+l", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_hotkey(keys="cmd+l")
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert (str(peekaboo), "hotkey", "--keys", "cmd+l", "--json", "--no-remote") in runner.commands
+    assert not any(command[:4] == (str(peekaboo), "hotkey", "cmd", "l") for command in runner.commands)
 
 
 def test_desktop_scroll_uses_peekaboo_direction_flag(monkeypatch, tmp_path: Path) -> None:
@@ -256,6 +325,171 @@ def test_desktop_menu_and_window_use_peekaboo_subcommands(monkeypatch, tmp_path:
     assert window.ok is True
     assert menu.data["engine"] == "peekaboo"
     assert window.data["peekaboo_action"] == "maximize"
+
+
+def test_iphone_see_uses_peekaboo_region_capture_when_see_hangs(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+
+    class ImageWritingRunner(FakeRunner):
+        def __call__(self, command: list[str], timeout: float = 5.0) -> RunnerResult:
+            if command[:4] == ["/test/peekaboo", "image", "--mode", "area"]:
+                Path(command[command.index("--path") + 1]).write_bytes(png_header(318, 701))
+            return super().__call__(command, timeout)
+
+    runner = ImageWritingRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ): RunnerResult(returncode=0, stdout="iPhone Mirroring\n", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to tell first application process whose frontmost is true to get name of front window',
+            ): RunnerResult(returncode=0, stdout="iPhone Mirroring\n", stderr=""),
+            ("/test/peekaboo", "window", "list", "--app", "iPhone Mirroring", "--json", "--no-remote"): RunnerResult(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "success": True,
+                        "data": {
+                            "windows": [
+                                {
+                                    "window_title": "iPhone Mirroring",
+                                    "is_on_screen": True,
+                                    "bounds": {"x": 100, "y": 200, "width": 318, "height": 701},
+                                }
+                            ]
+                        },
+                    }
+                ),
+                stderr="",
+            ),
+            ("/test/peekaboo", "image", "--mode", "area"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.iphone_see()
+
+    assert result.ok is True
+    assert result.data["capture_engine"] == "peekaboo_region"
+    assert result.data["coordinate_space"]["origin"] == {"x": 100, "y": 200}
+    assert result.data["coordinate_space"]["image_size"] == {"width": 318, "height": 701}
+    assert result.data["screenshot"]["screenshot"]["width"] == 318
+    snapshot = json.loads((tmp_path / "snapshots" / f"{result.data['snapshot_id']}.json").read_text(encoding="utf-8"))
+    assert snapshot["target"] == "iphone_mirroring"
+    assert snapshot["coordinate_space"]["origin"] == {"x": 100, "y": 200}
+
+
+def test_iphone_snapshot_coordinates_translate_to_global_point(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
+    snapshot_id = "snap-iphone-mirroring-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="iphone_mirroring",
+        elements=[],
+        engine="peekaboo_region",
+        coordinate_space={
+            "type": "window_region",
+            "origin": {"x": 100, "y": 200},
+            "size": {"width": 318, "height": 701},
+            "image_size": {"width": 636, "height": 1402},
+        },
+    )
+
+    result = observer._resolve_snapshot_coordinates(snapshot_id=snapshot_id, x=20, y=40, expected_target="iphone_mirroring")
+
+    assert result.ok is True
+    assert result.data["point"] == {"x": 110, "y": 220}
+    assert result.data["logical_point"] == {"x": 10, "y": 20}
+
+
+def test_iphone_tap_translates_snapshot_coordinates_before_desktop_click(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("/test/peekaboo", "click", "--coords", "110,220", "--global-coords", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+    monkeypatch.setattr(observer, "iphone_mirroring_focus", lambda dry_run=False: CommandResult(ok=True, data={"focused": True}))
+    snapshot_id = "snap-iphone-mirroring-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="iphone_mirroring",
+        elements=[],
+        engine="peekaboo_region",
+        coordinate_space={
+            "type": "window_region",
+            "origin": {"x": 100, "y": 200},
+            "size": {"width": 318, "height": 701},
+            "image_size": {"width": 636, "height": 1402},
+        },
+    )
+
+    result = observer.iphone_tap(snapshot_id=snapshot_id, x=20, y=40)
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert ("/test/peekaboo", "click", "--coords", "110,220", "--global-coords", "--json", "--no-remote") in runner.commands
+
+
+def test_stale_snapshot_id_is_rejected_before_click(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    runner = FakeRunner({("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr="")})
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+    snapshot_id = "snap-desktop-cccccccccccccccccccccccccccccccc"
+    snapshot_dir = tmp_path / "snapshots"
+    snapshot_dir.mkdir()
+    (snapshot_dir / f"{snapshot_id}.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": snapshot_id,
+                "target": "desktop",
+                "engine": "peekaboo",
+                "peekaboo_snapshot_id": "PEEKABOO-SNAPSHOT",
+                "timestamp": "2000-01-01T00:00:00Z",
+                "elements": [
+                    {
+                        "element_id": "B1",
+                        "peekaboo_element_id": "B1",
+                        "label": "Old button",
+                        "bounds": {"x": 10, "y": 20, "width": 30, "height": 40},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="B1")
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "snapshot_stale"
+    assert runner.commands == []
+
+
+def test_iphone_keyboard_action_uses_current_peekaboo_hotkey_shape(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("/test/peekaboo", "hotkey", "--keys", "cmd+1", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer._iphone_keyboard_action("home", "18")
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert ("/test/peekaboo", "hotkey", "--keys", "cmd+1", "--json", "--no-remote") in runner.commands
 
 
 def test_iphone_see_does_not_focus_mirroring_as_read_only(monkeypatch, tmp_path: Path) -> None:
@@ -435,7 +669,7 @@ def test_iphone_keyboard_action_prefers_peekaboo_hotkey(monkeypatch, tmp_path: P
     runner = FakeRunner(
         {
             ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
-            ("/test/peekaboo", "hotkey", "cmd", "1"): RunnerResult(returncode=0, stdout="", stderr=""),
+            ("/test/peekaboo", "hotkey", "--keys", "cmd+1", "--json", "--no-remote"): RunnerResult(returncode=0, stdout="", stderr=""),
         }
     )
     monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
@@ -445,7 +679,7 @@ def test_iphone_keyboard_action_prefers_peekaboo_hotkey(monkeypatch, tmp_path: P
 
     assert result.ok is True
     assert result.data["engine"] == "peekaboo"
-    assert ("/test/peekaboo", "hotkey", "cmd", "1") in runner.commands
+    assert ("/test/peekaboo", "hotkey", "--keys", "cmd+1", "--json", "--no-remote") in runner.commands
     assert_no_keystroke_commands(runner.commands)
 
 
