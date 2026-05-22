@@ -85,6 +85,7 @@ final class WorkbenchModel: ObservableObject {
     private let updateClient = WorkbenchUpdateClient()
     private let connectorProcess = WorkbenchConnectorProcessManager()
     private var fallbackReloadAttempts: [RuntimeKey: Int] = [:]
+    private let connectorRefreshBuildKey = "EvaDesktop.lastConnectorRefreshAppBuild"
 
     init() {
         let dashboardBaseURL = URL(string: UserDefaults.standard.string(forKey: "EvaDesktop.dashboardBaseURL") ?? "https://www.electricsheephq.com")
@@ -163,6 +164,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func bootstrap() async {
+        await refreshConnectorServiceAfterAppUpdateIfNeeded()
         await refreshCustomerTargets()
         await loadRuntime(selectedRuntime)
         await checkForUpdates(silent: true)
@@ -503,6 +505,30 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
+    private func refreshConnectorServiceAfterAppUpdateIfNeeded() async {
+        let currentBuild = "\(AppBrand.version)-\(AppBrand.buildNumber)"
+        guard UserDefaults.standard.string(forKey: connectorRefreshBuildKey) != currentBuild else {
+            return
+        }
+
+        let initialStatusRaw = await bridge.run(arguments: ["connector-service", "status", "--json"])
+        guard Self.connectorServiceIsRunning(statusText: initialStatusRaw) else {
+            UserDefaults.standard.set(currentBuild, forKey: connectorRefreshBuildKey)
+            connectorServiceText = BridgeStatusFormatter.connector(raw: initialStatusRaw)
+            return
+        }
+
+        connectorServiceText = "Refreshing Mac Access for this Workbench update..."
+        _ = await bridge.run(arguments: ["connector-service", "stop", "--json"])
+        try? await Task.sleep(nanoseconds: 800_000_000)
+        _ = await bridge.run(arguments: ["connector-service", "start", "--json"])
+        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        let refreshedStatusRaw = await bridge.run(arguments: ["connector-service", "status", "--json"])
+        connectorServiceText = BridgeStatusFormatter.connector(raw: refreshedStatusRaw)
+        UserDefaults.standard.set(currentBuild, forKey: connectorRefreshBuildKey)
+    }
+
     func startFullAccessControl() {
         startAgentControl(mode: "full-access")
     }
@@ -755,6 +781,20 @@ final class WorkbenchModel: ObservableObject {
             return status
         }
         return object
+    }
+
+    private static func connectorServiceIsRunning(statusText: String) -> Bool {
+        guard let object = connectorStatusObject(from: statusText) else {
+            return false
+        }
+
+        if object["running"] as? Bool == true || object["loaded"] as? Bool == true {
+            return true
+        }
+        if let health = object["health"] as? [String: Any], health["reachable"] as? Bool == true {
+            return true
+        }
+        return false
     }
 
     private static func localConnectorEnrollmentContext(from statusText: String) throws -> LocalConnectorEnrollmentContext {
