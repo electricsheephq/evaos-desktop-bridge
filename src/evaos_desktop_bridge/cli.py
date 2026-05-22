@@ -1282,6 +1282,14 @@ def _ensure_connector_user_plist() -> Path:
 def _connector_program_path() -> str:
     argv0 = Path(sys.argv[0]).expanduser()
     if argv0.exists():
+        packaged_launcher = argv0.parent.parent.parent / "evaos-desktop-bridge"
+        if (
+            argv0.name == "cli.py"
+            and argv0.parent.name == "evaos_desktop_bridge"
+            and argv0.parent.parent.name == "src"
+            and packaged_launcher.exists()
+        ):
+            return str(packaged_launcher.resolve())
         return str(argv0.resolve())
     resolved = shutil.which("evaos-desktop-bridge")
     if resolved:
