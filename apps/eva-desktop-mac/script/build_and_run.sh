@@ -7,8 +7,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.3.0"
-BUILD_NUMBER="6"
+VERSION="0.3.1"
+BUILD_NUMBER="7"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
 UPDATE_RELEASE_NOTES_URL="${EVA_DESKTOP_UPDATE_RELEASE_NOTES_URL:-https://www.electricsheephq.com/evaos-workbench}"
 SPARKLE_APPCAST_URL="${EVA_DESKTOP_SPARKLE_APPCAST_URL:-https://www.electricsheephq.com/evaos-workbench/appcast.xml}"
@@ -24,6 +24,7 @@ fi
 UPDATE_DOWNLOAD_URL="${EVA_DESKTOP_UPDATE_DOWNLOAD_URL:-$DEFAULT_UPDATE_DOWNLOAD_URL}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_BUNDLE_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -149,6 +150,44 @@ copy_sparkle_framework() {
   /usr/bin/ditto "$sparkle_framework" "$APP_FRAMEWORKS/Sparkle.framework"
 }
 
+copy_bridge_helper() {
+  local bridge_dir="$APP_RESOURCES/Bridge"
+  local bridge_script="$bridge_dir/evaos-desktop-bridge"
+
+  rm -rf "$bridge_dir"
+  mkdir -p "$bridge_dir/src"
+  cp -R "$REPO_ROOT/src/evaos_desktop_bridge" "$bridge_dir/src/"
+  cat > "$bridge_script" <<'EOF'
+#!/bin/sh
+set -eu
+
+BRIDGE_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+if [ -n "${EVAOS_DESKTOP_BRIDGE_PYTHON:-}" ] && [ -x "${EVAOS_DESKTOP_BRIDGE_PYTHON:-}" ]; then
+  PYTHON_BIN="$EVAOS_DESKTOP_BRIDGE_PYTHON"
+else
+  PYTHON_BIN=""
+  for candidate in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+    if [ -x "$candidate" ]; then
+      PYTHON_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -z "$PYTHON_BIN" ]; then
+  echo "evaos-desktop-bridge: python3 was not found. Install Python 3 or contact ElectricSheep support." >&2
+  exit 127
+fi
+
+export PYTHONPATH="$BRIDGE_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+exec "$PYTHON_BIN" -m evaos_desktop_bridge.cli "$@"
+EOF
+  find "$bridge_dir" -name "__pycache__" -type d -prune -exec rm -rf {} +
+  chmod +x "$bridge_script"
+}
+
 ensure_app_rpaths() {
   local frameworks_rpath="@executable_path/../Frameworks"
   if ! otool -l "$APP_BINARY" | grep -q "$frameworks_rpath"; then
@@ -173,6 +212,7 @@ ensure_app_rpaths
 if [ -d "$ROOT_DIR/Resources" ]; then
   cp -R "$ROOT_DIR/Resources/." "$APP_RESOURCES/"
 fi
+copy_bridge_helper
 
 /usr/libexec/PlistBuddy -c "Clear dict" "$INFO_PLIST" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string $APP_EXECUTABLE_NAME" "$INFO_PLIST"

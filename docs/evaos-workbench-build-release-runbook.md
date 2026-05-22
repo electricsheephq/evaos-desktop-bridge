@@ -18,12 +18,19 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.3.0` / build `6` is the Desktop Control Engine V2 release. It
-keeps the `0.2.3` self-serve pairing and stuck-login recovery, then adds
-customer-granted Full Access and Ask Permission control sessions for paired Mac
-and iPhone Mirroring workflows. When publishing it, keep older ZIP paths
+Workbench `0.3.0` / build `6` introduced Desktop Control Engine V2. Workbench
+`0.3.1` / build `7` is the first releasable V2 build because it bundles the
+matching bridge helper inside the app instead of relying only on a possibly
+stale `/opt/homebrew/bin/evaos-desktop-bridge` or
+`/usr/local/bin/evaos-desktop-bridge`.
+
+The release keeps the `0.2.3` self-serve pairing and stuck-login recovery, then
+adds customer-granted Full Access and Ask Permission control sessions for paired
+Mac and iPhone Mirroring workflows. When publishing it, keep older ZIP paths
 aliased to the fixed current ZIP so stale links cannot reinstall a broken or
-stale build.
+stale build. Before giving the link to a tester, verify the packaged app
+contains `Contents/Resources/Bridge/evaos-desktop-bridge` and
+`Contents/Resources/Bridge/src/evaos_desktop_bridge`.
 
 ## Edit Map
 

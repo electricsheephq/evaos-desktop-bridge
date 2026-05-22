@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.3.0"' in script
-    assert 'BUILD_NUMBER="6"' in script
-    assert 'version = "0.3.0"' in app_brand
-    assert 'buildNumber = "6"' in app_brand
+    assert 'VERSION="0.3.1"' in script
+    assert 'BUILD_NUMBER="7"' in script
+    assert 'version = "0.3.1"' in app_brand
+    assert 'buildNumber = "7"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -57,6 +57,9 @@ def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector()
     content_view = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "ContentView.swift").read_text(encoding="utf-8")
 
     assert "WorkbenchConnectorProcessManager" in model
+    assert "bundledBridgeExecutable()" in model
+    assert 'appendingPathComponent("Bridge", isDirectory: true)' in model
+    assert 'appendingPathComponent("evaos-desktop-bridge")' in model
     assert "BridgeStatusFormatter.connector(raw:" in model
     assert "BridgeStatusFormatter.customerMac(raw:" in model
     assert "BridgeStatusFormatter.customerMacReady(raw:" in model
@@ -89,6 +92,20 @@ def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector()
     assert "Download" in bridge_panel
     assert ".font(.callout)" in bridge_panel
     assert 'design: .monospaced' in bridge_panel
+
+
+def test_release_package_bundles_matching_bridge_helper() -> None:
+    script = (APP_ROOT / "script" / "build_and_run.sh").read_text(encoding="utf-8")
+    model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
+
+    assert "copy_bridge_helper" in script
+    assert 'cp -R "$REPO_ROOT/src/evaos_desktop_bridge" "$bridge_dir/src/"' in script
+    assert 'exec "$PYTHON_BIN" -m evaos_desktop_bridge.cli "$@"' in script
+    assert "customer-mac\", \"control\", \"status\", \"--json" in model
+    assert "customer-mac\", \"control\", \"stop\", \"--json" in model
+    assert "customer-mac\", \"control\", \"kill-switch\", \"--json" in model
+    assert "full_access" in model
+    assert "ask_permission" in model
 
 
 def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
