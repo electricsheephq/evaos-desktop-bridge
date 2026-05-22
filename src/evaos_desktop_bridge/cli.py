@@ -1280,12 +1280,12 @@ def _ensure_connector_user_plist() -> Path:
 
 
 def _connector_program_path() -> str:
-    resolved = shutil.which("evaos-desktop-bridge")
-    if resolved:
-        return resolved
     argv0 = Path(sys.argv[0]).expanduser()
     if argv0.exists():
         return str(argv0.resolve())
+    resolved = shutil.which("evaos-desktop-bridge")
+    if resolved:
+        return resolved
     return "evaos-desktop-bridge"
 
 
