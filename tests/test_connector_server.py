@@ -12,7 +12,7 @@ from evaos_desktop_bridge.connector_server import (
     _live_guarded_approval_error,
     _live_guarded_without_approval,
     _make_handler,
-    _remote_control_start_error,
+    _remote_kill_switch_error,
     build_bridge_argv,
     read_token,
 )
@@ -141,7 +141,10 @@ def test_connector_kill_switch_blocks_remote_control(tmp_path: Path) -> None:
     kill_control_session(tmp_path)
 
     assert _live_guarded_approval_error("desktopScroll", {"direction": "down", "dry_run": False}, state_dir=tmp_path) == "The customer Mac kill switch is active; live agent control commands are blocked."
-    assert _remote_control_start_error("customerMacControlStart", state_dir=tmp_path) == "The customer Mac kill switch is active; only the local Workbench app can start a new control session."
+    assert _remote_kill_switch_error("desktopSee", state_dir=tmp_path) == "The customer Mac kill switch is active; remote connector commands are blocked until the local Workbench app starts a new control session."
+    assert _remote_kill_switch_error("customerMacStatus", state_dir=tmp_path) == "The customer Mac kill switch is active; remote connector commands are blocked until the local Workbench app starts a new control session."
+    assert _remote_kill_switch_error("customerMacControlStart", state_dir=tmp_path) == "The customer Mac kill switch is active; only the local Workbench app can start a new control session."
+    assert _remote_kill_switch_error("customerMacControlStatus", state_dir=tmp_path) is None
 
 
 def test_connector_approved_message_requires_matching_dry_run_audit(tmp_path: Path) -> None:

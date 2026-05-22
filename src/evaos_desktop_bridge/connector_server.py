@@ -64,6 +64,13 @@ CONTROLLED_REMOTE_COMMANDS = frozenset(
 
 GUARDED_REMOTE_COMMANDS = GUARDED_REMOTE_COMMANDS | CONTROLLED_REMOTE_COMMANDS
 
+KILL_SWITCH_REMOTE_COMMAND_ALLOWLIST = frozenset(
+    {
+        "customerMacControlStatus",
+        "customerMacControlKillSwitch",
+    }
+)
+
 ASK_PERMISSION_HIGH_IMPACT_REMOTE_COMMANDS = frozenset(
     {
         "desktopType",
@@ -408,15 +415,15 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                 payload = self._read_json()
                 command = str(payload.get("command") or "")
                 params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
-                start_error = _remote_control_start_error(command, state_dir=state_dir)
-                if start_error is not None:
+                kill_switch_error = _remote_kill_switch_error(command, state_dir=state_dir)
+                if kill_switch_error is not None:
                     self._write_json(
                         403,
                         _error_envelope(
                             command or "connector.command",
                             "customer_mac",
                             "control_kill_switch_active",
-                            start_error,
+                            kill_switch_error,
                         ),
                     )
                     return
@@ -594,13 +601,15 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
     return None
 
 
-def _remote_control_start_error(command: str, *, state_dir: Path | None) -> str | None:
-    if command != "customerMacControlStart":
+def _remote_kill_switch_error(command: str, *, state_dir: Path | None) -> str | None:
+    if command in KILL_SWITCH_REMOTE_COMMAND_ALLOWLIST:
         return None
     session = read_control_session(state_dir)
-    if session.get("kill_switch") is True:
+    if session.get("kill_switch") is not True:
+        return None
+    if command == "customerMacControlStart":
         return "The customer Mac kill switch is active; only the local Workbench app can start a new control session."
-    return None
+    return "The customer Mac kill switch is active; remote connector commands are blocked until the local Workbench app starts a new control session."
 
 
 def _ask_permission_requires_approval(command: str, params: dict[str, Any]) -> bool:
