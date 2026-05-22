@@ -2,7 +2,8 @@
 
 Hermes uses the same customer Mac connector contract as OpenClaw. This adapter
 is intentionally tiny: it does not create a second control backend, and it does
-not expose generic shell, AppleScript, coordinates, or app-server mutation.
+not expose generic shell, hidden AppleScript, public Mac ports, or app-server
+mutation.
 
 ## Runtime contract
 
@@ -33,13 +34,18 @@ fixed connector command names supported by `/v1/commands`, for example:
 
 ```bash
 hermes-adapter/bin/evaos-desktop-bridge-command customerMacStatus '{}'
+hermes-adapter/bin/evaos-desktop-bridge-command customerMacControlStart '{"mode":"full-access","agent_label":"Hermes"}'
+hermes-adapter/bin/evaos-desktop-bridge-command desktopSee '{}'
+hermes-adapter/bin/evaos-desktop-bridge-command desktopClick '{"target_label":"Continue","dry_run":false}'
 hermes-adapter/bin/evaos-desktop-bridge-command customerMacIphoneMirroringStatus '{}'
-hermes-adapter/bin/evaos-desktop-bridge-command customerMacAppFocus '{"app_name":"Safari"}'
+hermes-adapter/bin/evaos-desktop-bridge-command iphoneSwipe '{"direction":"up","dry_run":false}'
 ```
 
-Guarded commands default to dry-run at the connector layer. Live guarded actions
-must include `{"dry_run":false,"approval_audit_id":"..."}` and must match a
-prior local dry-run audit record on the Mac connector.
+Full Access mode allows live desktop/iPhone commands without per-action
+approval. Ask Permission mode gates risky clicks, taps, hotkeys, typing,
+sends, and other high-impact actions with
+`{"dry_run":false,"approval_audit_id":"..."}`. The kill switch blocks future
+live connector commands immediately.
 
 The wrapper returns connector JSON on stdout even for structured denials such as
 blocked sensitive apps or missing approval ids. Network failures and malformed
@@ -50,5 +56,5 @@ responses still fail as hard command errors.
 - OpenClaw remains the first native plugin path.
 - Hermes uses this command wrapper or an MCP/tool config that shells to it.
 - The command wrapper only posts fixed JSON to the paired connector URL.
-- Customer-facing iPhone live gestures/messages require the same dry-run,
-  approval, and matching audit-id contract as OpenClaw.
+- Customer-facing Mac/iPhone control uses the same Full Access / Ask Permission
+  session contract as OpenClaw.

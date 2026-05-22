@@ -49,6 +49,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var bridgeStatusText = "Bridge status has not been checked yet."
     @Published var customerMacStatusText = "Customer Mac connector status has not been checked yet."
     @Published var iPhoneMirroringStatusText = "iPhone Mirroring status has not been checked yet."
+    @Published var controlSessionText = "Agent control session has not been checked yet."
     @Published var screenSharingStatusText = "Screen Sharing status has not been checked yet."
     @Published var codexRemoteControlStatusText = "Codex remote-control readiness has not been checked yet."
     @Published var bridgeCapabilitiesText = "Bridge capabilities have not been checked yet."
@@ -399,6 +400,7 @@ final class WorkbenchModel: ObservableObject {
             let serviceRaw = await bridge.run(arguments: ["connector-service", "status", "--json"])
             let macRaw = await bridge.run(arguments: ["customer-mac", "status", "--json"])
             let iphoneRaw = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
+            let controlRaw = await bridge.run(arguments: ["customer-mac", "control", "status", "--json"])
             let screenRaw = await bridge.run(arguments: ["customer-mac", "screen-sharing", "status", "--json"])
             let codexRaw = await bridge.run(arguments: ["codex", "app-server", "remote-control-status", "--json"])
             let bridgeCapsRaw = await bridge.run(arguments: ["capabilities", "--json"])
@@ -409,6 +411,7 @@ final class WorkbenchModel: ObservableObject {
             connectorServiceText = BridgeStatusFormatter.connector(raw: serviceRaw)
             customerMacStatusText = BridgeStatusFormatter.customerMac(raw: macRaw)
             iPhoneMirroringStatusText = BridgeStatusFormatter.iPhone(raw: iphoneRaw)
+            controlSessionText = BridgeStatusFormatter.controlSession(raw: controlRaw)
             screenSharingStatusText = BridgeStatusFormatter.screenSharing(raw: screenRaw)
             codexRemoteControlStatusText = BridgeStatusFormatter.codex(raw: codexRaw)
             bridgeCapabilitiesText = BridgeStatusFormatter.capabilities(raw: bridgeCapsRaw, title: "Bridge")
@@ -500,6 +503,39 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
+    func startFullAccessControl() {
+        startAgentControl(mode: "full-access")
+    }
+
+    func startAskPermissionControl() {
+        startAgentControl(mode: "ask-permission")
+    }
+
+    func stopAgentControl() {
+        Task { @MainActor in
+            let raw = await bridge.run(arguments: ["customer-mac", "control", "stop", "--json"])
+            controlSessionText = BridgeStatusFormatter.controlSession(raw: raw)
+            refreshBridgeStatus()
+        }
+    }
+
+    func killAgentControl() {
+        Task { @MainActor in
+            let raw = await bridge.run(arguments: ["customer-mac", "control", "kill-switch", "--json"])
+            controlSessionText = BridgeStatusFormatter.controlSession(raw: raw)
+            refreshBridgeStatus()
+        }
+    }
+
+    private func startAgentControl(mode: String) {
+        Task { @MainActor in
+            let label = session?.userEmail ?? "Eva agent"
+            let raw = await bridge.run(arguments: ["customer-mac", "control", "start", "--json", "--mode", mode, "--agent-label", label])
+            controlSessionText = BridgeStatusFormatter.controlSession(raw: raw)
+            refreshBridgeStatus()
+        }
+    }
+
     func createMacEnrollment() {
         guard !isPairingMac else { return }
         isPairingMac = true
@@ -574,7 +610,8 @@ final class WorkbenchModel: ObservableObject {
                     capabilities: [
                         "connector": "evaos-desktop-bridge",
                         "openclaw_tools": "enabled",
-                        "iphone_mirroring": "named_actions"
+                        "desktop_control": "full_access_or_ask_permission",
+                        "iphone_mirroring": "visible_control_surface"
                     ],
                     permissionState: [
                         "accessibility": "check_required",
@@ -769,9 +806,10 @@ final class WorkbenchModel: ObservableObject {
         1. customer_mac_complete_pairing returns ok=true.
         2. customer_mac_status reports the Mac connector and permissions state.
         3. customer_mac_iphone_mirroring_status reports iPhone Mirroring readiness, even if the phone is not connected yet.
-        4. desktop_bridge_audit_tail shows the pairing/check evidence without secrets.
+        4. desktop_control_status reports whether a Full Access or Ask Permission session is active.
+        5. desktop_bridge_audit_tail shows the pairing/check evidence without secrets.
 
-        Do not perform live Mac or iPhone actions in this setup step. If you need to test an action later, dry-run first, show the audit_id, and wait for my approval.
+        Do not perform live Mac or iPhone actions until I start Agent Control in Workbench. If Full Access is active, use desktop_see first, then operate normally. If Ask Permission is active, ask before risky clicks, taps, hotkeys, typing, sends, and other high-impact actions.
         """
     }
 
@@ -1568,6 +1606,32 @@ enum BridgeStatusFormatter {
             running.map { "App: \($0 ? "running" : "not running")" },
             frontmost.map { "Focused: \($0 ? "yes" : "no")" },
             guardedActions.map { "Agent controls: \($0.count) approval-gated actions" }
+        ])
+    }
+
+    static func controlSession(raw: String) -> String {
+        guard let object = object(from: raw) else { return cleanFallback(raw) }
+        guard object["ok"] as? Bool == true else { return errorSummary(object, fallback: "Agent control needs attention") }
+        let active = value(at: ["data", "active"], in: object) as? Bool
+        let mode = value(at: ["data", "mode"], in: object) as? String
+        let killSwitch = value(at: ["data", "kill_switch"], in: object) as? Bool
+        let currentApp = value(at: ["data", "current_app"], in: object) as? String
+        let peekabooAvailable = value(at: ["data", "peekaboo", "available"], in: object) as? Bool
+        if killSwitch == true {
+            return "Blocked. Kill switch is active."
+        }
+        guard active == true else {
+            return compact([
+                "Not active",
+                currentApp.map { "Current app: \($0)" },
+                peekabooAvailable.map { "Peekaboo: \($0 ? "ready" : "fallback mode")" }
+            ])
+        }
+        return compact([
+            "Ready",
+            mode.map { $0 == "full_access" ? "Mode: Full Access" : "Mode: Ask Permission" },
+            currentApp.map { "Current app: \($0)" },
+            peekabooAvailable.map { "Peekaboo: \($0 ? "ready" : "fallback mode")" }
         ])
     }
 

@@ -272,5 +272,5 @@ Before announcing a build:
 - Hermes proof has run through the same connector command contract.
 - At least one cross-customer reachability check fails closed before customer
   beta release.
-- Customer-facing iPhone controls remain named, approval-gated, audited, and
-  free of generic coordinates or hidden mutation paths.
+- Customer-facing iPhone controls remain Workbench-session gated, audited, and
+  free of hidden mutation paths.

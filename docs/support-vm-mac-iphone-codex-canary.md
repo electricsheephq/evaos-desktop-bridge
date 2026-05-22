@@ -59,12 +59,13 @@ Open release blocker found:
 - Pair only the support VM to the operator Mac.
 - Keep customer VMs out of this canary.
 - The `EVAOS_SUPPORT_CANARY_CONTROLS=1` flag is only for the Codex visible
-  `continue` fallback. iPhone gestures/messages no longer require that flag;
-  they require the normal dry-run/approval/audit flow.
+  `continue` fallback. iPhone gestures now run through the same Workbench
+  Full Access / Ask Permission control session as other customer tools.
 - Prefer Codex native remote-control readiness first. Use visible GUI fallback
   only if native remote-control is unavailable.
-- iPhone/Bumble live actions are allowed only after exact same-turn approval.
-- Every live command must have a matching dry-run audit id.
+- In Full Access mode, the new `desktop_*` / `iphone_*` tools can operate
+  continuously. In Ask Permission mode, risky taps, swipes, typing, sends, and
+  other high-impact actions require exact same-turn approval.
 
 Apple documents iPhone Mirroring as a visible Mac app where the Mac can tap,
 swipe, type, and use keyboard shortcuts while the iPhone is locked nearby. Apple
@@ -236,9 +237,11 @@ curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
   -d '{"command":"customerMacIphoneMirroringScroll","params":{"direction":"down","dry_run":true}}'
 ```
 
-Live gesture: rerun the same command without `--dry-run` and include the
+Live legacy gesture: rerun the same command without `--dry-run` and include the
 matching approval id. For connector HTTP calls, live guarded actions must set
 `"dry_run": false`; omitting `dry_run` intentionally defaults back to dry-run.
+For the new `iphone_swipe` tool, Full Access mode does not require approval;
+Ask Permission mode does.
 
 Approved message send:
 
@@ -258,7 +261,7 @@ Blocked without separate approval:
 - purchases/payments
 - account/security settings
 - camera/mic
-- arbitrary coordinates
+- coordinates outside the audited Workbench connector tools
 - generic AppleScript/shell/desktop passthrough
 
 ## Evidence To Collect

@@ -11,6 +11,9 @@ const FIXED_COMMANDS = {
     codexAppServerRemoteControlStatus: ["codex", "app-server", "remote-control-status", "--json"],
     customerMacStatus: ["customer-mac", "status", "--json"],
     customerMacCapabilities: ["customer-mac", "capabilities", "--json"],
+    customerMacControlStatus: ["customer-mac", "control", "status", "--json"],
+    customerMacControlStop: ["customer-mac", "control", "stop", "--json"],
+    customerMacControlKillSwitch: ["customer-mac", "control", "kill-switch", "--json"],
     customerMacIphoneMirroringStatus: ["customer-mac", "iphone-mirroring", "status", "--json"],
     customerMacScreenSharingStatus: ["customer-mac", "screen-sharing", "status", "--json"],
 };
@@ -81,6 +84,102 @@ export function buildBridgeArgv(command, params = {}) {
     if (command === "customerMacAxTree") {
         return ["customer-mac", "ax-tree", "--json", "--max-nodes", String(clampInt(params.max_nodes, 200, 1, 1000))];
     }
+    if (command === "customerMacControlStart") {
+        return [
+            "customer-mac",
+            "control",
+            "start",
+            "--json",
+            "--mode",
+            String(params.mode || "full-access"),
+            ...(params.agent_label ? ["--agent-label", String(params.agent_label)] : []),
+        ];
+    }
+    if (command === "desktopSee") {
+        return [
+            "customer-mac",
+            "desktop",
+            "see",
+            "--json",
+            "--max-chars",
+            String(clampInt(params.max_chars, 4000, 1, 20000)),
+            "--max-nodes",
+            String(clampInt(params.max_nodes, 200, 1, 1000)),
+        ];
+    }
+    if (command === "desktopClick") {
+        return [
+            "customer-mac",
+            "desktop",
+            "click",
+            "--json",
+            ...optionalStringArg(params.target_label, "--target-label"),
+            ...optionalNumberArg(params.x, "--x"),
+            ...optionalNumberArg(params.y, "--y"),
+            ...(params.dry_run !== false ? ["--dry-run"] : []),
+            ...guardedApprovalArg(params),
+        ];
+    }
+    if (command === "desktopType") {
+        return ["customer-mac", "desktop", "type", "--json", "--text", requiredString(params.text, "text"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+    }
+    if (command === "desktopScroll") {
+        return [
+            "customer-mac",
+            "desktop",
+            "scroll",
+            "--json",
+            "--direction",
+            String(params.direction || "down"),
+            "--amount",
+            String(clampInt(params.amount, 600, 1, 5000)),
+            ...(params.dry_run !== false ? ["--dry-run"] : []),
+            ...guardedApprovalArg(params),
+        ];
+    }
+    if (command === "desktopDrag") {
+        return [
+            "customer-mac",
+            "desktop",
+            "drag",
+            "--json",
+            "--from-x",
+            requiredNumberString(params.from_x, "from_x"),
+            "--from-y",
+            requiredNumberString(params.from_y, "from_y"),
+            "--to-x",
+            requiredNumberString(params.to_x, "to_x"),
+            "--to-y",
+            requiredNumberString(params.to_y, "to_y"),
+            ...(params.dry_run !== false ? ["--dry-run"] : []),
+            ...guardedApprovalArg(params),
+        ];
+    }
+    if (command === "desktopHotkey") {
+        return ["customer-mac", "desktop", "hotkey", "--json", "--keys", requiredString(params.keys, "keys"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+    }
+    if (command === "desktopFocusApp") {
+        return ["customer-mac", "desktop", "focus-app", "--json", "--app-name", requiredString(params.app_name, "app_name"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+    }
+    if (command === "desktopWindow") {
+        return ["customer-mac", "desktop", "window", "--json", "--action", requiredString(params.action, "action"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+    }
+    if (command === "desktopMenu") {
+        return ["customer-mac", "desktop", "menu", "--json", "--menu-path", requiredString(params.menu_path, "menu_path"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+    }
+    if (command === "desktopBrowserAction") {
+        return [
+            "customer-mac",
+            "desktop",
+            "browser-action",
+            "--json",
+            "--action",
+            requiredString(params.action, "action"),
+            ...optionalStringArg(params.url, "--url"),
+            ...(params.dry_run !== false ? ["--dry-run"] : []),
+            ...guardedApprovalArg(params),
+        ];
+    }
     if (command === "customerMacAppFocus") {
         return [
             "customer-mac",
@@ -115,6 +214,37 @@ export function buildBridgeArgv(command, params = {}) {
             ...(params.dry_run !== false ? ["--dry-run"] : []),
             ...guardedApprovalArg(params),
         ];
+    }
+    if (command === "iphoneSee") {
+        return [
+            "customer-mac",
+            "iphone-mirroring",
+            "see",
+            "--json",
+            "--max-chars",
+            String(clampInt(params.max_chars, 4000, 1, 20000)),
+            "--max-nodes",
+            String(clampInt(params.max_nodes, 200, 1, 1000)),
+        ];
+    }
+    if (command === "iphoneTap") {
+        return [
+            "customer-mac",
+            "iphone-mirroring",
+            "tap",
+            "--json",
+            ...optionalStringArg(params.target_label, "--target-label"),
+            ...optionalNumberArg(params.x, "--x"),
+            ...optionalNumberArg(params.y, "--y"),
+            ...(params.dry_run !== false ? ["--dry-run"] : []),
+            ...guardedApprovalArg(params),
+        ];
+    }
+    if (command === "iphoneSwipe") {
+        return ["customer-mac", "iphone-mirroring", "swipe", "--json", "--direction", requiredString(params.direction, "direction"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
+    }
+    if (command === "iphoneType") {
+        return ["customer-mac", "iphone-mirroring", "type", "--json", "--text", requiredString(params.text, "text"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
     }
     if (command === "customerMacIphoneMirroringFocus") {
         return ["customer-mac", "iphone-mirroring", "focus", "--json", ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
@@ -219,17 +349,31 @@ function guardedApprovalArg(params) {
     if (params.dry_run !== false) {
         return [];
     }
-    const argv = approvalArg(params);
-    if (argv.length === 0) {
-        throw new Error("approval_audit_id is required when dry_run=false");
-    }
-    return argv;
+    return approvalArg(params);
 }
 function requiredString(value, name) {
     if (typeof value !== "string" || value.trim() === "") {
         throw new Error(`${name} is required`);
     }
     return value;
+}
+function requiredNumberString(value, name) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        throw new Error(`${name} is required`);
+    }
+    return String(Math.trunc(value));
+}
+function optionalNumberArg(value, flag) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return [];
+    }
+    return [flag, String(Math.trunc(value))];
+}
+function optionalStringArg(value, flag) {
+    if (typeof value !== "string" || value.trim() === "") {
+        return [];
+    }
+    return [flag, value.trim()];
 }
 export async function runBridge(command, params = {}) {
     if (command === "customerMacCompletePairing") {

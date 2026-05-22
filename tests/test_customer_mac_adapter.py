@@ -72,6 +72,70 @@ def test_status_reports_screen_recording_preflight(tmp_path: Path) -> None:
     assert result.data["permissions"]["screen_recording"]["status"] == "granted"
 
 
+def test_control_session_start_stop_and_kill_switch(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
+
+    started = observer.control_start(mode="full-access", agent_label="Aurelius")
+    status = observer.control_status()
+    stopped = observer.control_stop()
+    killed = observer.control_kill_switch()
+
+    assert started.ok is True
+    assert started.data["session"]["active"] is True
+    assert started.data["session"]["mode"] == "full_access"
+    assert status.data["active"] is True
+    assert stopped.data["session"]["active"] is False
+    assert killed.data["session"]["kill_switch"] is True
+
+
+def test_desktop_click_dry_run_allows_coordinate_fallback_without_mutation(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_click(x=10, y=20, dry_run=True)
+
+    assert result.ok is True
+    assert result.data["would_click"] is True
+    assert result.data["point"] == {"x": 10, "y": 20}
+    assert_no_mutation_commands(observer.runner.commands)
+
+
+def test_desktop_type_dry_run_records_hash_without_typing(tmp_path: Path) -> None:
+    observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_type(text="hello world", dry_run=True)
+
+    assert result.ok is True
+    assert result.data["would_type"] is True
+    assert result.data["text_sha256"]
+    assert_no_keystroke_commands(observer.runner.commands)
+
+
+def test_iphone_see_does_not_focus_mirroring_as_read_only(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    runner = FakeRunner(
+        {
+            ("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ): RunnerResult(returncode=0, stdout="Safari\n", stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(
+        runner=runner,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.iphone_see()
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "iphone_mirroring_not_frontmost"
+    assert ("open", "-a", "iPhone Mirroring") not in runner.commands
+
+
 def test_iphone_tap_named_target_blocks_dangerous_labels_during_dry_run(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
     observer = CustomerMacObserver(

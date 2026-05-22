@@ -22,7 +22,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("OpenDesign and the other gateways use short-lived evaOS sessions. Mac and iPhone actions run through audited OpenClaw/Hermes tools with dry-run and approval gates.")
+            Text("OpenDesign and the other gateways use short-lived evaOS sessions. Mac and iPhone actions run through audited OpenClaw/Hermes tools with customer-controlled Full Access or Ask Permission mode.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

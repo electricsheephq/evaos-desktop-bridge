@@ -12,9 +12,11 @@ existing runtime UIs instead of rewriting them:
 
 The MVP uses SwiftUI and `WKWebView` tabs. Mac and iPhone actions run through
 audited OpenClaw/Hermes tools, not through hidden buttons in the Workbench UI.
-Live actions require a prior dry-run and matching approval audit id. The app
-does not expose arbitrary shell, generic coordinates, password capture, hidden
-AppleScript, payment automation, or generic Codex app-server mutation.
+Full Access can operate continuously after the customer starts a visible
+session; Ask Permission and legacy guarded actions require approval at
+high-impact boundaries. The app does not expose arbitrary shell, hidden
+AppleScript, password capture, payment automation, or generic Codex app-server
+mutation.
 
 The visible app name and native shell use ElectricSheep branding, while the
 packaged app bundle is `evaOS.app`. The internal executable and bundle id remain `EvaDesktop` /

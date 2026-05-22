@@ -14,10 +14,13 @@ observe or operate a paired customer Mac and iPhone.
 ## Default Rules
 
 - Reads are allowed through named tools and must redact/cap output.
-- Guarded actions are dry-run by default.
-- Live guarded actions require human approval and a matching
-  `approval_audit_id`.
-- Agents must cite the dry-run audit id before asking for live approval.
+- Workbench has two customer modes: Full Access and Ask Permission.
+- Full Access allows continuous live desktop/phone operation after the customer
+  starts a session.
+- Ask Permission gates risky clicks, taps, hotkeys, typing, sends, and other
+  high-impact actions with human approval and a matching `approval_audit_id`.
+- Agents should cite the dry-run audit id when Ask Permission or a legacy
+  guarded action requires approval.
 - Every live action writes connector audit evidence.
 - Revoke must block future VM commands.
 
@@ -25,25 +28,29 @@ observe or operate a paired customer Mac and iPhone.
 
 - Mac status
 - Mac capabilities
+- control session status
+- desktop see
+- iPhone see
 - redacted snapshot
 - capped Accessibility tree
 - iPhone Mirroring status
 - Screen Sharing status
 - audit tail
 
-## Allowed Guarded Actions
+## Allowed Control Actions
 
-- focus a non-sensitive Mac app
+- click a visible target or audited coordinate fallback
+- type text
+- scroll and drag
+- use hotkeys, windows, menus, and local browser actions
+- focus a Mac app
 - open localhost/loopback/`.local` URL
 - browser reload/back/forward
 - focus iPhone Mirroring
 - iPhone Home, App Switcher, Spotlight
 - open a non-sensitive iPhone app
 - tap an exact visible iPhone Mirroring target label
-- named scroll/swipe gestures
-- type same-turn-approved text
-- send one same-turn-approved message only when the recipient/context and exact
-  text are approved
+- iPhone tap, swipe, and text entry through visible iPhone Mirroring
 
 ## Blocked Paths
 
@@ -51,7 +58,6 @@ Always block:
 
 - generic shell access to the Mac;
 - hidden AppleScript passthrough;
-- arbitrary screen coordinates as the public API;
 - raw Screen Sharing/VNC enablement;
 - CDP or SSH exposure to the Mac;
 - raw Codex app-server mutation;
@@ -65,16 +71,20 @@ If any blocked path succeeds, stop rollout and file a security blocker.
 
 ## Agent Flow
 
-1. Read status/capabilities.
-2. Gather snapshot or AX tree only when needed.
-3. Run dry-run for the planned action.
-4. Ask the human for exact approval and include the dry-run audit id.
-5. Execute live action with matching `approval_audit_id`.
-6. Report result and audit evidence.
+1. Read status/capabilities and `desktop_control_status`.
+2. Gather `desktop_see`, `iphone_see`, snapshot, or AX tree only when needed.
+3. If Full Access is active, operate through the new `desktop_*` / `iphone_*`
+   tools and report audit evidence.
+4. If Ask Permission is active and the action is high impact, run a dry-run,
+   ask the human for exact approval, then execute with matching
+   `approval_audit_id`.
+5. For legacy guarded actions, always use the dry-run -> approval -> live
+   pattern.
+6. Stop immediately if the kill switch is active; only the local Workbench user
+   can start a fresh session after a kill.
 
 ## OpenClaw And Hermes
 
 OpenClaw is the primary plugin path. Hermes must use the same connector command
 contract through a thin adapter or wrapper. Do not create a separate Mac-control
 backend.
-

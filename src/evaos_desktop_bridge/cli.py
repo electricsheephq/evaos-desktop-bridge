@@ -21,7 +21,7 @@ from .connector_server import read_token, run_connector_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
 from .schema import build_envelope, make_error
-from .state import approval_audit_freshness_error, read_audit_record, read_audit_tail, read_latest, write_latest
+from .state import approval_audit_freshness_error, read_audit_record, read_audit_tail, read_control_session, read_latest, write_latest
 from .types import CommandResult
 
 LATEST_OBSERVATION_COMMANDS = frozenset(
@@ -39,6 +39,9 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.app_server.remote_control_status",
         "customer_mac.status",
         "customer_mac.capabilities",
+        "customer_mac.control_status",
+        "customer_mac.desktop_see",
+        "customer_mac.iphone_see",
         "customer_mac.snapshot",
         "customer_mac.ax_tree",
         "customer_mac.iphone_mirroring_status",
@@ -66,13 +69,90 @@ GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "customer_mac.iphone_mirroring_swipe_down": (),
     "customer_mac.iphone_mirroring_type_approved_text": ("text",),
     "customer_mac.iphone_mirroring_send_approved_message": ("text", "recipient_context", "target_label"),
+    "customer_mac.desktop_click": ("target_label", "x", "y"),
+    "customer_mac.desktop_type": ("text",),
+    "customer_mac.desktop_scroll": ("direction", "amount"),
+    "customer_mac.desktop_drag": ("from_x", "from_y", "to_x", "to_y"),
+    "customer_mac.desktop_hotkey": ("keys",),
+    "customer_mac.desktop_focus_app": ("app_name",),
+    "customer_mac.desktop_window": ("action",),
+    "customer_mac.desktop_menu": ("menu_path",),
+    "customer_mac.desktop_browser_action": ("action", "url"),
+    "customer_mac.iphone_tap": ("target_label", "x", "y"),
+    "customer_mac.iphone_swipe": ("direction",),
+    "customer_mac.iphone_type": ("text",),
 }
+
+CONTROL_SESSION_COMMANDS = frozenset(
+    {
+        "customer_mac.control_start",
+        "customer_mac.control_stop",
+        "customer_mac.control_kill_switch",
+    }
+)
+
+CONTROLLED_LIVE_COMMANDS = frozenset(
+    {
+        "customer_mac.desktop_click",
+        "customer_mac.desktop_type",
+        "customer_mac.desktop_scroll",
+        "customer_mac.desktop_drag",
+        "customer_mac.desktop_hotkey",
+        "customer_mac.desktop_focus_app",
+        "customer_mac.desktop_window",
+        "customer_mac.desktop_menu",
+        "customer_mac.desktop_browser_action",
+        "customer_mac.iphone_tap",
+        "customer_mac.iphone_swipe",
+        "customer_mac.iphone_type",
+    }
+)
+
+ASK_PERMISSION_HIGH_IMPACT_COMMANDS = frozenset(
+    {
+        "customer_mac.desktop_type",
+        "customer_mac.iphone_swipe",
+        "customer_mac.iphone_type",
+    }
+)
+
+ASK_PERMISSION_RISK_WORDS = frozenset(
+    {
+        "approve",
+        "buy",
+        "confirm",
+        "delete",
+        "dispatch",
+        "like",
+        "match",
+        "pay",
+        "post",
+        "purchase",
+        "remove",
+        "send",
+        "submit",
+        "transfer",
+        "unlike",
+    }
+)
+
+ASK_PERMISSION_SAFE_HOTKEYS = frozenset(
+    {
+        "cmd+[",
+        "cmd+]",
+        "cmd+l",
+        "cmd+r",
+        "cmd+t",
+        "escape",
+        "tab",
+    }
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="evaos-desktop-bridge",
-        description="Safe read-only bridge for visible desktop agent surfaces.",
+        description="evaOS Workbench connector for audited Mac and iPhone agent control.",
     )
     subparsers = parser.add_subparsers(dest="scope")
 
@@ -216,6 +296,106 @@ def build_parser() -> argparse.ArgumentParser:
     mac_capabilities_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     mac_capabilities_parser.set_defaults(command_id="customer_mac.capabilities", target="customer_mac")
 
+    control_parser = customer_mac_subparsers.add_parser("control", help="Manage customer-granted agent control sessions.")
+    control_subparsers = control_parser.add_subparsers(dest="control_command")
+
+    control_status_parser = control_subparsers.add_parser("status", help="Report Full Access / Ask Permission session state.")
+    control_status_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    control_status_parser.set_defaults(command_id="customer_mac.control_status", target="customer_mac")
+
+    control_start_parser = control_subparsers.add_parser("start", help="Start a customer-granted agent control session.")
+    control_start_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    control_start_parser.add_argument("--mode", choices=["full-access", "ask-permission"], default="full-access", help="Control mode for this session.")
+    control_start_parser.add_argument("--agent-label", default=None, help="Human-readable current agent label.")
+    control_start_parser.set_defaults(command_id="customer_mac.control_start", target="customer_mac")
+
+    control_stop_parser = control_subparsers.add_parser("stop", help="Stop the active agent control session.")
+    control_stop_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    control_stop_parser.set_defaults(command_id="customer_mac.control_stop", target="customer_mac")
+
+    control_kill_parser = control_subparsers.add_parser("kill-switch", help="Immediately stop and block future connector control commands.")
+    control_kill_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    control_kill_parser.set_defaults(command_id="customer_mac.control_kill_switch", target="customer_mac")
+
+    desktop_parser = customer_mac_subparsers.add_parser("desktop", help="Full-access desktop computer-control commands.")
+    desktop_subparsers = desktop_parser.add_subparsers(dest="desktop_command")
+
+    desktop_see_parser = desktop_subparsers.add_parser("see", help="See the current desktop through Peekaboo or fallback screen/AX capture.")
+    desktop_see_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_see_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum visible text chars.")
+    desktop_see_parser.add_argument("--max-nodes", type=_positive_int, default=200, help="Maximum AX nodes.")
+    desktop_see_parser.set_defaults(command_id="customer_mac.desktop_see", target="customer_mac")
+
+    desktop_click_parser = desktop_subparsers.add_parser("click", help="Click a visible target label or x/y point.")
+    desktop_click_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_click_parser.add_argument("--target-label", default=None, help="Visible target label to click.")
+    desktop_click_parser.add_argument("--x", type=int, default=None, help="Screen x coordinate fallback.")
+    desktop_click_parser.add_argument("--y", type=int, default=None, help="Screen y coordinate fallback.")
+    desktop_click_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without clicking.")
+    desktop_click_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_click_parser.set_defaults(command_id="customer_mac.desktop_click", target="customer_mac")
+
+    desktop_type_parser = desktop_subparsers.add_parser("type", help="Type exact text into the focused field.")
+    desktop_type_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_type_parser.add_argument("--text", required=True, help="Exact text to type.")
+    desktop_type_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without typing.")
+    desktop_type_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode.")
+    desktop_type_parser.set_defaults(command_id="customer_mac.desktop_type", target="customer_mac")
+
+    desktop_scroll_parser = desktop_subparsers.add_parser("scroll", help="Scroll the focused surface.")
+    desktop_scroll_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_scroll_parser.add_argument("--direction", choices=["up", "down", "left", "right"], default="down", help="Scroll direction.")
+    desktop_scroll_parser.add_argument("--amount", type=_positive_int, default=600, help="Scroll amount.")
+    desktop_scroll_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without scrolling.")
+    desktop_scroll_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_scroll_parser.set_defaults(command_id="customer_mac.desktop_scroll", target="customer_mac")
+
+    desktop_drag_parser = desktop_subparsers.add_parser("drag", help="Drag from one point to another.")
+    desktop_drag_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_drag_parser.add_argument("--from-x", type=int, required=True, help="Start x coordinate.")
+    desktop_drag_parser.add_argument("--from-y", type=int, required=True, help="Start y coordinate.")
+    desktop_drag_parser.add_argument("--to-x", type=int, required=True, help="End x coordinate.")
+    desktop_drag_parser.add_argument("--to-y", type=int, required=True, help="End y coordinate.")
+    desktop_drag_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without dragging.")
+    desktop_drag_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_drag_parser.set_defaults(command_id="customer_mac.desktop_drag", target="customer_mac")
+
+    desktop_hotkey_parser = desktop_subparsers.add_parser("hotkey", help="Press a hotkey such as cmd+l.")
+    desktop_hotkey_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_hotkey_parser.add_argument("--keys", required=True, help="Plus-delimited keys, for example cmd+l.")
+    desktop_hotkey_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without pressing.")
+    desktop_hotkey_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_hotkey_parser.set_defaults(command_id="customer_mac.desktop_hotkey", target="customer_mac")
+
+    desktop_focus_parser = desktop_subparsers.add_parser("focus-app", help="Focus a Mac app by name.")
+    desktop_focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_focus_parser.add_argument("--app-name", required=True, help="Visible macOS app name.")
+    desktop_focus_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without focusing.")
+    desktop_focus_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_focus_parser.set_defaults(command_id="customer_mac.desktop_focus_app", target="customer_mac")
+
+    desktop_window_parser = desktop_subparsers.add_parser("window", help="Perform a named window action.")
+    desktop_window_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_window_parser.add_argument("--action", choices=["focus", "minimize", "zoom", "close"], required=True, help="Window action.")
+    desktop_window_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
+    desktop_window_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_window_parser.set_defaults(command_id="customer_mac.desktop_window", target="customer_mac")
+
+    desktop_menu_parser = desktop_subparsers.add_parser("menu", help="Choose a visible menu path through Peekaboo.")
+    desktop_menu_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_menu_parser.add_argument("--menu-path", required=True, help="Menu path, for example File > New Tab.")
+    desktop_menu_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
+    desktop_menu_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_menu_parser.set_defaults(command_id="customer_mac.desktop_menu", target="customer_mac")
+
+    desktop_browser_parser = desktop_subparsers.add_parser("browser-action", help="Perform a browser action on the focused Mac browser.")
+    desktop_browser_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_browser_parser.add_argument("--action", choices=["reload", "back", "forward", "new_tab", "open_url"], required=True, help="Browser action.")
+    desktop_browser_parser.add_argument("--url", default=None, help="URL for open_url.")
+    desktop_browser_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without acting.")
+    desktop_browser_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    desktop_browser_parser.set_defaults(command_id="customer_mac.desktop_browser_action", target="customer_mac")
+
     mac_snapshot_parser = customer_mac_subparsers.add_parser("snapshot", help="Capture a safe screenshot unless a sensitive app is frontmost.")
     mac_snapshot_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     mac_snapshot_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum visible text chars.")
@@ -256,6 +436,35 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_status_parser = iphone_subparsers.add_parser("status", help="Report iPhone Mirroring readiness and supported actions.")
     iphone_status_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_status_parser.set_defaults(command_id="customer_mac.iphone_mirroring_status", target="customer_mac")
+
+    iphone_see_parser = iphone_subparsers.add_parser("see", help="See the visible iPhone Mirroring surface.")
+    iphone_see_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    iphone_see_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum visible text chars.")
+    iphone_see_parser.add_argument("--max-nodes", type=_positive_int, default=200, help="Maximum AX nodes.")
+    iphone_see_parser.set_defaults(command_id="customer_mac.iphone_see", target="customer_mac")
+
+    iphone_tap_v2_parser = iphone_subparsers.add_parser("tap", help="Tap/click a visible iPhone label or fallback point.")
+    iphone_tap_v2_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    iphone_tap_v2_parser.add_argument("--target-label", default=None, help="Visible target label.")
+    iphone_tap_v2_parser.add_argument("--x", type=int, default=None, help="Screen x coordinate fallback.")
+    iphone_tap_v2_parser.add_argument("--y", type=int, default=None, help="Screen y coordinate fallback.")
+    iphone_tap_v2_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without tapping.")
+    iphone_tap_v2_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    iphone_tap_v2_parser.set_defaults(command_id="customer_mac.iphone_tap", target="customer_mac")
+
+    iphone_swipe_v2_parser = iphone_subparsers.add_parser("swipe", help="Swipe the focused iPhone Mirroring window.")
+    iphone_swipe_v2_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    iphone_swipe_v2_parser.add_argument("--direction", choices=["left", "right", "up", "down"], required=True, help="Swipe direction.")
+    iphone_swipe_v2_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without swiping.")
+    iphone_swipe_v2_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode for high-impact actions.")
+    iphone_swipe_v2_parser.set_defaults(command_id="customer_mac.iphone_swipe", target="customer_mac")
+
+    iphone_type_v2_parser = iphone_subparsers.add_parser("type", help="Type text into the focused iPhone Mirroring field.")
+    iphone_type_v2_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    iphone_type_v2_parser.add_argument("--text", required=True, help="Exact text to type.")
+    iphone_type_v2_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without typing.")
+    iphone_type_v2_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode.")
+    iphone_type_v2_parser.set_defaults(command_id="customer_mac.iphone_type", target="customer_mac")
 
     iphone_focus_parser = iphone_subparsers.add_parser("focus", help="Focus iPhone Mirroring.")
     iphone_focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -511,6 +720,34 @@ def _run_command(
         return customer_mac.status()
     if command_id == "customer_mac.capabilities":
         return customer_mac.capabilities()
+    if command_id == "customer_mac.control_status":
+        return customer_mac.control_status()
+    if command_id == "customer_mac.control_start":
+        return customer_mac.control_start(mode=args.mode, agent_label=args.agent_label)
+    if command_id == "customer_mac.control_stop":
+        return customer_mac.control_stop()
+    if command_id == "customer_mac.control_kill_switch":
+        return customer_mac.control_kill_switch()
+    if command_id == "customer_mac.desktop_see":
+        return customer_mac.desktop_see(max_chars=args.max_chars, max_nodes=args.max_nodes)
+    if command_id == "customer_mac.desktop_click":
+        return customer_mac.desktop_click(target_label=args.target_label, x=args.x, y=args.y, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_type":
+        return customer_mac.desktop_type(text=args.text, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_scroll":
+        return customer_mac.desktop_scroll(direction=args.direction, amount=args.amount, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_drag":
+        return customer_mac.desktop_drag(from_x=args.from_x, from_y=args.from_y, to_x=args.to_x, to_y=args.to_y, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_hotkey":
+        return customer_mac.desktop_hotkey(keys=args.keys, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_focus_app":
+        return customer_mac.desktop_focus_app(app_name=args.app_name, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_window":
+        return customer_mac.desktop_window(action=args.action, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_menu":
+        return customer_mac.desktop_menu(menu_path=args.menu_path, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_browser_action":
+        return customer_mac.desktop_browser_action(action=args.action, url=args.url, dry_run=args.dry_run)
     if command_id == "customer_mac.snapshot":
         return customer_mac.snapshot(max_chars=args.max_chars)
     if command_id == "customer_mac.ax_tree":
@@ -523,6 +760,14 @@ def _run_command(
         return customer_mac.local_site_action(action=args.action, dry_run=args.dry_run)
     if command_id == "customer_mac.iphone_mirroring_status":
         return customer_mac.iphone_mirroring_status()
+    if command_id == "customer_mac.iphone_see":
+        return customer_mac.iphone_see(max_chars=args.max_chars, max_nodes=args.max_nodes)
+    if command_id == "customer_mac.iphone_tap":
+        return customer_mac.iphone_tap(target_label=args.target_label, x=args.x, y=args.y, dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_swipe":
+        return customer_mac.iphone_swipe(direction=args.direction, dry_run=args.dry_run)
+    if command_id == "customer_mac.iphone_type":
+        return customer_mac.iphone_type(text=args.text, dry_run=args.dry_run)
     if command_id == "customer_mac.iphone_mirroring_focus":
         return customer_mac.iphone_mirroring_focus(dry_run=args.dry_run)
     if command_id == "customer_mac.iphone_mirroring_home":
@@ -557,6 +802,26 @@ def _run_command(
 
 
 def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_dir: Path | None) -> CommandResult:
+    if command_id in CONTROLLED_LIVE_COMMANDS and getattr(args, "dry_run", None) is False:
+        session = read_control_session(state_dir)
+        if session.get("kill_switch") is True:
+            return CommandResult(
+                ok=False,
+                data={"session": session},
+                errors=[
+                    make_error(
+                        code="control_kill_switch_active",
+                        message="The customer Mac kill switch is active; live agent control commands are blocked.",
+                        guidance="The customer must start a new control session in Workbench before agents can act again.",
+                    )
+                ],
+            )
+        if session.get("active") is True:
+            if session.get("mode") == "full_access":
+                return CommandResult(ok=True)
+            if session.get("mode") == "ask_permission" and not _ask_permission_requires_approval(command_id, args):
+                return CommandResult(ok=True)
+
     fields = GUARDED_APPROVAL_FIELDS.get(command_id)
     if fields is None or getattr(args, "dry_run", None) is not False:
         return CommandResult(ok=True)
@@ -578,6 +843,32 @@ def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_
         if record_args.get(field) != getattr(args, field, None):
             return _approval_required_result(command_id, fields, f"approval_audit_id does not match {field}.")
     return CommandResult(ok=True)
+
+
+def _ask_permission_requires_approval(command_id: str, args: argparse.Namespace) -> bool:
+    if command_id in ASK_PERMISSION_HIGH_IMPACT_COMMANDS:
+        return True
+    if command_id in {"customer_mac.desktop_click", "customer_mac.iphone_tap"}:
+        label = getattr(args, "target_label", None)
+        if not isinstance(label, str) or not label.strip():
+            return True
+        return _contains_risk_word(label)
+    if command_id == "customer_mac.desktop_hotkey":
+        keys = str(getattr(args, "keys", "") or "").strip().lower().replace("command", "cmd").replace(" ", "")
+        return keys not in ASK_PERMISSION_SAFE_HOTKEYS
+    if command_id == "customer_mac.desktop_window":
+        return str(getattr(args, "action", "") or "").strip().lower() == "close"
+    if command_id == "customer_mac.desktop_browser_action":
+        return str(getattr(args, "action", "") or "").strip().lower() in {"open_url"}
+    if command_id == "customer_mac.desktop_menu":
+        return _contains_risk_word(str(getattr(args, "menu_path", "") or ""))
+    return False
+
+
+def _contains_risk_word(value: str) -> bool:
+    normalized = "".join(char.lower() if char.isalnum() else " " for char in value)
+    words = set(normalized.split())
+    return any(word in words for word in ASK_PERMISSION_RISK_WORDS)
 
 
 def _approval_required_result(command_id: str, fields: tuple[str, ...], message: str | None = None) -> CommandResult:
@@ -632,12 +923,30 @@ def _capabilities() -> dict[str, object]:
                 "codex.app_server.remote_control_status",
                 "customer_mac.status",
                 "customer_mac.capabilities",
+                "customer_mac.control_status",
+                "customer_mac.control_start",
+                "customer_mac.control_stop",
+                "customer_mac.control_kill_switch",
+                "customer_mac.desktop_see",
+                "customer_mac.desktop_click",
+                "customer_mac.desktop_type",
+                "customer_mac.desktop_scroll",
+                "customer_mac.desktop_drag",
+                "customer_mac.desktop_hotkey",
+                "customer_mac.desktop_focus_app",
+                "customer_mac.desktop_window",
+                "customer_mac.desktop_menu",
+                "customer_mac.desktop_browser_action",
                 "customer_mac.snapshot",
                 "customer_mac.ax_tree",
                 "customer_mac.app_focus",
                 "customer_mac.local_site_open",
                 "customer_mac.local_site_action",
                 "customer_mac.iphone_mirroring_status",
+                "customer_mac.iphone_see",
+                "customer_mac.iphone_tap",
+                "customer_mac.iphone_swipe",
+                "customer_mac.iphone_type",
                 "customer_mac.iphone_mirroring_focus",
                 "customer_mac.iphone_mirroring_home",
                 "customer_mac.iphone_mirroring_app_switcher",
@@ -664,9 +973,8 @@ def _capabilities() -> dict[str, object]:
             "read_session_databases_wholesale",
             "expose_tokens_auth_files_or_full_home_paths",
             "customer_mac_generic_remote_desktop",
-            "customer_mac_generic_coordinates",
-            "customer_mac_arbitrary_text",
-            "customer_mac_sensitive_app_control",
+            "public_mac_ports",
+            "hidden_shell_or_applescript_passthrough",
             "customer_mac_screen_sharing_enablement",
         ],
         "data_minimization": {

@@ -1,4 +1,5 @@
-const SAFE_TOOL_PREFIXES = ["desktop_bridge_", "customer_mac_"];
+const SAFE_TOOL_PREFIXES = ["desktop_bridge_", "customer_mac_", "desktop_", "iphone_"];
+const FULL_ACCESS_TOOL_PREFIXES = ["desktop_", "iphone_"];
 const APPROVAL_GATED_TOOL_PREFIXES = [
     "desktop_bridge_codex_select_thread",
     "desktop_bridge_codex_continue_thread",
@@ -23,6 +24,22 @@ const IPHONE_GESTURE_TOOL_NAMES = new Set([
     "customer_mac_iphone_mirroring_swipe_down",
 ]);
 const IPHONE_GESTURE_ALLOWED_MATCHES = new Set(["swipe"]);
+const FULL_ACCESS_ALLOWED_MATCHES = new Set([
+    "generic coordinates",
+    "coordinate",
+    "mouseDown",
+    "mouseUp",
+    "drag",
+    "swipe",
+    "typewrite",
+    "send_message",
+    "submit_prompt",
+    "messages",
+    "call",
+    "purchase",
+    "camera",
+    "microphone",
+]);
 const DANGEROUS_TOOL_NAMES = [
     "exec",
     "shell",
@@ -100,13 +117,16 @@ export function desktopBridgeFirewall(event) {
     }).toLowerCase();
     const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern.toLowerCase()));
     if (SAFE_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
+        const allowedFullAccessMatch = matchedPattern !== undefined &&
+            FULL_ACCESS_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix)) &&
+            FULL_ACCESS_ALLOWED_MATCHES.has(matchedPattern);
         const allowedSupportCanaryMatch = matchedPattern !== undefined &&
             IPHONE_GESTURE_TOOL_NAMES.has(toolName) &&
             IPHONE_GESTURE_ALLOWED_MATCHES.has(matchedPattern);
-        if (matchedPattern && !allowedSupportCanaryMatch) {
+        if (matchedPattern && !allowedSupportCanaryMatch && !allowedFullAccessMatch) {
             return {
                 block: true,
-                blockReason: `desktop-bridge firewall blocked ${toolName}: ${matchedPattern} is outside the customer Mac safety boundary.`,
+                blockReason: `desktop-bridge firewall blocked ${toolName}: ${matchedPattern} must go through the connector's audited control contract.`,
             };
         }
         if (APPROVAL_GATED_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {

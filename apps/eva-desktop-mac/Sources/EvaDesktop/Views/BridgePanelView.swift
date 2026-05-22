@@ -86,6 +86,13 @@ struct BridgePanelView: View {
                     state: state(for: model.iPhoneMirroringStatusText),
                     help: "Readiness for Apple iPhone Mirroring actions when you want Eva to help with phone workflows."
                 )
+
+                ReadinessTile(
+                    title: "Agent Control",
+                    value: shortStatus(model.controlSessionText, unchecked: "Unchecked"),
+                    state: state(for: model.controlSessionText),
+                    help: "The customer-granted session that lets your paired evaOS agent control this Mac and iPhone Mirroring."
+                )
             }
         }
     }
@@ -183,6 +190,29 @@ struct BridgePanelView: View {
                             .help("Refresh all setup status without running the local check.")
                     }
                 )
+
+                SetupStepCard(
+                    number: "6",
+                    systemImage: "cursorarrow.motionlines",
+                    title: "Agent Control",
+                    detail: agentControlDetail,
+                    state: state(for: model.controlSessionText),
+                    badge: agentControlBadge,
+                    actions: {
+                        Button("Full Access") { model.startFullAccessControl() }
+                            .buttonStyle(.borderedProminent)
+                            .help("Start a visible session where your paired agent can click, type, scroll, use browsers, and operate iPhone Mirroring continuously.")
+                        Button("Ask Permission") { model.startAskPermissionControl() }
+                            .buttonStyle(.bordered)
+                            .help("Start the same control surface, but ask again around risky clicks, taps, hotkeys, typing, sends, and other high-impact actions.")
+                        Button("Stop") { model.stopAgentControl() }
+                            .buttonStyle(.bordered)
+                            .help("Stop the active agent control session.")
+                        Button("Kill Switch", role: .destructive) { model.killAgentControl() }
+                            .buttonStyle(.bordered)
+                            .help("Immediately block future agent control until a new session is started.")
+                    }
+                )
             }
         }
     }
@@ -273,6 +303,7 @@ struct BridgePanelView: View {
         DisclosureGroup(isExpanded: $supportDetailsExpanded) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14)], spacing: 14) {
                 BridgeOutputCard(title: "OpenClaw / Hermes", text: model.customerMacCapabilitiesText)
+                BridgeOutputCard(title: "Agent Control", text: model.controlSessionText)
                 BridgeOutputCard(title: "Codex Remote Control", text: model.codexRemoteControlStatusText)
                 BridgeOutputCard(title: "Screen Sharing", text: model.screenSharingStatusText)
                 BridgeOutputCard(title: "Bridge Capabilities", text: model.bridgeCapabilitiesText)
@@ -412,6 +443,27 @@ struct BridgePanelView: View {
             return "Sign out clears this app login. Link this Mac before disconnect controls appear."
         }
         return "Sign out clears this app login. Disconnect blocks future Eva access to this Mac."
+    }
+
+    private var agentControlDetail: String {
+        if isUnchecked(model.controlSessionText) {
+            return "Start a visible session when you want your paired agent to operate this Mac or iPhone Mirroring."
+        }
+        return shortStatus(model.controlSessionText, unchecked: "Start a visible agent control session.")
+    }
+
+    private var agentControlBadge: String {
+        let lower = model.controlSessionText.lowercased()
+        if lower.contains("not active") {
+            return "Inactive"
+        }
+        if lower.contains("full access") {
+            return "Full Access"
+        }
+        if lower.contains("ask permission") {
+            return "Ask Permission"
+        }
+        return setupBadge(for: model.controlSessionText, fallback: "Unchecked")
     }
 
     private var recentActivitySummary: String {

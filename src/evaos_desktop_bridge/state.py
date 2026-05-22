@@ -10,7 +10,9 @@ from .redaction import redact_value
 
 LATEST_FILE = "latest.json"
 AUDIT_FILE = "audit.jsonl"
+CONTROL_SESSION_FILE = "control-session.json"
 APPROVAL_AUDIT_MAX_AGE_SECONDS = 15 * 60
+CONTROL_MODES = {"full_access", "ask_permission"}
 
 
 def latest_path(state_dir: Path | None = None) -> Path:
@@ -84,3 +86,77 @@ def approval_audit_freshness_error(record: dict[str, Any], *, max_age_seconds: i
         minutes = max(1, max_age_seconds // 60)
         return f"approval_audit_id is older than {minutes} minutes; run a new dry-run."
     return None
+
+
+def control_session_path(state_dir: Path | None = None) -> Path:
+    return (state_dir or default_state_dir()) / CONTROL_SESSION_FILE
+
+
+def default_control_session() -> dict[str, Any]:
+    return {
+        "active": False,
+        "mode": "ask_permission",
+        "agent_label": None,
+        "started_at": None,
+        "stopped_at": None,
+        "kill_switch": False,
+    }
+
+
+def read_control_session(state_dir: Path | None = None) -> dict[str, Any]:
+    path = control_session_path(state_dir)
+    if not path.exists():
+        return default_control_session()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default_control_session()
+    if not isinstance(payload, dict):
+        return default_control_session()
+    merged = default_control_session()
+    merged.update(redact_value(payload))
+    if merged.get("mode") not in CONTROL_MODES:
+        merged["mode"] = "ask_permission"
+    merged["active"] = bool(merged.get("active"))
+    merged["kill_switch"] = bool(merged.get("kill_switch"))
+    return merged
+
+
+def write_control_session(payload: dict[str, Any], state_dir: Path | None = None) -> dict[str, Any]:
+    root = state_dir or default_state_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    normalized = default_control_session()
+    normalized.update(payload)
+    if normalized.get("mode") not in CONTROL_MODES:
+        normalized["mode"] = "ask_permission"
+    path = root / CONTROL_SESSION_FILE
+    path.write_text(json.dumps(redact_value(normalized), sort_keys=True) + "\n", encoding="utf-8")
+    return normalized
+
+
+def start_control_session(*, mode: str, agent_label: str | None = None, state_dir: Path | None = None) -> dict[str, Any]:
+    normalized_mode = mode if mode in CONTROL_MODES else "ask_permission"
+    return write_control_session(
+        {
+            "active": True,
+            "mode": normalized_mode,
+            "agent_label": agent_label.strip()[:160] if isinstance(agent_label, str) and agent_label.strip() else None,
+            "started_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "stopped_at": None,
+            "kill_switch": False,
+        },
+        state_dir=state_dir,
+    )
+
+
+def stop_control_session(state_dir: Path | None = None) -> dict[str, Any]:
+    session = read_control_session(state_dir)
+    session["active"] = False
+    session["stopped_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return write_control_session(session, state_dir=state_dir)
+
+
+def kill_control_session(state_dir: Path | None = None) -> dict[str, Any]:
+    session = stop_control_session(state_dir)
+    session["kill_switch"] = True
+    return write_control_session(session, state_dir=state_dir)

@@ -39,10 +39,12 @@ Mission Control, Shared Browser, Terminal, or OpenDesign internals.
   permissions, pairing, iPhone readiness, update checks, audit, and revoke.
 - Customer-facing Mac and iPhone control lives in OpenClaw/Hermes tools, not in
   hidden Workbench buttons.
-- Live actions must stay named, allowlisted, audited, dry-run-first, and
-  approval-gated. Never add arbitrary shell, generic coordinates, hidden
-  AppleScript passthrough, password capture, purchase/payment automation, or
-  generic Codex app-server mutation.
+- Live actions must stay named, allowlisted, and audited. Full Access mode can
+  run the new desktop/iPhone tools continuously after the customer starts a
+  visible session; Ask Permission and legacy guarded actions still require
+  dry-run/approval at high-impact boundaries. Never add arbitrary shell,
+  hidden AppleScript passthrough, password capture, purchase/payment
+  automation, or generic Codex app-server mutation.
 
 ## Focused Validation
 
