@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.4.7"' in script
-    assert 'BUILD_NUMBER="17"' in script
-    assert 'version = "0.4.7"' in app_brand
-    assert 'buildNumber = "17"' in app_brand
+    assert 'VERSION="0.4.8"' in script
+    assert 'BUILD_NUMBER="18"' in script
+    assert 'version = "0.4.8"' in app_brand
+    assert 'buildNumber = "18"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -110,6 +110,18 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "customer-mac\", \"control\", \"kill-switch\", \"--json" in model
     assert "full-access" in model
     assert "ask-permission" in model
+
+
+def test_workbench_refreshes_connector_after_app_update() -> None:
+    model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
+
+    assert "refreshConnectorServiceAfterAppUpdateIfNeeded" in model
+    assert "EvaDesktop.lastConnectorRefreshAppBuild" in model
+    assert 'bridge.run(arguments: ["connector-service", "status", "--json"])' in model
+    assert 'bridge.run(arguments: ["connector-service", "stop", "--json"])' in model
+    assert 'bridge.run(arguments: ["connector-service", "start", "--json"])' in model
+    assert "connectorServiceIsRunning" in model
+    assert "Refreshing Mac Access for this Workbench update" in model
 
 
 def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
