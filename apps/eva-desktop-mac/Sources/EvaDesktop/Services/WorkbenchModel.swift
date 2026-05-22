@@ -1544,35 +1544,90 @@ final class WorkbenchConnectorProcessManager {
 
     private static func tailnetIPv4() async -> String? {
         await Task.detached {
+            if let interfaceAddress = commandOutput("/sbin/ifconfig", [])?
+                .split(separator: "\n")
+                .compactMap({ activeTailnetAddress(fromIfconfigLine: String($0)) })
+                .first {
+                return interfaceAddress
+            }
+
+            let statusCommands: [(String, [String])] = [
+                ("/opt/homebrew/bin/tailscale", ["status", "--json"]),
+                ("/usr/local/bin/tailscale", ["status", "--json"]),
+                ("/usr/bin/env", ["tailscale", "status", "--json"])
+            ]
+            for command in statusCommands {
+                guard let output = commandOutput(command.0, command.1),
+                      let address = onlineTailnetAddress(fromStatusJSON: output) else {
+                    continue
+                }
+                return address
+            }
+
             let commands: [(String, [String])] = [
                 ("/opt/homebrew/bin/tailscale", ["ip", "-4"]),
                 ("/usr/local/bin/tailscale", ["ip", "-4"]),
                 ("/usr/bin/env", ["tailscale", "ip", "-4"])
             ]
             for command in commands {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: command.0)
-                process.arguments = command.1
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = Pipe()
-                do {
-                    try process.run()
-                } catch {
-                    continue
-                }
-                process.waitUntilExit()
-                guard process.terminationStatus == 0 else { continue }
-                let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                guard let output = commandOutput(command.0, command.1) else { continue }
                 if let address = output
                     .split(separator: "\n")
                     .map({ String($0.trimmingCharacters(in: .whitespacesAndNewlines)) })
-                    .first(where: { $0.hasPrefix("100.") }) {
+                    .first(where: { looksLikeTailnetIPv4($0) }) {
                     return address
                 }
             }
             return nil
         }.value
+    }
+
+    nonisolated private static func commandOutput(_ executable: String, _ arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+    }
+
+    nonisolated private static func activeTailnetAddress(fromIfconfigLine line: String) -> String? {
+        let parts = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+        guard parts.count >= 2, parts[0] == "inet", looksLikeTailnetIPv4(parts[1]) else {
+            return nil
+        }
+        return parts[1]
+    }
+
+    nonisolated private static func onlineTailnetAddress(fromStatusJSON output: String) -> String? {
+        guard let data = output.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["BackendState"] as? String == "Running",
+              let selfNode = object["Self"] as? [String: Any],
+              selfNode["Online"] as? Bool == true,
+              let addresses = selfNode["TailscaleIPs"] as? [String] else {
+            return nil
+        }
+        return addresses.first(where: looksLikeTailnetIPv4)
+    }
+
+    nonisolated private static func looksLikeTailnetIPv4(_ value: String) -> Bool {
+        let parts = value.split(separator: ".")
+        guard parts.count == 4, parts[0] == "100" else { return false }
+        return parts.allSatisfy { part in
+            guard let number = Int(part) else { return false }
+            return number >= 0 && number <= 255
+        }
     }
 
     private static func logURL() -> URL {

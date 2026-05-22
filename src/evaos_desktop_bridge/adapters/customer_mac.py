@@ -655,9 +655,34 @@ except Exception as exc:
             return CommandResult(ok=True, data={"typed": False, "would_type": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)})
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
-            result = self.runner([str(peekaboo["path"]), "type", text], 20.0)
+            result = self.runner([str(peekaboo["path"]), "paste", "--text", text, "--json", "--no-remote"], 20.0)
             if result.returncode == 0:
-                return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text), "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+                return CommandResult(
+                    ok=True,
+                    data={
+                        "typed": True,
+                        "text_preview": self._safe_preview(text),
+                        "text_sha256": self._text_hash(text),
+                        "engine": "peekaboo",
+                        "input_method": "paste",
+                    },
+                    warnings=self._stderr_warning(result),
+                    provenance={"source": "peekaboo_paste"},
+                )
+            result = self.runner([str(peekaboo["path"]), "type", "--text", text, "--profile", "linear", "--json", "--no-remote"], 20.0)
+            if result.returncode == 0:
+                return CommandResult(
+                    ok=True,
+                    data={
+                        "typed": True,
+                        "text_preview": self._safe_preview(text),
+                        "text_sha256": self._text_hash(text),
+                        "engine": "peekaboo",
+                        "input_method": "type",
+                    },
+                    warnings=self._stderr_warning(result),
+                    provenance={"source": "peekaboo_type"},
+                )
         return self._keystroke_arbitrary_text(text)
 
     def desktop_scroll(self, *, direction: str = "down", amount: int = 600, dry_run: bool = False) -> CommandResult:
@@ -705,7 +730,7 @@ except Exception as exc:
             return CommandResult(ok=True, data={"pressed": False, "would_press": True, "keys": normalized})
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
-            result = self.runner([str(peekaboo["path"]), "hotkey", *normalized.split("+")], 10.0)
+            result = self.runner([str(peekaboo["path"]), "hotkey", "--keys", normalized, "--json", "--no-remote"], 10.0)
             if result.returncode == 0:
                 return CommandResult(ok=True, data={"pressed": True, "keys": normalized, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
         return self._osascript_hotkey(normalized)
@@ -782,23 +807,29 @@ except Exception as exc:
                 focus = self.iphone_mirroring_focus(dry_run=False)
                 if focus.ok:
                     status = self.iphone_mirroring_status()
-                if status.data.get("frontmost") is True:
-                    seen = self.desktop_see(max_chars=max_chars, max_nodes=max_nodes)
-                    seen.data["target"] = "iphone_mirroring"
-                    return seen
-            return CommandResult(
-                ok=False,
-                data={"target": "iphone_mirroring", "running": True, "frontmost": False},
-                errors=[
-                    make_error(
-                        code="iphone_mirroring_not_frontmost",
-                        message="iPhone Mirroring is running but is not the visible frontmost app.",
-                        guidance="Focus iPhone Mirroring from Workbench or an active control session, then rerun iphone_see.",
-                    )
-                ],
-            )
+            if status.data.get("frontmost") is not True:
+                return CommandResult(
+                    ok=False,
+                    data={"target": "iphone_mirroring", "running": True, "frontmost": False},
+                    errors=[
+                        make_error(
+                            code="iphone_mirroring_not_frontmost",
+                            message="iPhone Mirroring is running but is not the visible frontmost app.",
+                            guidance="Focus iPhone Mirroring from Workbench or an active control session, then rerun iphone_see.",
+                        )
+                    ],
+                )
+        peekaboo = self._peekaboo_status()
+        warnings: list[str] = []
+        if peekaboo.get("available"):
+            seen = self._peekaboo_iphone_region_see(peekaboo=peekaboo)
+            if seen.ok:
+                return seen
+            warnings.extend(seen.warnings)
+            warnings.extend(str(error.get("message") or error.get("code") or "Peekaboo iPhone capture failed") for error in seen.errors)
         seen = self.desktop_see(max_chars=max_chars, max_nodes=max_nodes)
         seen.data["target"] = "iphone_mirroring"
+        seen.warnings = warnings + seen.warnings
         return seen
 
     def iphone_tap(
@@ -812,19 +843,35 @@ except Exception as exc:
         dry_run: bool = False,
     ) -> CommandResult:
         if dry_run:
-            resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=target_label)
-            if not resolved.ok:
-                return resolved
             resolved_label = target_label
-            if resolved.data.get("point"):
-                point = resolved.data["point"]
+            if snapshot_id and element_id is None and target_label is None and x is not None and y is not None:
+                resolved_point = self._resolve_snapshot_coordinates(snapshot_id=snapshot_id, x=x, y=y, expected_target="iphone_mirroring")
+                if not resolved_point.ok:
+                    return resolved_point
+                point = resolved_point.data["point"]
                 x = int(point["x"])
                 y = int(point["y"])
-                resolved_label = str(resolved.data.get("target_label") or target_label or element_id or "")
+            else:
+                resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=target_label)
+                if not resolved.ok:
+                    return resolved
+                if resolved.data.get("point"):
+                    point = resolved.data["point"]
+                    x = int(point["x"])
+                    y = int(point["y"])
+                    resolved_label = str(resolved.data.get("target_label") or target_label or element_id or "")
             return CommandResult(ok=True, data={"performed": False, "would_tap": True, "target_label": resolved_label, "snapshot_id": snapshot_id, "element_id": element_id, "point": self._point(x, y)})
         focus = self.iphone_mirroring_focus(dry_run=False)
         if not focus.ok:
             return focus
+        if snapshot_id and element_id is None and target_label is None and x is not None and y is not None:
+            resolved_point = self._resolve_snapshot_coordinates(snapshot_id=snapshot_id, x=x, y=y, expected_target="iphone_mirroring")
+            if not resolved_point.ok:
+                return resolved_point
+            point = resolved_point.data["point"]
+            x = int(point["x"])
+            y = int(point["y"])
+            snapshot_id = None
         return self.desktop_click(target_label=target_label, x=x, y=y, snapshot_id=snapshot_id, element_id=element_id, dry_run=False)
 
     def iphone_swipe(self, *, direction: str, dry_run: bool = False) -> CommandResult:
@@ -845,7 +892,13 @@ except Exception as exc:
         focus = self.iphone_mirroring_focus(dry_run=False)
         if not focus.ok:
             return focus
-        return self.desktop_type(text=text, dry_run=False)
+        typed = self._keystroke_arbitrary_text(text)
+        if typed.ok:
+            typed.provenance = {"source": "system_events", "customer_control": True, "reason": "iphone_mirroring_exact_text"}
+            return typed
+        fallback = self.desktop_type(text=text, dry_run=False)
+        fallback.warnings = typed.warnings + ["System Events exact iPhone typing failed; used desktop text fallback."] + fallback.warnings
+        return fallback
 
     def snapshot(self, *, max_chars: int) -> CommandResult:
         frontmost = self._frontmost_app()
@@ -1249,6 +1302,123 @@ except Exception as exc:
             provenance={"source": "peekaboo_visual"},
         )
 
+    def _peekaboo_iphone_region_see(self, *, peekaboo: dict[str, Any]) -> CommandResult:
+        bounds = self._peekaboo_iphone_window_bounds(peekaboo=peekaboo) or self._iphone_window_bounds()
+        if bounds is None:
+            return CommandResult(
+                ok=False,
+                data={"target": "iphone_mirroring", "engine": "peekaboo", "snapshot_id": None, "elements": []},
+                errors=[make_error(code="iphone_mirroring_window_not_found", message="Could not resolve the visible iPhone Mirroring window.", guidance="Open iPhone Mirroring, keep it visible, and retry.")],
+            )
+        x, y, width, height = bounds
+        snapshot_id = self._new_snapshot_id("iphone_mirroring")
+        screenshot_dir = self.state_dir / "screenshots"
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        screenshot_path = screenshot_dir / f"{snapshot_id}.png"
+        result = self.runner(
+            [
+                str(peekaboo["path"]),
+                "image",
+                "--mode",
+                "area",
+                "--region",
+                f"{x},{y},{width},{height}",
+                "--path",
+                str(screenshot_path),
+                "--json",
+                "--no-remote",
+            ],
+            20.0,
+        )
+        warnings = self._stderr_warning(result)
+        if result.returncode != 0 or not screenshot_path.exists():
+            return CommandResult(
+                ok=False,
+                data={"target": "iphone_mirroring", "engine": "peekaboo", "snapshot_id": None, "elements": []},
+                warnings=warnings,
+                errors=[make_error(code="iphone_mirroring_region_capture_failed", message="Peekaboo could not capture the visible iPhone Mirroring region.", guidance="Verify Screen Recording permission and keep iPhone Mirroring visible.")],
+            )
+        image = self._image_artifact(screenshot_path, snapshot_id=snapshot_id)
+        elements = [
+            {
+                "element_id": "iphone-mirroring-window",
+                "snapshot_id": snapshot_id,
+                "label": "iPhone Mirroring window",
+                "role": "window",
+                "bounds": {"x": x, "y": y, "width": width, "height": height},
+                "center": {"x": x + width // 2, "y": y + height // 2},
+                "actions": ["click"],
+                "engine": "peekaboo_region",
+            }
+        ]
+        image_width = image.get("width") if image else None
+        image_height = image.get("height") if image else None
+        coordinate_space = {
+            "type": "window_region",
+            "origin": {"x": x, "y": y},
+            "size": {"width": width, "height": height},
+            "image_size": {"width": image_width, "height": image_height},
+            "scale": {"x": (float(image_width) / float(width)) if image_width and width else 1.0, "y": (float(image_height) / float(height)) if image_height and height else 1.0},
+            "tap_coordinates": "Pass x/y relative to this iPhone screenshot together with snapshot_id; the connector translates them to global screen coordinates.",
+        }
+        self._write_snapshot_index(
+            snapshot_id=snapshot_id,
+            target="iphone_mirroring",
+            elements=elements,
+            engine="peekaboo_region",
+            coordinate_space=coordinate_space,
+        )
+        return CommandResult(
+            ok=image is not None,
+            data={
+                "target": "iphone_mirroring",
+                "engine": "peekaboo",
+                "capture_engine": "peekaboo_region",
+                "frontmost_app": "iPhone Mirroring",
+                "window_title": "iPhone Mirroring",
+                "snapshot_id": snapshot_id,
+                "screenshot": {"screenshot": image} if image else None,
+                "coordinate_space": coordinate_space,
+                "elements": elements,
+            },
+            warnings=warnings,
+            errors=[] if image is not None else [make_error(code="iphone_mirroring_artifact_failed", message="The iPhone screenshot was captured but could not be recorded as an artifact.", guidance="Retry iphone_see.")],
+            provenance={"source": "peekaboo_region", "customer_control": True},
+        )
+
+    def _peekaboo_iphone_window_bounds(self, *, peekaboo: dict[str, Any]) -> tuple[int, int, int, int] | None:
+        result = self.runner([str(peekaboo["path"]), "window", "list", "--app", "iPhone Mirroring", "--json", "--no-remote"], 10.0)
+        if result.returncode != 0:
+            return None
+        try:
+            payload = json.loads(result.stdout.strip() or "{}")
+        except json.JSONDecodeError:
+            return None
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        windows = data.get("windows") if isinstance(data.get("windows"), list) else []
+        candidates: list[tuple[int, int, int, int]] = []
+        for item in windows:
+            if not isinstance(item, dict) or item.get("is_on_screen") is not True:
+                continue
+            title = str(item.get("window_title") or "")
+            if title != "iPhone Mirroring":
+                continue
+            bounds = item.get("bounds")
+            if not isinstance(bounds, dict):
+                continue
+            try:
+                x = int(bounds["x"])
+                y = int(bounds["y"])
+                width = int(bounds["width"])
+                height = int(bounds["height"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if width > 0 and height > 0:
+                candidates.append((x, y, width, height))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda row: row[2] * row[3])
+
     def _peekaboo_status(self) -> dict[str, Any]:
         path: str | None = None
         for candidate in PEEKABOO_BIN_CANDIDATES:
@@ -1401,13 +1571,11 @@ except Exception as exc:
         key_label = {"18": "1", "19": "2", "20": "3", "36": "enter"}.get(key_code)
         peekaboo = self._peekaboo_status()
         if key_label and peekaboo.get("available"):
-            argv = [str(peekaboo["path"]), "hotkey"]
-            if not customer_control:
-                argv.append("cmd")
-            argv.append(key_label)
+            keys = key_label if customer_control else f"cmd+{key_label}"
+            argv = [str(peekaboo["path"]), "hotkey", "--keys", keys, "--json", "--no-remote"]
             result = self.runner(argv, 10.0)
             if result.returncode == 0:
-                data: dict[str, Any] = {"performed": True, "action": action, "engine": "peekaboo", "keys": "+".join(argv[2:])}
+                data: dict[str, Any] = {"performed": True, "action": action, "engine": "peekaboo", "keys": keys}
                 if direction:
                     data["direction"] = direction
                 return CommandResult(ok=True, data=data, warnings=self._stderr_warning(result), provenance={"source": "peekaboo", "customer_control": customer_control})
@@ -1824,7 +1992,16 @@ except Exception as exc:
             )
         return elements
 
-    def _write_snapshot_index(self, *, snapshot_id: str, target: str, elements: list[dict[str, Any]], engine: str, peekaboo_snapshot_id: str | None = None) -> None:
+    def _write_snapshot_index(
+        self,
+        *,
+        snapshot_id: str,
+        target: str,
+        elements: list[dict[str, Any]],
+        engine: str,
+        peekaboo_snapshot_id: str | None = None,
+        coordinate_space: dict[str, Any] | None = None,
+    ) -> None:
         snapshot_dir = self.state_dir / "snapshots"
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -1832,20 +2009,13 @@ except Exception as exc:
             "target": target,
             "engine": engine,
             "peekaboo_snapshot_id": peekaboo_snapshot_id,
+            "coordinate_space": coordinate_space,
             "timestamp": timestamp_utc(),
             "elements": elements[:1000],
         }
         (snapshot_dir / f"{snapshot_id}.json").write_text(json.dumps(redact_value(payload), sort_keys=True) + "\n", encoding="utf-8")
 
-    def _resolve_snapshot_target(self, *, snapshot_id: str | None, element_id: str | None, target_label: str | None) -> CommandResult:
-        if not snapshot_id and not element_id:
-            return CommandResult(ok=True)
-        if not snapshot_id:
-            return CommandResult(
-                ok=False,
-                data={"resolved": False, "element_id": element_id},
-                errors=[make_error(code="snapshot_id_required", message="element_id clicks require the matching snapshot_id.", guidance="Run desktop_see or iphone_see and pass both snapshot_id and element_id from that result.")],
-            )
+    def _read_snapshot_payload(self, snapshot_id: str) -> CommandResult:
         if not re.fullmatch(r"snap-[a-z0-9_-]+-[a-f0-9]{32}", snapshot_id):
             return CommandResult(
                 ok=False,
@@ -1867,13 +2037,70 @@ except Exception as exc:
                 data={"resolved": False, "snapshot_id": snapshot_id},
                 errors=[make_error(code="snapshot_unreadable", message="The requested visual snapshot could not be read.", guidance="Run desktop_see or iphone_see again, then retry with the fresh snapshot_id.")],
             )
-        stale = self._snapshot_stale(payload.get("timestamp"))
-        if stale:
+        if self._snapshot_stale(payload.get("timestamp")):
             return CommandResult(
                 ok=False,
                 data={"resolved": False, "snapshot_id": snapshot_id},
                 errors=[make_error(code="snapshot_stale", message="The requested visual snapshot is stale.", guidance="Run desktop_see or iphone_see again so the agent acts on the current screen.")],
             )
+        return CommandResult(ok=True, data={"resolved": True, "snapshot_id": snapshot_id, "payload": payload})
+
+    def _resolve_snapshot_coordinates(self, *, snapshot_id: str, x: int, y: int, expected_target: str | None = None) -> CommandResult:
+        payload_result = self._read_snapshot_payload(snapshot_id)
+        if not payload_result.ok:
+            return payload_result
+        payload = payload_result.data["payload"]
+        if expected_target and payload.get("target") != expected_target:
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "snapshot_id": snapshot_id, "target": payload.get("target")},
+                errors=[make_error(code="snapshot_target_mismatch", message="The snapshot target does not match this action.", guidance=f"Run {expected_target}_see again and use that fresh snapshot_id.")],
+            )
+        coordinate_space = payload.get("coordinate_space") if isinstance(payload.get("coordinate_space"), dict) else {}
+        origin = coordinate_space.get("origin") if isinstance(coordinate_space.get("origin"), dict) else {}
+        logical_x = int(x)
+        logical_y = int(y)
+        if coordinate_space.get("type") == "window_region":
+            image_size = coordinate_space.get("image_size") if isinstance(coordinate_space.get("image_size"), dict) else {}
+            size = coordinate_space.get("size") if isinstance(coordinate_space.get("size"), dict) else {}
+            try:
+                image_width = float(image_size.get("width") or 0)
+                image_height = float(image_size.get("height") or 0)
+                width = float(size.get("width") or 0)
+                height = float(size.get("height") or 0)
+            except (TypeError, ValueError):
+                image_width = image_height = width = height = 0
+            if image_width > 0 and width > 0:
+                logical_x = int(round(float(x) * width / image_width))
+            if image_height > 0 and height > 0:
+                logical_y = int(round(float(y) * height / image_height))
+        global_x = logical_x + int(origin.get("x") or 0)
+        global_y = logical_y + int(origin.get("y") or 0)
+        return CommandResult(
+            ok=True,
+            data={
+                "resolved": True,
+                "snapshot_id": snapshot_id,
+                "point": {"x": global_x, "y": global_y},
+                "input_point": {"x": int(x), "y": int(y)},
+                "logical_point": {"x": logical_x, "y": logical_y},
+                "coordinate_space": coordinate_space or {"type": "global"},
+            },
+        )
+
+    def _resolve_snapshot_target(self, *, snapshot_id: str | None, element_id: str | None, target_label: str | None) -> CommandResult:
+        if not snapshot_id and not element_id:
+            return CommandResult(ok=True)
+        if not snapshot_id:
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "element_id": element_id},
+                errors=[make_error(code="snapshot_id_required", message="element_id clicks require the matching snapshot_id.", guidance="Run desktop_see or iphone_see and pass both snapshot_id and element_id from that result.")],
+            )
+        payload_result = self._read_snapshot_payload(snapshot_id)
+        if not payload_result.ok:
+            return payload_result
+        payload = payload_result.data["payload"]
         elements = payload.get("elements") if isinstance(payload.get("elements"), list) else []
         match: dict[str, Any] | None = None
         if element_id:

@@ -375,9 +375,9 @@ struct BridgePanelView: View {
             return "Accessibility and Screen Recording are approved."
         }
         if isUnchecked(model.customerMacStatusText) {
-            return "Open macOS settings and approve the Workbench app or helper macOS shows."
+            return "Open macOS settings and approve the Workbench app or helper macOS shows. In this beta, macOS may list the helper as Python."
         }
-        return shortStatus(model.customerMacStatusText, unchecked: "Open macOS settings and approve access.")
+        return shortStatus(model.customerMacStatusText, unchecked: "Open macOS settings and approve access. If macOS lists Python, approve that helper for this beta.")
     }
 
     private var permissionBadge: String {
