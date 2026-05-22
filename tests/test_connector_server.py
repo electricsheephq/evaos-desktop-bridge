@@ -67,6 +67,8 @@ def test_connector_builds_desktop_control_argv() -> None:
         "--target-label",
         "Continue",
     ]
+    assert "--snapshot-id" in build_bridge_argv("desktopClick", {"snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "element_id": "el-0001"})
+    assert "--element-id" in build_bridge_argv("iphoneTap", {"snapshot_id": "snap-iphone-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "element_id": "el-0001"})
     assert build_bridge_argv("iphoneSwipe", {"direction": "left", "dry_run": False}) == [
         "customer-mac",
         "iphone-mirroring",
@@ -121,7 +123,7 @@ def test_connector_full_access_allows_live_remote_control_without_approval(tmp_p
     assert _live_guarded_approval_error("desktopType", {"text": "hello", "dry_run": False}, state_dir=tmp_path) is None
     assert _live_guarded_approval_error("iphoneSwipe", {"direction": "left", "dry_run": False}, state_dir=tmp_path) is None
     assert _live_guarded_approval_error("codexContinueThread", {"title": "SDK Docs", "prompt": "continue", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
-    assert _live_guarded_approval_error("customerMacIphoneMirroringSendApprovedMessage", {"text": "hello", "recipient_context": "test", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+    assert _live_guarded_approval_error("customerMacIphoneMirroringSendApprovedMessage", {"text": "hello", "recipient_context": "test", "dry_run": False}, state_dir=tmp_path) is None
 
 
 def test_connector_ask_permission_allows_navigation_but_gates_high_impact(tmp_path: Path) -> None:
@@ -278,6 +280,30 @@ def test_connector_rejects_post_without_token_even_on_loopback(tmp_path: Path) -
         )
         response = conn.getresponse()
         assert response.status == 401
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
+def test_connector_serves_visual_artifacts_with_token(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    artifact_dir.joinpath("snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png").write_bytes(b"\x89PNG\r\n\x1a\nartifact")
+    handler = _make_handler(token="secret-token", command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request(
+            "GET",
+            "/v1/artifacts/snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+        response = conn.getresponse()
+        assert response.status == 200
+        assert response.getheader("Content-Type") == "image/png"
+        assert response.read().startswith(b"\x89PNG")
     finally:
         server.shutdown()
         thread.join(timeout=2)

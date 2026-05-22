@@ -18,23 +18,22 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.3.0` / build `6` introduced Desktop Control Engine V2. Workbench
-`0.3.3` / build `9` is the current V2 release candidate because it bundles the
-matching bridge helper inside the app, uses the CLI's hyphenated
-`full-access` / `ask-permission` mode values from the Agent Control buttons,
-and blocks remote connector commands after the local kill switch is activated.
-Earlier `0.3.0` builds could rely on a stale global bridge helper, `0.3.1`
-fixed that bundle issue but still blocked Full Access at the app command
-allowlist, and `0.3.2` exposed the V2 tool path but allowed read commands such
-as `desktop_see` after kill switch.
+Workbench `0.4.0` / build `10` is the current Codex-level Mac + iPhone control
+release target. It keeps the `0.3.3` bundled bridge helper and kill-switch gate,
+then adds visual snapshot artifacts, `snapshot_id` / `element_id` targeting,
+command-specific OpenClaw connector timeouts, and Full Access semantics for the
+older iPhone/message connector route. Earlier `0.3.x` builds proved the mode
+switch, but still left cloud agents with weak visual grounding and too much
+legacy approval behavior around phone/message workflows.
 
 The release keeps the `0.2.3` self-serve pairing and stuck-login recovery, then
 adds customer-granted Full Access and Ask Permission control sessions for paired
 Mac and iPhone Mirroring workflows. When publishing it, keep older ZIP paths
 aliased to the fixed current ZIP so stale links cannot reinstall a broken or
 stale build. Before giving the link to a tester, verify the packaged app
-contains `Contents/Resources/Bridge/evaos-desktop-bridge` and
-`Contents/Resources/Bridge/src/evaos_desktop_bridge`.
+contains `Contents/Resources/Bridge/evaos-desktop-bridge`,
+`Contents/Resources/Bridge/src/evaos_desktop_bridge`, and the
+`Contents/Resources/Bridge/bin/peekaboo` launcher or bundled Peekaboo binary.
 
 ## Edit Map
 

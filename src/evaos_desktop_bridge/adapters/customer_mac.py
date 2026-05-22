@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import os
 import platform
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -106,6 +111,8 @@ DANGEROUS_IPHONE_TARGET_RE = re.compile(
 )
 SAFE_TEXT_RE = re.compile(r"^[A-Za-z0-9 ._+@:/#-]{1,80}$")
 APPROVED_TEXT_RE = re.compile(r"^[^\r\n]{1,240}$")
+SNAPSHOT_MAX_AGE_SECONDS = 15 * 60
+SNAPSHOT_INLINE_MAX_BYTES = int(os.environ.get("EVAOS_DESKTOP_BRIDGE_INLINE_IMAGE_MAX_BYTES", str(3 * 1024 * 1024)))
 
 
 class CustomerMacObserver:
@@ -524,40 +531,79 @@ except Exception as exc:
     def desktop_see(self, *, max_chars: int = 4000, max_nodes: int = 200) -> CommandResult:
         peekaboo = self._peekaboo_status()
         frontmost = self._frontmost_app()
+        peekaboo_output = None
+        peekaboo_truncated = False
+        warnings: list[str] = []
         if peekaboo.get("available"):
             result = self.runner([str(peekaboo["path"]), "see"], 20.0)
-            output, truncated = cap_text(redact_value(result.stdout.strip() or result.stderr.strip()), max_chars)
             if result.returncode == 0:
-                return CommandResult(
-                    ok=True,
-                    data={"engine": "peekaboo", "frontmost_app": redact_value(frontmost), "output": output, "truncated": truncated},
-                    warnings=[] if not truncated else ["Peekaboo see output truncated"],
-                    provenance={"source": "peekaboo"},
-                )
+                peekaboo_output, peekaboo_truncated = cap_text(redact_value(result.stdout.strip() or result.stderr.strip()), max_chars)
+                if peekaboo_truncated:
+                    warnings.append("Peekaboo see output truncated")
+            else:
+                warnings.extend(self._stderr_warning(result))
         screenshot = self.snapshot(max_chars=max_chars)
         ax = self.ax_tree(max_nodes=max_nodes)
+        snapshot_id = screenshot.data.get("snapshot_id") if screenshot.ok else None
+        elements = self._elements_from_ax(ax.data.get("nodes", []) if ax.ok else [], snapshot_id=snapshot_id)
+        if snapshot_id and elements:
+            self._write_snapshot_index(snapshot_id=snapshot_id, target="desktop", elements=elements)
         return CommandResult(
-            ok=screenshot.ok or ax.ok,
+            ok=bool(peekaboo_output) or screenshot.ok or ax.ok,
             data={
-                "engine": "fallback",
+                "engine": "peekaboo" if peekaboo.get("available") else "fallback",
                 "frontmost_app": redact_value(frontmost),
+                "snapshot_id": snapshot_id,
+                "peekaboo": peekaboo,
+                "peekaboo_output": peekaboo_output,
+                "peekaboo_truncated": peekaboo_truncated,
                 "screenshot": screenshot.data if screenshot.ok else None,
                 "ax": ax.data if ax.ok else None,
+                "elements": elements,
             },
-            warnings=screenshot.warnings + ax.warnings + ([] if peekaboo.get("available") else ["Peekaboo not installed; used built-in fallback."]),
-            errors=[] if screenshot.ok or ax.ok else screenshot.errors + ax.errors,
-            provenance={"source": "peekaboo_fallback"},
+            warnings=warnings + screenshot.warnings + ax.warnings + ([] if peekaboo.get("available") else ["Peekaboo not installed; used built-in fallback."]),
+            errors=[] if peekaboo_output or screenshot.ok or ax.ok else screenshot.errors + ax.errors,
+            provenance={"source": "peekaboo_visual" if peekaboo.get("available") else "peekaboo_fallback"},
         )
 
-    def desktop_click(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
+    def desktop_click(
+        self,
+        *,
+        target_label: str | None = None,
+        x: int | None = None,
+        y: int | None = None,
+        snapshot_id: str | None = None,
+        element_id: str | None = None,
+        dry_run: bool = False,
+    ) -> CommandResult:
+        resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=target_label)
+        if not resolved.ok:
+            return resolved
+        resolved_label = target_label
+        if resolved.data.get("point"):
+            point = resolved.data["point"]
+            x = int(point["x"])
+            y = int(point["y"])
+            resolved_label = str(resolved.data.get("target_label") or target_label or element_id or "")
+            target_label = None
         if dry_run:
-            return CommandResult(ok=True, data={"clicked": False, "would_click": True, "target_label": target_label, "point": self._point(x, y)})
+            return CommandResult(
+                ok=True,
+                data={
+                    "clicked": False,
+                    "would_click": True,
+                    "target_label": resolved_label,
+                    "snapshot_id": snapshot_id,
+                    "element_id": element_id,
+                    "point": self._point(x, y),
+                },
+            )
         if target_label:
             peekaboo = self._peekaboo_status()
             if peekaboo.get("available"):
                 result = self.runner([str(peekaboo["path"]), "click", target_label], 10.0)
                 if result.returncode == 0:
-                    return CommandResult(ok=True, data={"clicked": True, "target_label": target_label, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+                    return CommandResult(ok=True, data={"clicked": True, "target_label": target_label, "snapshot_id": snapshot_id, "element_id": element_id, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
             pressed = self._press_frontmost_target(target_label=target_label)
             if pressed.ok:
                 pressed.data["engine"] = "accessibility"
@@ -691,13 +737,31 @@ except Exception as exc:
         seen.data["target"] = "iphone_mirroring"
         return seen
 
-    def iphone_tap(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
+    def iphone_tap(
+        self,
+        *,
+        target_label: str | None = None,
+        x: int | None = None,
+        y: int | None = None,
+        snapshot_id: str | None = None,
+        element_id: str | None = None,
+        dry_run: bool = False,
+    ) -> CommandResult:
         if dry_run:
-            return CommandResult(ok=True, data={"performed": False, "would_tap": True, "target_label": target_label, "point": self._point(x, y)})
+            resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=target_label)
+            if not resolved.ok:
+                return resolved
+            resolved_label = target_label
+            if resolved.data.get("point"):
+                point = resolved.data["point"]
+                x = int(point["x"])
+                y = int(point["y"])
+                resolved_label = str(resolved.data.get("target_label") or target_label or element_id or "")
+            return CommandResult(ok=True, data={"performed": False, "would_tap": True, "target_label": resolved_label, "snapshot_id": snapshot_id, "element_id": element_id, "point": self._point(x, y)})
         focus = self.iphone_mirroring_focus(dry_run=False)
         if not focus.ok:
             return focus
-        return self.desktop_click(target_label=target_label, x=x, y=y, dry_run=False)
+        return self.desktop_click(target_label=target_label, x=x, y=y, snapshot_id=snapshot_id, element_id=element_id, dry_run=False)
 
     def iphone_swipe(self, *, direction: str, dry_run: bool = False) -> CommandResult:
         mapping = {
@@ -721,7 +785,7 @@ except Exception as exc:
 
     def snapshot(self, *, max_chars: int) -> CommandResult:
         frontmost = self._frontmost_app()
-        if self._is_sensitive_app(frontmost):
+        if self._is_sensitive_app(frontmost) and not self._full_access_active():
             return CommandResult(
                 ok=False,
                 data={"screenshot_path": None, "frontmost_app": redact_value(frontmost)},
@@ -737,13 +801,17 @@ except Exception as exc:
         title = self._front_window_title()
         capped_title, title_truncated = cap_text(redact_value(title), max_chars)
         warnings = ["window title truncated"] if title_truncated else []
+        snapshot_id = self._new_snapshot_id("desktop")
+        image = self._image_artifact(screenshot_path, snapshot_id=snapshot_id) if screenshot_path else None
         return CommandResult(
             ok=screenshot_path is not None,
             data={
+                "snapshot_id": snapshot_id if screenshot_path else None,
                 "timestamp": self.now(),
                 "frontmost_app": redact_value(frontmost),
                 "window_title": capped_title,
                 "screenshot_path": redact_value(screenshot_path) if screenshot_path else None,
+                "screenshot": image,
                 "max_chars": max_chars,
             },
             warnings=warnings if screenshot_path else warnings + ["screenshot unavailable; Screen Recording permission may be missing"],
@@ -751,7 +819,7 @@ except Exception as exc:
 
     def ax_tree(self, *, max_nodes: int) -> CommandResult:
         frontmost = self._frontmost_app()
-        if self._is_sensitive_app(frontmost):
+        if self._is_sensitive_app(frontmost) and not self._full_access_active():
             return CommandResult(
                 ok=False,
                 data={"nodes": [], "truncated": False, "frontmost_app": redact_value(frontmost)},
@@ -786,7 +854,7 @@ except Exception as exc:
             return CommandResult(ok=False, data={"focused": False, "would_focus": dry_run}, errors=[make_error(code="app_name_not_allowed", message="App name is outside the safe named-action character set.", guidance="Use a visible macOS app name with letters, numbers, spaces, dots, underscores, plus, at-sign, slash, colon, hash, or hyphen.")])
         if dry_run:
             return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
-        if self._is_sensitive_app(app_name):
+        if self._is_sensitive_app(app_name) and not self._full_access_active():
             return CommandResult(ok=False, data={"focused": False, "app_name": app_name}, errors=[make_error(code="sensitive_app_blocked", message="This app is on the sensitive-app denylist.", guidance="Only request named actions against non-sensitive apps.")])
         result = self.runner(["open", "-a", app_name], 10.0)
         if result.returncode != 0:
@@ -834,10 +902,10 @@ except Exception as exc:
                 "supported_actions": sorted(SAFE_IPHONE_ACTIONS | GUARDED_IPHONE_ACTIONS),
                 "guarded_actions": sorted(GUARDED_IPHONE_ACTIONS),
                 "safety": {
-                    "messages_calls_purchases_auth_camera_mic_blocked": True,
-                    "generic_coordinates_blocked": True,
-                    "arbitrary_text_blocked": True,
-                    "approved_messages_require_same_turn_approval": True,
+                    "full_access_allows_customer_granted_control": True,
+                    "ask_permission_gates_high_impact_actions": True,
+                    "hidden_shell_public_ports_and_token_exfiltration_blocked": True,
+                    "kill_switch_available": True,
                 },
             },
         )
@@ -874,9 +942,9 @@ except Exception as exc:
                 target_label = "Send"
             if target_label.strip().lower() not in {"send", "send message"}:
                 return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="send_target_label_not_allowed", message="Approved message sends may only press a visible Send control.", guidance="Use target label 'Send' or 'Send message'; do not route this through arbitrary visible labels.")])
-        if action == "open_app" and (not app_name or not self._safe_app_name(app_name) or self._is_iphone_sensitive_app(app_name)):
+        if action == "open_app" and (not app_name or not self._safe_app_name(app_name) or (self._is_iphone_sensitive_app(app_name) and not self._full_access_active())):
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "app_name": app_name}, errors=[make_error(code="iphone_app_name_not_allowed", message="The requested iPhone app name is not allowed for this named action.", guidance="Use a non-sensitive app name with safe characters, for example Calculator or Notes.")])
-        if action == "tap_named_target" and (not target_label or not self._safe_app_name(target_label) or self._is_dangerous_iphone_target(target_label)):
+        if action == "tap_named_target" and (not target_label or not self._safe_app_name(target_label) or (self._is_dangerous_iphone_target(target_label) and not self._full_access_active())):
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="target_label_not_allowed", message="The requested visible target label is not safe.", guidance="Use an exact non-sensitive visible AX label; sends, calls, purchases, auth prompts, camera, microphone, and generic coordinates are blocked.")])
         if action == "scroll" and direction not in SCROLL_DIRECTIONS:
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "direction": direction}, errors=[make_error(code="scroll_direction_required", message="iPhone scroll requires direction 'up' or 'down'.", guidance="Use a named direction only; generic coordinates are blocked.")])
@@ -1162,7 +1230,7 @@ except Exception as exc:
         pid = self._pid_for_app("iPhone Mirroring")
         if pid is None:
             return CommandResult(ok=False, data={"performed": False, "action": action, "target_label": target_label}, errors=[make_error(code="iphone_mirroring_not_running", message="iPhone Mirroring is not currently running.", guidance="Open iPhone Mirroring and rerun the named action.")])
-        if self._is_dangerous_iphone_target(target_label) and not (allow_approved_send and target_label.strip().lower() in {"send", "send message"}):
+        if self._is_dangerous_iphone_target(target_label) and not self._full_access_active() and not (allow_approved_send and target_label.strip().lower() in {"send", "send message"}):
             return CommandResult(ok=False, data={"performed": False, "action": action, "target_label": target_label}, errors=[make_error(code="target_label_not_allowed", message="The requested visible target label is not safe.", guidance="Only the approved-message action may press a Send target after same-turn approval.")])
         result = self.runner([sys.executable, "-c", self.AX_PRESS_LABEL_SCRIPT, str(pid), target_label, "500", "1"], 20.0)
         warnings = self._stderr_warning(result)
@@ -1328,10 +1396,210 @@ except Exception as exc:
         fallback = self.runner(["nc", "-z", "127.0.0.1", port], 5.0)
         return fallback.returncode == 0
 
+    def _new_snapshot_id(self, target: str) -> str:
+        safe_target = re.sub(r"[^a-z0-9_-]+", "-", target.lower()).strip("-") or "desktop"
+        return f"snap-{safe_target}-{uuid.uuid4().hex}"
+
+    def _image_artifact(self, path: Path, *, snapshot_id: str) -> dict[str, Any] | None:
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return None
+        sha256 = hashlib.sha256(raw).hexdigest()
+        width, height = self._png_dimensions(raw)
+        artifact_dir = self.state_dir / "artifacts"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = artifact_dir / f"{snapshot_id}.png"
+        if path != artifact_path:
+            try:
+                shutil.copyfile(path, artifact_path)
+            except OSError:
+                artifact_path = path
+        image: dict[str, Any] = {
+            "artifact_id": snapshot_id,
+            "artifact_url": f"/v1/artifacts/{snapshot_id}.png",
+            "artifact_path": redact_value(artifact_path),
+            "mime_type": "image/png",
+            "sha256": sha256,
+            "byte_count": len(raw),
+            "width": width,
+            "height": height,
+        }
+        if len(raw) <= SNAPSHOT_INLINE_MAX_BYTES:
+            image["bytes_base64"] = base64.b64encode(raw).decode("ascii")
+        else:
+            image["bytes_base64_omitted"] = True
+            image["bytes_base64_omitted_reason"] = f"image exceeds {SNAPSHOT_INLINE_MAX_BYTES} byte inline limit"
+        return image
+
+    @staticmethod
+    def _png_dimensions(raw: bytes) -> tuple[int | None, int | None]:
+        if len(raw) >= 24 and raw.startswith(b"\x89PNG\r\n\x1a\n"):
+            try:
+                width, height = struct.unpack(">II", raw[16:24])
+                return int(width), int(height)
+            except struct.error:
+                return None, None
+        return None, None
+
+    def _elements_from_ax(self, nodes: list[Any], *, snapshot_id: str | None) -> list[dict[str, Any]]:
+        elements: list[dict[str, Any]] = []
+        if not snapshot_id:
+            return elements
+        for index, item in enumerate(nodes):
+            if not isinstance(item, dict):
+                continue
+            bounds = item.get("bounds")
+            label = item.get("name") or item.get("role")
+            if not isinstance(bounds, dict) or not label:
+                continue
+            try:
+                x = int(bounds.get("x"))
+                y = int(bounds.get("y"))
+                width = int(bounds.get("width"))
+                height = int(bounds.get("height"))
+            except (TypeError, ValueError):
+                continue
+            if width <= 0 or height <= 0:
+                continue
+            label_text, _ = cap_text(str(redact_value(label)), 160)
+            elements.append(
+                {
+                    "element_id": f"el-{index + 1:04d}",
+                    "snapshot_id": snapshot_id,
+                    "label": label_text,
+                    "role": item.get("role"),
+                    "bounds": {"x": x, "y": y, "width": width, "height": height},
+                    "center": {"x": x + width // 2, "y": y + height // 2},
+                    "actions": item.get("actions", []),
+                }
+            )
+        return elements
+
+    def _write_snapshot_index(self, *, snapshot_id: str, target: str, elements: list[dict[str, Any]]) -> None:
+        snapshot_dir = self.state_dir / "snapshots"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "snapshot_id": snapshot_id,
+            "target": target,
+            "timestamp": timestamp_utc(),
+            "elements": elements[:1000],
+        }
+        (snapshot_dir / f"{snapshot_id}.json").write_text(json.dumps(redact_value(payload), sort_keys=True) + "\n", encoding="utf-8")
+
+    def _resolve_snapshot_target(self, *, snapshot_id: str | None, element_id: str | None, target_label: str | None) -> CommandResult:
+        if not snapshot_id and not element_id:
+            return CommandResult(ok=True)
+        if not snapshot_id:
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "element_id": element_id},
+                errors=[make_error(code="snapshot_id_required", message="element_id clicks require the matching snapshot_id.", guidance="Run desktop_see or iphone_see and pass both snapshot_id and element_id from that result.")],
+            )
+        if not re.fullmatch(r"snap-[a-z0-9_-]+-[a-f0-9]{32}", snapshot_id):
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "snapshot_id": snapshot_id},
+                errors=[make_error(code="snapshot_id_invalid", message="snapshot_id is not a valid evaOS visual snapshot id.", guidance="Use the snapshot_id exactly as returned by desktop_see or iphone_see.")],
+            )
+        path = self.state_dir / "snapshots" / f"{snapshot_id}.json"
+        if not path.exists():
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "snapshot_id": snapshot_id},
+                errors=[make_error(code="snapshot_not_found", message="The requested visual snapshot is no longer available.", guidance="Run desktop_see or iphone_see again, then retry with the fresh snapshot_id.")],
+            )
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "snapshot_id": snapshot_id},
+                errors=[make_error(code="snapshot_unreadable", message="The requested visual snapshot could not be read.", guidance="Run desktop_see or iphone_see again, then retry with the fresh snapshot_id.")],
+            )
+        stale = self._snapshot_stale(payload.get("timestamp"))
+        if stale:
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "snapshot_id": snapshot_id},
+                errors=[make_error(code="snapshot_stale", message="The requested visual snapshot is stale.", guidance="Run desktop_see or iphone_see again so the agent acts on the current screen.")],
+            )
+        elements = payload.get("elements") if isinstance(payload.get("elements"), list) else []
+        match: dict[str, Any] | None = None
+        if element_id:
+            for item in elements:
+                if isinstance(item, dict) and item.get("element_id") == element_id:
+                    match = item
+                    break
+        elif target_label:
+            normalized = target_label.strip().lower()
+            matches = [item for item in elements if isinstance(item, dict) and str(item.get("label") or "").strip().lower() == normalized]
+            if len(matches) == 1:
+                match = matches[0]
+            elif len(matches) > 1:
+                return CommandResult(
+                    ok=False,
+                    data={"resolved": False, "snapshot_id": snapshot_id, "target_label": target_label, "matches": matches[:10]},
+                    errors=[make_error(code="snapshot_target_ambiguous", message="Multiple snapshot elements match that label.", guidance="Use the element_id from desktop_see or iphone_see.")],
+                )
+        if match is None:
+            return CommandResult(
+                ok=False,
+                data={"resolved": False, "snapshot_id": snapshot_id, "element_id": element_id, "target_label": target_label},
+                errors=[make_error(code="snapshot_target_not_found", message="No element in that snapshot matched the requested target.", guidance="Use an element_id or target_label from the latest desktop_see or iphone_see result.")],
+            )
+        point = match.get("center")
+        if not isinstance(point, dict):
+            bounds = match.get("bounds")
+            if not isinstance(bounds, dict):
+                return CommandResult(
+                    ok=False,
+                    data={"resolved": False, "snapshot_id": snapshot_id, "element_id": element_id},
+                    errors=[make_error(code="snapshot_target_missing_bounds", message="The matched element has no usable bounds.", guidance="Use x/y coordinates from the screenshot as a fallback.")],
+                )
+            point = {"x": int(bounds["x"]) + int(bounds["width"]) // 2, "y": int(bounds["y"]) + int(bounds["height"]) // 2}
+        return CommandResult(
+            ok=True,
+            data={
+                "resolved": True,
+                "snapshot_id": snapshot_id,
+                "element_id": match.get("element_id"),
+                "target_label": match.get("label"),
+                "point": {"x": int(point["x"]), "y": int(point["y"])},
+            },
+        )
+
+    @staticmethod
+    def _snapshot_stale(timestamp: Any) -> bool:
+        if not isinstance(timestamp, str):
+            return True
+        try:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError:
+            return True
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() > SNAPSHOT_MAX_AGE_SECONDS
+
+    def _full_access_active(self) -> bool:
+        session = read_control_session(self.state_dir)
+        return session.get("active") is True and session.get("mode") == "full_access" and session.get("kill_switch") is not True
+
     def _safe_node(self, row: dict[str, Any]) -> dict[str, Any]:
         role, _ = cap_text(str(redact_value(row.get("role") or "unknown")), 80)
         name, _ = cap_text(str(redact_value(row.get("name"))) if row.get("name") else None, 160)
         node: dict[str, Any] = {"role": role, "name": name, "depth": int(row.get("depth") or 0), "window_index": row.get("window_index")}
+        bounds = row.get("bounds")
+        if isinstance(bounds, dict):
+            try:
+                node["bounds"] = {
+                    "x": int(bounds.get("x")),
+                    "y": int(bounds.get("y")),
+                    "width": int(bounds.get("width")),
+                    "height": int(bounds.get("height")),
+                }
+            except (TypeError, ValueError):
+                pass
         actions = row.get("actions")
         if isinstance(actions, list):
             node["actions"] = [str(redact_value(item)) for item in actions[:20]]
@@ -1397,11 +1665,11 @@ except Exception as exc:
 
     def _safety_summary(self) -> dict[str, bool]:
         return {
-            "named_actions_only": True,
-            "generic_coordinates_blocked": True,
-            "arbitrary_text_blocked": True,
-            "sensitive_apps_blocked": True,
-            "screen_sharing_enablement_blocked": True,
+            "full_access_allows_customer_granted_control": True,
+            "full_access_allows_coordinates": True,
+            "full_access_allows_typing": True,
+            "full_access_allows_sensitive_apps": True,
+            "hidden_shell_public_ports_and_token_exfiltration_blocked": True,
             "append_only_audit_log": True,
-            "approved_message_send_audited": True,
+            "kill_switch_available": True,
         }

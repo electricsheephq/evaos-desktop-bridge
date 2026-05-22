@@ -69,7 +69,7 @@ GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "customer_mac.iphone_mirroring_swipe_down": (),
     "customer_mac.iphone_mirroring_type_approved_text": ("text",),
     "customer_mac.iphone_mirroring_send_approved_message": ("text", "recipient_context", "target_label"),
-    "customer_mac.desktop_click": ("target_label", "x", "y"),
+    "customer_mac.desktop_click": ("snapshot_id", "element_id", "target_label", "x", "y"),
     "customer_mac.desktop_type": ("text",),
     "customer_mac.desktop_scroll": ("direction", "amount"),
     "customer_mac.desktop_drag": ("from_x", "from_y", "to_x", "to_y"),
@@ -78,7 +78,7 @@ GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "customer_mac.desktop_window": ("action",),
     "customer_mac.desktop_menu": ("menu_path",),
     "customer_mac.desktop_browser_action": ("action", "url"),
-    "customer_mac.iphone_tap": ("target_label", "x", "y"),
+    "customer_mac.iphone_tap": ("snapshot_id", "element_id", "target_label", "x", "y"),
     "customer_mac.iphone_swipe": ("direction",),
     "customer_mac.iphone_type": ("text",),
 }
@@ -93,6 +93,20 @@ CONTROL_SESSION_COMMANDS = frozenset(
 
 CONTROLLED_LIVE_COMMANDS = frozenset(
     {
+        "customer_mac.iphone_mirroring_focus",
+        "customer_mac.iphone_mirroring_home",
+        "customer_mac.iphone_mirroring_app_switcher",
+        "customer_mac.iphone_mirroring_spotlight",
+        "customer_mac.iphone_mirroring_type_spotlight",
+        "customer_mac.iphone_mirroring_open_app",
+        "customer_mac.iphone_mirroring_tap_named_target",
+        "customer_mac.iphone_mirroring_scroll",
+        "customer_mac.iphone_mirroring_swipe_left",
+        "customer_mac.iphone_mirroring_swipe_right",
+        "customer_mac.iphone_mirroring_swipe_up",
+        "customer_mac.iphone_mirroring_swipe_down",
+        "customer_mac.iphone_mirroring_type_approved_text",
+        "customer_mac.iphone_mirroring_send_approved_message",
         "customer_mac.desktop_click",
         "customer_mac.desktop_type",
         "customer_mac.desktop_scroll",
@@ -110,6 +124,12 @@ CONTROLLED_LIVE_COMMANDS = frozenset(
 
 ASK_PERMISSION_HIGH_IMPACT_COMMANDS = frozenset(
     {
+        "customer_mac.iphone_mirroring_swipe_left",
+        "customer_mac.iphone_mirroring_swipe_right",
+        "customer_mac.iphone_mirroring_swipe_up",
+        "customer_mac.iphone_mirroring_swipe_down",
+        "customer_mac.iphone_mirroring_type_approved_text",
+        "customer_mac.iphone_mirroring_send_approved_message",
         "customer_mac.desktop_type",
         "customer_mac.iphone_swipe",
         "customer_mac.iphone_type",
@@ -329,6 +349,8 @@ def build_parser() -> argparse.ArgumentParser:
     desktop_click_parser = desktop_subparsers.add_parser("click", help="Click a visible target label or x/y point.")
     desktop_click_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     desktop_click_parser.add_argument("--target-label", default=None, help="Visible target label to click.")
+    desktop_click_parser.add_argument("--snapshot-id", default=None, help="Snapshot id returned by desktop_see.")
+    desktop_click_parser.add_argument("--element-id", default=None, help="Element id returned by desktop_see.")
     desktop_click_parser.add_argument("--x", type=int, default=None, help="Screen x coordinate fallback.")
     desktop_click_parser.add_argument("--y", type=int, default=None, help="Screen y coordinate fallback.")
     desktop_click_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without clicking.")
@@ -446,6 +468,8 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_tap_v2_parser = iphone_subparsers.add_parser("tap", help="Tap/click a visible iPhone label or fallback point.")
     iphone_tap_v2_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_tap_v2_parser.add_argument("--target-label", default=None, help="Visible target label.")
+    iphone_tap_v2_parser.add_argument("--snapshot-id", default=None, help="Snapshot id returned by iphone_see.")
+    iphone_tap_v2_parser.add_argument("--element-id", default=None, help="Element id returned by iphone_see.")
     iphone_tap_v2_parser.add_argument("--x", type=int, default=None, help="Screen x coordinate fallback.")
     iphone_tap_v2_parser.add_argument("--y", type=int, default=None, help="Screen y coordinate fallback.")
     iphone_tap_v2_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without tapping.")
@@ -530,7 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_type_approved_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     iphone_type_approved_parser.set_defaults(command_id="customer_mac.iphone_mirroring_type_approved_text", target="customer_mac")
 
-    iphone_send_parser = iphone_subparsers.add_parser("send-approved-message", help="Approval-gated action: type and send one exact same-turn-approved message.")
+    iphone_send_parser = iphone_subparsers.add_parser("send-approved-message", help="Full Access action: type and send one exact message through visible iPhone Mirroring; Ask Permission gates it.")
     iphone_send_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_send_parser.add_argument("--text", required=True, help="Exact same-turn-approved message text, capped at 240 chars.")
     iphone_send_parser.add_argument("--recipient-context", required=True, help="Short human-approved recipient/context for audit evidence.")
@@ -731,7 +755,7 @@ def _run_command(
     if command_id == "customer_mac.desktop_see":
         return customer_mac.desktop_see(max_chars=args.max_chars, max_nodes=args.max_nodes)
     if command_id == "customer_mac.desktop_click":
-        return customer_mac.desktop_click(target_label=args.target_label, x=args.x, y=args.y, dry_run=args.dry_run)
+        return customer_mac.desktop_click(target_label=args.target_label, x=args.x, y=args.y, snapshot_id=args.snapshot_id, element_id=args.element_id, dry_run=args.dry_run)
     if command_id == "customer_mac.desktop_type":
         return customer_mac.desktop_type(text=args.text, dry_run=args.dry_run)
     if command_id == "customer_mac.desktop_scroll":
@@ -763,7 +787,7 @@ def _run_command(
     if command_id == "customer_mac.iphone_see":
         return customer_mac.iphone_see(max_chars=args.max_chars, max_nodes=args.max_nodes)
     if command_id == "customer_mac.iphone_tap":
-        return customer_mac.iphone_tap(target_label=args.target_label, x=args.x, y=args.y, dry_run=args.dry_run)
+        return customer_mac.iphone_tap(target_label=args.target_label, x=args.x, y=args.y, snapshot_id=args.snapshot_id, element_id=args.element_id, dry_run=args.dry_run)
     if command_id == "customer_mac.iphone_swipe":
         return customer_mac.iphone_swipe(direction=args.direction, dry_run=args.dry_run)
     if command_id == "customer_mac.iphone_type":

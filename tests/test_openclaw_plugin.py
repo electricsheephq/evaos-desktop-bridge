@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import plistlib
 import subprocess
 from pathlib import Path
@@ -107,7 +108,7 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         assert tool_name not in source
         assert tool_name not in dist
 
-    assert "Approval-gated named action: send one exact same-turn-approved message" in dist
+    assert "Full Access iPhone action: type and send one exact message" in dist
     assert "Support-only canary action" not in dist
 
 
@@ -245,6 +246,83 @@ def test_customer_mac_complete_pairing_posts_to_enrollment_endpoint_without_toke
     assert payload["captured"]["hasAuthorization"] is False
     assert payload["result"]["ok"] is True
     assert payload["result"]["data"]["connector_token"] == "[redacted]"
+
+
+def test_remote_visual_artifact_is_materialized_on_vm(tmp_path: Path) -> None:
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        import { readFile } from 'node:fs/promises';
+
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+          calls.push({
+            url: String(url),
+            auth: options.headers.Authorization || options.headers.authorization || null,
+          });
+          if (String(url).endsWith('/v1/commands')) {
+            return {
+              ok: true,
+              status: 200,
+              async text() {
+                return JSON.stringify({
+                  ok: true,
+                  audit_id: 'audit-1',
+                  data: {
+                    snapshot_id: 'snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    screenshot: {
+                      artifact_id: 'snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                      artifact_url: '/v1/artifacts/snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+                      mime_type: 'image/png'
+                    }
+                  }
+                });
+              },
+            };
+          }
+          if (String(url).includes('/v1/artifacts/')) {
+            return {
+              ok: true,
+              status: 200,
+              async arrayBuffer() {
+                return new Uint8Array([137, 80, 78, 71]).buffer;
+              },
+            };
+          }
+          throw new Error('unexpected URL ' + String(url));
+        };
+
+        const result = await runBridge('desktopSee', {});
+        const bytes = Array.from(await readFile(result.data.vm_visual_artifact_path));
+        console.log(JSON.stringify({ calls, result, bytes }));
+    """
+    env = {
+        **os.environ,
+        "EVAOS_DESKTOP_BRIDGE_URL": "http://100.64.1.10:8765",
+        "EVAOS_DESKTOP_BRIDGE_TOKEN": "connector-token",
+        "EVAOS_DESKTOP_BRIDGE_ARTIFACT_DIR": str(tmp_path),
+    }
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["calls"] == [
+        {"url": "http://100.64.1.10:8765/v1/commands", "auth": "Bearer connector-token"},
+        {
+            "url": "http://100.64.1.10:8765/v1/artifacts/snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+            "auth": "Bearer connector-token",
+        },
+    ]
+    assert payload["bytes"] == [137, 80, 78, 71]
+    assert payload["result"]["data"]["screenshot"]["vm_artifact_source"] == "connector_artifact"
+    assert str(tmp_path) in payload["result"]["data"]["vm_visual_artifact_path"]
+    assert "bytes_base64" not in payload["result"]["data"]["screenshot"]
 
 
 def test_openclaw_plugin_registers_tool_objects_for_runtime_discovery() -> None:

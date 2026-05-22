@@ -47,6 +47,20 @@ GUARDED_REMOTE_COMMANDS = frozenset(
 
 CONTROLLED_REMOTE_COMMANDS = frozenset(
     {
+        "customerMacIphoneMirroringFocus",
+        "customerMacIphoneMirroringHome",
+        "customerMacIphoneMirroringAppSwitcher",
+        "customerMacIphoneMirroringSpotlight",
+        "customerMacIphoneMirroringTypeSpotlight",
+        "customerMacIphoneMirroringOpenApp",
+        "customerMacIphoneMirroringTapNamedTarget",
+        "customerMacIphoneMirroringScroll",
+        "customerMacIphoneMirroringSwipeLeft",
+        "customerMacIphoneMirroringSwipeRight",
+        "customerMacIphoneMirroringSwipeUp",
+        "customerMacIphoneMirroringSwipeDown",
+        "customerMacIphoneMirroringTypeApprovedText",
+        "customerMacIphoneMirroringSendApprovedMessage",
         "desktopClick",
         "desktopType",
         "desktopScroll",
@@ -73,6 +87,12 @@ KILL_SWITCH_REMOTE_COMMAND_ALLOWLIST = frozenset(
 
 ASK_PERMISSION_HIGH_IMPACT_REMOTE_COMMANDS = frozenset(
     {
+        "customerMacIphoneMirroringSwipeLeft",
+        "customerMacIphoneMirroringSwipeRight",
+        "customerMacIphoneMirroringSwipeUp",
+        "customerMacIphoneMirroringSwipeDown",
+        "customerMacIphoneMirroringTypeApprovedText",
+        "customerMacIphoneMirroringSendApprovedMessage",
         "desktopType",
         "iphoneSwipe",
         "iphoneType",
@@ -131,7 +151,7 @@ CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "customerMacIphoneMirroringSwipeDown": ("customer_mac.iphone_mirroring_swipe_down", ()),
     "customerMacIphoneMirroringTypeApprovedText": ("customer_mac.iphone_mirroring_type_approved_text", ("text",)),
     "customerMacIphoneMirroringSendApprovedMessage": ("customer_mac.iphone_mirroring_send_approved_message", ("text", "recipient_context", "target_label")),
-    "desktopClick": ("customer_mac.desktop_click", ("target_label", "x", "y")),
+    "desktopClick": ("customer_mac.desktop_click", ("snapshot_id", "element_id", "target_label", "x", "y")),
     "desktopType": ("customer_mac.desktop_type", ("text",)),
     "desktopScroll": ("customer_mac.desktop_scroll", ("direction", "amount")),
     "desktopDrag": ("customer_mac.desktop_drag", ("from_x", "from_y", "to_x", "to_y")),
@@ -140,7 +160,7 @@ CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "desktopWindow": ("customer_mac.desktop_window", ("action",)),
     "desktopMenu": ("customer_mac.desktop_menu", ("menu_path",)),
     "desktopBrowserAction": ("customer_mac.desktop_browser_action", ("action", "url")),
-    "iphoneTap": ("customer_mac.iphone_tap", ("target_label", "x", "y")),
+    "iphoneTap": ("customer_mac.iphone_tap", ("snapshot_id", "element_id", "target_label", "x", "y")),
     "iphoneSwipe": ("customer_mac.iphone_swipe", ("direction",)),
     "iphoneType": ("customer_mac.iphone_type", ("text",)),
 }
@@ -234,6 +254,8 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         ]
     if command == "desktopClick":
         argv = ["customer-mac", "desktop", "click", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+        argv.extend(_optional_string_arg(params, "snapshot_id", "--snapshot-id"))
+        argv.extend(_optional_string_arg(params, "element_id", "--element-id"))
         argv.extend(_optional_string_arg(params, "target_label", "--target-label"))
         argv.extend(_optional_int_arg(params, "x", "--x"))
         argv.extend(_optional_int_arg(params, "y", "--y"))
@@ -292,6 +314,8 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         ]
     if command == "iphoneTap":
         argv = ["customer-mac", "iphone-mirroring", "tap", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+        argv.extend(_optional_string_arg(params, "snapshot_id", "--snapshot-id"))
+        argv.extend(_optional_string_arg(params, "element_id", "--element-id"))
         argv.extend(_optional_string_arg(params, "target_label", "--target-label"))
         argv.extend(_optional_int_arg(params, "x", "--x"))
         argv.extend(_optional_int_arg(params, "y", "--y"))
@@ -398,6 +422,9 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
             if parsed.path == "/health":
                 self._write_json(200, {"ok": True, "service": "evaos-desktop-bridge-connector"})
                 return
+            if parsed.path.startswith("/v1/artifacts/"):
+                self._serve_artifact(parsed.path.removeprefix("/v1/artifacts/"))
+                return
             self._write_json(404, {"ok": False, "error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
@@ -472,6 +499,27 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                 self._write_json(200, {"ok": True, "data": response})
             except Exception as exc:
                 self._write_json(400, {"ok": False, "error": "enrollment_complete_failed", "message": str(exc)})
+
+        def _serve_artifact(self, artifact_name: str) -> None:
+            if not self._authorized():
+                self._write_json(401, _error_envelope("connector.artifact", "customer_mac", "connector_unauthorized", "Missing or invalid connector token."))
+                return
+            artifact_id = artifact_name.removesuffix(".png")
+            if not artifact_id.startswith("snap-") or "/" in artifact_id or ".." in artifact_id:
+                self._write_json(404, {"ok": False, "error": "artifact_not_found"})
+                return
+            root = state_dir or default_state_dir()
+            path = root / "artifacts" / f"{artifact_id}.png"
+            if not path.exists():
+                self._write_json(404, {"ok": False, "error": "artifact_not_found"})
+                return
+            body = path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             return

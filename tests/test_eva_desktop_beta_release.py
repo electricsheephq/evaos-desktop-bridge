@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.3.3"' in script
-    assert 'BUILD_NUMBER="9"' in script
-    assert 'version = "0.3.3"' in app_brand
-    assert 'buildNumber = "9"' in app_brand
+    assert 'VERSION="0.4.0"' in script
+    assert 'BUILD_NUMBER="10"' in script
+    assert 'version = "0.4.0"' in app_brand
+    assert 'buildNumber = "10"' in app_brand
     assert "evaOS-Workbench-Beta-$VERSION.zip" in script
     assert 'BETA_UPDATE_MANIFEST="$DIST_DIR/updates.json"' in script
     assert "evaos-workbench-updates.json" in script
@@ -100,6 +100,10 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
 
     assert "copy_bridge_helper" in script
     assert 'cp -R "$REPO_ROOT/src/evaos_desktop_bridge" "$bridge_dir/src/"' in script
+    assert "copy_peekaboo_helper" in script
+    assert 'export PATH="$BRIDGE_DIR/bin:$PATH"' in script
+    assert "/opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo" in script
+    assert "/usr/local/bin/peekaboo peekaboo" not in script
     assert 'exec "$PYTHON_BIN" -m evaos_desktop_bridge.cli "$@"' in script
     assert "customer-mac\", \"control\", \"status\", \"--json" in model
     assert "customer-mac\", \"control\", \"stop\", \"--json" in model

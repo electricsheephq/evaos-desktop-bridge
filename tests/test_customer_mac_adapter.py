@@ -244,7 +244,7 @@ def test_iphone_safe_open_app_dry_run_stays_named_and_non_mutating(monkeypatch, 
     assert_no_mutation_commands(observer.runner.commands)
 
 
-def test_safe_ax_node_does_not_export_raw_bounds(tmp_path: Path) -> None:
+def test_safe_ax_node_exports_redacted_bounds_for_visual_grounding(tmp_path: Path) -> None:
     observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
 
     node = observer._safe_node(
@@ -258,9 +258,56 @@ def test_safe_ax_node_does_not_export_raw_bounds(tmp_path: Path) -> None:
         }
     )
 
-    assert "bounds" not in node
+    assert node["bounds"] == {"x": 10, "y": 20, "width": 30, "height": 40}
     assert node["role"] == "AXButton"
     assert node["actions"] == ["AXPress"]
+
+
+def test_desktop_see_returns_snapshot_artifact_and_clickable_elements(monkeypatch, tmp_path: Path) -> None:
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + (640).to_bytes(4, "big") + (480).to_bytes(4, "big") + b"payload"
+    screenshot = tmp_path / "screen.png"
+    screenshot.write_bytes(png)
+    runner = FakeRunner(
+        {
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ): RunnerResult(returncode=0, stdout="Safari\n", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to tell first application process whose frontmost is true to get name of front window',
+            ): RunnerResult(returncode=0, stdout="Example\n", stderr=""),
+            ("pgrep", "-x", "Safari"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            (sys.executable, "-c"): RunnerResult(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "ok": True,
+                        "nodes": [
+                            {"role": "AXButton", "name": "Continue", "depth": 0, "window_index": 0, "bounds": {"x": 10, "y": 20, "width": 100, "height": 40}, "actions": ["AXPress"]}
+                        ],
+                        "truncated": False,
+                    }
+                ),
+                stderr="",
+            ),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+    monkeypatch.setattr(observer, "_capture_screenshot", lambda warnings: screenshot)
+
+    result = observer.desktop_see()
+    click = observer.desktop_click(snapshot_id=result.data["snapshot_id"], element_id=result.data["elements"][0]["element_id"], dry_run=True)
+
+    assert result.ok is True
+    assert result.data["snapshot_id"].startswith("snap-desktop-")
+    assert result.data["screenshot"]["screenshot"]["width"] == 640
+    assert result.data["screenshot"]["screenshot"]["height"] == 480
+    assert result.data["screenshot"]["screenshot"]["bytes_base64"]
+    assert result.data["elements"][0]["label"] == "Continue"
+    assert click.data["point"] == {"x": 60, "y": 40}
 
 
 def test_local_site_action_dry_run_requires_local_browser_url(tmp_path: Path) -> None:
