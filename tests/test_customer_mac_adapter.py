@@ -250,8 +250,19 @@ def test_iphone_live_swipe_uses_internal_gesture_not_generic_coordinates(monkeyp
     runner = FakeRunner(
         {
             ("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            ("osascript", "-e", 'tell application "iPhone Mirroring" to activate'): RunnerResult(returncode=0, stdout="", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ): RunnerResult(returncode=0, stdout="iPhone Mirroring\n", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to tell process "iPhone Mirroring" to get {position, size} of front window',
+            ): RunnerResult(returncode=0, stdout="100, 200, 300, 700\n", stderr=""),
             ("open", "-a", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="", stderr=""),
-            (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "vector": {"dx": -900, "dy": 0}}), stderr=""),
+            (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "drag"}), stderr=""),
         }
     )
     observer = CustomerMacObserver(
@@ -264,8 +275,27 @@ def test_iphone_live_swipe_uses_internal_gesture_not_generic_coordinates(monkeyp
     result = observer.iphone_mirroring_action(action="swipe_left", dry_run=False)
 
     assert result.ok is True
-    assert result.data["gesture"] == "scroll_wheel"
-    assert result.data["vector"] == {"dx": -900, "dy": 0}
+    assert result.data["gesture"] == "drag"
+    assert result.data["from"] == {"x": 346, "y": 550}
+    assert result.data["to"] == {"x": 154, "y": 550}
+    assert_no_keystroke_commands(runner.commands)
+
+
+def test_iphone_keyboard_action_prefers_peekaboo_hotkey(monkeypatch, tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.1\n", stderr=""),
+            ("/test/peekaboo", "hotkey", "cmd", "1"): RunnerResult(returncode=0, stdout="", stderr=""),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer._iphone_keyboard_action("home", "18")
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert ("/test/peekaboo", "hotkey", "cmd", "1") in runner.commands
     assert_no_keystroke_commands(runner.commands)
 
 

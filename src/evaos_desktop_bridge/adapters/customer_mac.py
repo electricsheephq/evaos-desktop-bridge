@@ -10,6 +10,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -663,7 +664,7 @@ except Exception as exc:
             return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
-            result = self.runner([str(peekaboo["path"]), "app", "focus", app_name], 10.0)
+            result = self.runner([str(peekaboo["path"]), "app", "switch", "--to", app_name, "--no-remote"], 10.0)
             if result.returncode == 0:
                 return CommandResult(ok=True, data={"focused": True, "app_name": app_name, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
         result = self.runner(["open", "-a", app_name], 10.0)
@@ -718,6 +719,14 @@ except Exception as exc:
         if not status.data.get("running"):
             return status
         if status.data.get("frontmost") is not True:
+            if self._full_access_active():
+                focus = self.iphone_mirroring_focus(dry_run=False)
+                if focus.ok:
+                    status = self.iphone_mirroring_status()
+                if status.data.get("frontmost") is True:
+                    seen = self.desktop_see(max_chars=max_chars, max_nodes=max_nodes)
+                    seen.data["target"] = "iphone_mirroring"
+                    return seen
             return CommandResult(
                 ok=False,
                 data={"target": "iphone_mirroring", "running": True, "frontmost": False},
@@ -852,10 +861,28 @@ except Exception as exc:
             return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
         if self._is_sensitive_app(app_name) and not self._full_access_active():
             return CommandResult(ok=False, data={"focused": False, "app_name": app_name}, errors=[make_error(code="sensitive_app_blocked", message="This app is on the sensitive-app denylist.", guidance="Only request named actions against non-sensitive apps.")])
+        warnings: list[str] = []
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "app", "switch", "--to", app_name, "--no-remote"], 10.0)
+            warnings.extend(self._stderr_warning(result))
+            if result.returncode == 0 and self._wait_for_frontmost(app_name, timeout_seconds=2.0):
+                return CommandResult(ok=True, data={"focused": True, "app_name": app_name, "engine": "peekaboo", "frontmost": True}, warnings=warnings, provenance={"source": "peekaboo"})
+        self._activate_app(app_name)
+        if self._wait_for_frontmost(app_name, timeout_seconds=2.0):
+            return CommandResult(ok=True, data={"focused": True, "app_name": app_name, "engine": "system_events", "frontmost": True}, warnings=warnings, provenance={"source": "system_events"})
         result = self.runner(["open", "-a", app_name], 10.0)
         if result.returncode != 0:
             return CommandResult(ok=False, data={"focused": False, "app_name": app_name}, errors=[make_error(code="app_focus_failed", message="macOS refused to open or focus the requested app.", guidance="Verify the app is installed and visible.")], warnings=self._stderr_warning(result))
-        return CommandResult(ok=True, data={"focused": True, "app_name": app_name})
+        warnings.extend(self._stderr_warning(result))
+        if self._wait_for_frontmost(app_name, timeout_seconds=3.0):
+            return CommandResult(ok=True, data={"focused": True, "app_name": app_name, "engine": "macos_open", "frontmost": True}, warnings=warnings, provenance={"source": "macos_open"})
+        return CommandResult(
+            ok=False,
+            data={"focused": False, "app_name": app_name, "frontmost_app": redact_value(self._frontmost_app())},
+            errors=[make_error(code="app_focus_not_frontmost", message="macOS opened the app, but it did not become the frontmost app.", guidance="Click the target app once or retry after closing competing modal windows.")],
+            warnings=warnings,
+        )
 
     def local_site_open(self, *, url: str, dry_run: bool = False) -> CommandResult:
         if not self._safe_local_url(url):
@@ -907,7 +934,21 @@ except Exception as exc:
         )
 
     def iphone_mirroring_focus(self, *, dry_run: bool = False) -> CommandResult:
-        return self.app_focus(app_name="iPhone Mirroring", dry_run=dry_run)
+        focused = self.app_focus(app_name="iPhone Mirroring", dry_run=dry_run)
+        if dry_run or focused.ok:
+            return focused
+        bounds = self._iphone_window_bounds()
+        if bounds is not None:
+            x, y, width, _height = bounds
+            click_focus = self._mouse_action("click", x=x + max(24, width // 2), y=y + 16)
+            if click_focus.ok and self._wait_for_frontmost("iPhone Mirroring", timeout_seconds=2.0):
+                return CommandResult(
+                    ok=True,
+                    data={"focused": True, "app_name": "iPhone Mirroring", "engine": "window_click", "frontmost": True},
+                    warnings=focused.warnings + ["Clicked the iPhone Mirroring window chrome to recover focus."],
+                    provenance={"source": "window_click"},
+                )
+        return focused
 
     def iphone_mirroring_action(
         self,
@@ -1291,8 +1332,21 @@ except Exception as exc:
         return {"x": int(x), "y": int(y)}
 
     def _iphone_keyboard_action(self, action: str, key_code: str, *, customer_control: bool = False, direction: str | None = None) -> CommandResult:
+        key_label = {"18": "1", "19": "2", "20": "3", "36": "enter"}.get(key_code)
+        peekaboo = self._peekaboo_status()
+        if key_label and peekaboo.get("available"):
+            argv = [str(peekaboo["path"]), "hotkey"]
+            if not customer_control:
+                argv.append("cmd")
+            argv.append(key_label)
+            result = self.runner(argv, 10.0)
+            if result.returncode == 0:
+                data: dict[str, Any] = {"performed": True, "action": action, "engine": "peekaboo", "keys": "+".join(argv[2:])}
+                if direction:
+                    data["direction"] = direction
+                return CommandResult(ok=True, data=data, warnings=self._stderr_warning(result), provenance={"source": "peekaboo", "customer_control": customer_control})
         script = f'tell application "System Events" to key code {key_code}' if customer_control else f'tell application "System Events" to key code {key_code} using command down'
-        result = self.runner(["osascript", "-e", script], 5.0)
+        result = self.runner(["osascript", "-e", script], 12.0)
         if result.returncode != 0:
             return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="iphone_keyboard_action_failed", message="macOS refused the iPhone Mirroring keyboard shortcut.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
         warnings = ["This live iPhone action uses the safest keyboard-equivalent lane; verify behavior in the iPhone Mirroring window."] if customer_control else []
@@ -1304,37 +1358,40 @@ except Exception as exc:
     def _iphone_scroll_gesture(self, action: str, *, dx: int, dy: int, direction: str | None = None) -> CommandResult:
         if self.accessibility_checker() is False:
             return CommandResult(ok=False, data={"performed": False, "action": action, "direction": direction}, errors=[self._permission_error("accessibility", "send a named iPhone Mirroring gesture")])
-        pid = self._pid_for_app("iPhone Mirroring")
-        if pid is None:
+        focus = self.iphone_mirroring_focus(dry_run=False)
+        if not focus.ok:
+            return focus
+        bounds = self._iphone_window_bounds()
+        if bounds is None:
             return CommandResult(ok=False, data={"performed": False, "action": action, "direction": direction}, errors=[make_error(code="iphone_mirroring_not_running", message="iPhone Mirroring is not currently running.", guidance="Open iPhone Mirroring and rerun the named action.")])
-        result = self.runner([sys.executable, "-c", self.IPHONE_SCROLL_GESTURE_SCRIPT, str(pid), str(dx), str(dy)], 10.0)
-        warnings = self._stderr_warning(result)
-        try:
-            payload = json.loads(result.stdout.strip() or "{}")
-        except json.JSONDecodeError:
-            payload = {"ok": False, "error": "iphone_gesture_parse_failed"}
-        if result.returncode != 0 or not payload.get("ok"):
-            return CommandResult(
-                ok=False,
-                data={"performed": False, "action": action, "direction": direction},
-                errors=[
-                    make_error(
-                        code=str(payload.get("error") or "iphone_gesture_failed").split(":", 1)[0],
-                        message="Unable to post the named iPhone Mirroring gesture.",
-                        guidance="Verify Accessibility and pyobjc Quartz/ApplicationServices support; do not fall back to generic coordinates.",
-                        permission="accessibility",
-                    )
-                ],
-                warnings=warnings,
-            )
-        data: dict[str, Any] = {"performed": True, "action": action, "gesture": "scroll_wheel", "vector": payload.get("vector")}
+        x, y, width, height = bounds
+        margin_x = max(32, int(width * 0.18))
+        margin_y = max(64, int(height * 0.20))
+        center_x = x + width // 2
+        center_y = y + height // 2
+        if dx < 0:
+            start = (x + width - margin_x, center_y)
+            end = (x + margin_x, center_y)
+        elif dx > 0:
+            start = (x + margin_x, center_y)
+            end = (x + width - margin_x, center_y)
+        elif dy > 0:
+            start = (center_x, y + height - margin_y)
+            end = (center_x, y + margin_y)
+        else:
+            start = (center_x, y + margin_y)
+            end = (center_x, y + height - margin_y)
+        dragged = self._mouse_action("drag", from_x=start[0], from_y=start[1], to_x=end[0], to_y=end[1])
+        if not dragged.ok:
+            return CommandResult(ok=False, data={"performed": False, "action": action, "direction": direction, "from": self._point(*start), "to": self._point(*end)}, errors=dragged.errors, warnings=dragged.warnings)
+        data: dict[str, Any] = {"performed": True, "action": action, "gesture": "drag", "from": self._point(*start), "to": self._point(*end)}
         if direction:
             data["direction"] = direction
         return CommandResult(
             ok=True,
             data=data,
-            warnings=warnings + ["Live iPhone gesture posts an internal scroll vector to the focused iPhone Mirroring window; verify behavior before repeating."],
-            provenance={"source": "iphone_mirroring_quartz", "customer_control": True},
+            warnings=dragged.warnings + ["Live iPhone gesture drags inside the visible iPhone Mirroring window; verify behavior before repeating."],
+            provenance={"source": "iphone_mirroring_drag", "customer_control": True},
         )
 
     def _press_iphone_target(self, *, target_label: str, allow_approved_send: bool = False, action: str = "tap_named_target") -> CommandResult:
@@ -1437,6 +1494,46 @@ except Exception as exc:
             return int(fallback.stdout.strip().splitlines()[0])
         except ValueError:
             return None
+
+    def _activate_app(self, app_name: str) -> bool:
+        if self.platform_name != "Darwin":
+            return False
+        result = self.runner(["osascript", "-e", f'tell application "{self._escape_applescript(app_name)}" to activate'], 5.0)
+        return result.returncode == 0
+
+    def _wait_for_frontmost(self, app_name: str, *, timeout_seconds: float) -> bool:
+        if self.platform_name != "Darwin":
+            return False
+        deadline = datetime.now(timezone.utc).timestamp() + max(0.1, timeout_seconds)
+        while datetime.now(timezone.utc).timestamp() < deadline:
+            if self._frontmost_app() == app_name:
+                return True
+            time.sleep(0.2)
+        return self._frontmost_app() == app_name
+
+    def _iphone_window_bounds(self) -> tuple[int, int, int, int] | None:
+        if self.platform_name != "Darwin":
+            return None
+        result = self.runner(
+            [
+                "osascript",
+                "-e",
+                'tell application "System Events" to tell process "iPhone Mirroring" to get {position, size} of front window',
+            ],
+            5.0,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        parts = [part.strip() for part in result.stdout.replace("\n", ",").split(",") if part.strip()]
+        if len(parts) < 4:
+            return None
+        try:
+            x, y, width, height = (int(float(part)) for part in parts[:4])
+        except ValueError:
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return x, y, width, height
 
     def _device_identity(self) -> dict[str, Any]:
         uuid_value = self._ioreg_uuid()
