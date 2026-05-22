@@ -628,7 +628,7 @@ except Exception as exc:
             return CommandResult(ok=True, data={"scrolled": False, "would_scroll": True, "direction": direction, "amount": amount})
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
-            result = self.runner([str(peekaboo["path"]), "scroll", direction, "--amount", str(amount)], 10.0)
+            result = self.runner([str(peekaboo["path"]), "scroll", "--direction", direction, "--amount", str(amount), "--json"], 10.0)
             if result.returncode == 0:
                 return CommandResult(ok=True, data={"scrolled": True, "direction": direction, "amount": amount, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
         return self._mouse_action("scroll", direction=direction, amount=amount)

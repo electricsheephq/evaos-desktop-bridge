@@ -131,6 +131,27 @@ def test_desktop_hotkey_accepts_multi_character_keys(tmp_path: Path) -> None:
     assert invalid.errors[0]["code"] == "desktop_hotkey_required"
 
 
+def test_desktop_scroll_uses_peekaboo_direction_flag(monkeypatch, tmp_path: Path) -> None:
+    peekaboo = tmp_path / "peekaboo"
+    peekaboo.write_text("#!/bin/sh\n", encoding="utf-8")
+    peekaboo.chmod(0o755)
+    monkeypatch.setattr(customer_mac, "PEEKABOO_BIN_CANDIDATES", (str(peekaboo),))
+    runner = FakeRunner(
+        {
+            (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="peekaboo 3.2.1\n", stderr=""),
+            (str(peekaboo), "scroll", "--direction", "down", "--amount", "3", "--json"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_scroll(direction="down", amount=3)
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert (str(peekaboo), "scroll", "--direction", "down", "--amount", "3", "--json") in runner.commands
+    assert not any(command[:3] == (str(peekaboo), "scroll", "down") for command in runner.commands)
+
+
 def test_iphone_see_does_not_focus_mirroring_as_read_only(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
     runner = FakeRunner(
