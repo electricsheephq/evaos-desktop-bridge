@@ -544,7 +544,7 @@ except Exception as exc:
         snapshot_id = screenshot.data.get("snapshot_id") if screenshot.ok else None
         elements = self._elements_from_ax(ax.data.get("nodes", []) if ax.ok else [], snapshot_id=snapshot_id)
         if snapshot_id and elements:
-            self._write_snapshot_index(snapshot_id=snapshot_id, target="desktop", elements=elements)
+            self._write_snapshot_index(snapshot_id=snapshot_id, target="desktop", elements=elements, engine="ax_fallback")
         return CommandResult(
             ok=screenshot.ok or ax.ok,
             data={
@@ -577,6 +577,9 @@ except Exception as exc:
         if not resolved.ok:
             return resolved
         resolved_label = target_label
+        resolved_engine = resolved.data.get("engine")
+        resolved_peekaboo_snapshot_id = resolved.data.get("peekaboo_snapshot_id")
+        resolved_peekaboo_element_id = resolved.data.get("peekaboo_element_id")
         if resolved.data.get("point"):
             point = resolved.data["point"]
             x = int(point["x"])
@@ -595,15 +598,51 @@ except Exception as exc:
                     "point": self._point(x, y),
                 },
             )
-        if target_label:
-            peekaboo = self._peekaboo_status()
-            if peekaboo.get("available"):
-                result = self.runner([str(peekaboo["path"]), "click", target_label], 10.0)
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            if resolved_engine == "peekaboo" and resolved_peekaboo_snapshot_id and resolved_peekaboo_element_id:
+                result = self.runner(
+                    [
+                        str(peekaboo["path"]),
+                        "click",
+                        "--snapshot",
+                        str(resolved_peekaboo_snapshot_id),
+                        "--on",
+                        str(resolved_peekaboo_element_id),
+                        "--json",
+                        "--no-remote",
+                    ],
+                    15.0,
+                )
+                if result.returncode == 0:
+                    return CommandResult(
+                        ok=True,
+                        data={
+                            "clicked": True,
+                            "target_label": resolved_label,
+                            "snapshot_id": snapshot_id,
+                            "element_id": element_id,
+                            "peekaboo_snapshot_id": redact_value(resolved_peekaboo_snapshot_id),
+                            "peekaboo_element_id": resolved_peekaboo_element_id,
+                            "point": self._point(x, y),
+                            "engine": "peekaboo",
+                        },
+                        warnings=self._stderr_warning(result),
+                        provenance={"source": "peekaboo"},
+                    )
+            if target_label:
+                result = self.runner([str(peekaboo["path"]), "click", target_label, "--json", "--no-remote"], 15.0)
                 if result.returncode == 0:
                     return CommandResult(ok=True, data={"clicked": True, "target_label": target_label, "snapshot_id": snapshot_id, "element_id": element_id, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+            elif x is not None and y is not None:
+                result = self.runner([str(peekaboo["path"]), "click", "--coords", f"{x},{y}", "--global-coords", "--json", "--no-remote"], 15.0)
+                if result.returncode == 0:
+                    return CommandResult(ok=True, data={"clicked": True, "target_label": resolved_label, "snapshot_id": snapshot_id, "element_id": element_id, "point": self._point(x, y), "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        if target_label:
             pressed = self._press_frontmost_target(target_label=target_label)
             if pressed.ok:
-                pressed.data["engine"] = "accessibility"
+                pressed.data["engine"] = "ax_fallback"
+                pressed.provenance = {"source": "ax_fallback"}
             return pressed
         if x is None or y is None:
             return CommandResult(ok=False, data={"clicked": False}, errors=[make_error(code="desktop_click_target_required", message="desktop_click requires target_label or x/y.", guidance="Prefer a visible target label from desktop_see; use coordinates only when labels are unavailable.")])
@@ -639,7 +678,21 @@ except Exception as exc:
             return CommandResult(ok=True, data={"dragged": False, "would_drag": True, "from": self._point(from_x, from_y), "to": self._point(to_x, to_y)})
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
-            result = self.runner([str(peekaboo["path"]), "drag", "--from", f"{from_x},{from_y}", "--to", f"{to_x},{to_y}"], 20.0)
+            result = self.runner(
+                [
+                    str(peekaboo["path"]),
+                    "drag",
+                    "--from-coords",
+                    f"{from_x},{from_y}",
+                    "--to-coords",
+                    f"{to_x},{to_y}",
+                    "--profile",
+                    "human",
+                    "--json",
+                    "--no-remote",
+                ],
+                20.0,
+            )
             if result.returncode == 0:
                 return CommandResult(ok=True, data={"dragged": True, "from": self._point(from_x, from_y), "to": self._point(to_x, to_y), "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
         return self._mouse_action("drag", from_x=from_x, from_y=from_y, to_x=to_x, to_y=to_y)
@@ -673,17 +726,18 @@ except Exception as exc:
         return CommandResult(ok=True, data={"focused": True, "app_name": app_name, "engine": "macos_open"})
 
     def desktop_window(self, *, action: str, dry_run: bool = False) -> CommandResult:
-        if action not in {"focus", "minimize", "zoom", "close"}:
-            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="desktop_window_action_invalid", message="desktop_window action must be focus, minimize, zoom, or close.", guidance="Use a named window action.")])
+        if action not in {"focus", "minimize", "maximize", "zoom", "close"}:
+            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="desktop_window_action_invalid", message="desktop_window action must be focus, minimize, maximize, or close.", guidance="Use a named window action.")])
         if dry_run:
             return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action})
+        peekaboo_action = "maximize" if action == "zoom" else action
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
-            result = self.runner([str(peekaboo["path"]), "window", action], 10.0)
+            result = self.runner([str(peekaboo["path"]), "window", peekaboo_action, "--json", "--no-remote"], 20.0)
             if result.returncode == 0:
-                return CommandResult(ok=True, data={"performed": True, "action": action, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
-        key = {"close": "w", "minimize": "m", "zoom": "f", "focus": "`"}[action]
-        combo = "cmd+" + key if action != "zoom" else "ctrl+cmd+f"
+                return CommandResult(ok=True, data={"performed": True, "action": action, "peekaboo_action": peekaboo_action, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        key = {"close": "w", "minimize": "m", "maximize": "f", "zoom": "f", "focus": "`"}[action]
+        combo = "cmd+" + key if action not in {"maximize", "zoom"} else "ctrl+cmd+f"
         return self._osascript_hotkey(combo)
 
     def desktop_menu(self, *, menu_path: str, dry_run: bool = False) -> CommandResult:
@@ -694,7 +748,7 @@ except Exception as exc:
         peekaboo = self._peekaboo_status()
         if not peekaboo.get("available"):
             return CommandResult(ok=False, data={"performed": False, "menu_path": menu_path}, errors=[make_error(code="peekaboo_required", message="desktop_menu requires Peekaboo for reliable menu traversal.", guidance="Install Peekaboo with brew install steipete/tap/peekaboo and approve Workbench permissions.")])
-        result = self.runner([str(peekaboo["path"]), "menu", menu_path], 10.0)
+        result = self.runner([str(peekaboo["path"]), "menu", "click", "--path", menu_path, "--json", "--no-remote"], 20.0)
         if result.returncode != 0:
             return CommandResult(ok=False, data={"performed": False, "menu_path": menu_path}, errors=[make_error(code="desktop_menu_failed", message="Peekaboo could not perform the requested menu path.", guidance="Run desktop_see, verify the app is focused, then retry.")], warnings=self._stderr_warning(result))
         return CommandResult(ok=True, data={"performed": True, "menu_path": menu_path, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
@@ -707,6 +761,11 @@ except Exception as exc:
         if dry_run:
             return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action, "url": redact_value(url)})
         if action == "open_url":
+            peekaboo = self._peekaboo_status()
+            if peekaboo.get("available"):
+                result = self.runner([str(peekaboo["path"]), "open", str(url), "--wait-until-ready", "--json", "--no-remote"], 20.0)
+                if result.returncode == 0:
+                    return CommandResult(ok=True, data={"performed": True, "action": action, "url": redact_value(url), "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
             result = self.runner(["open", url], 10.0)
             if result.returncode != 0:
                 return CommandResult(ok=False, data={"performed": False, "action": action, "url": redact_value(url)}, errors=[make_error(code="browser_open_url_failed", message="macOS could not open the URL.", guidance="Verify the URL and default browser.")], warnings=self._stderr_warning(result))
@@ -1148,9 +1207,10 @@ except Exception as exc:
         raw_path = data.get("screenshot_raw")
         image_path = Path(str(raw_path)).expanduser() if raw_path else screenshot_path
         image = self._image_artifact(image_path, snapshot_id=snapshot_id) if image_path.exists() else None
+        peekaboo_snapshot_id = str(data.get("snapshot_id") or "")
         elements = self._elements_from_peekaboo(data.get("ui_elements", []), snapshot_id=snapshot_id, max_nodes=max_nodes)
         if elements:
-            self._write_snapshot_index(snapshot_id=snapshot_id, target=target, elements=elements)
+            self._write_snapshot_index(snapshot_id=snapshot_id, target=target, elements=elements, engine="peekaboo", peekaboo_snapshot_id=peekaboo_snapshot_id or None)
         observation = data.get("observation") if isinstance(data.get("observation"), dict) else {}
         target_info = observation.get("target") if isinstance(observation.get("target"), dict) else {}
         truncation = data.get("truncation") if isinstance(data.get("truncation"), dict) else None
@@ -1166,7 +1226,7 @@ except Exception as exc:
                 "frontmost_app": redact_value(data.get("application_name") or self._frontmost_app()),
                 "window_title": redact_value(data.get("window_title")),
                 "snapshot_id": snapshot_id,
-                "peekaboo_snapshot_id": redact_value(data.get("snapshot_id")),
+                "peekaboo_snapshot_id": redact_value(peekaboo_snapshot_id) if peekaboo_snapshot_id else None,
                 "peekaboo": peekaboo,
                 "peekaboo_output": None,
                 "peekaboo_truncated": False,
@@ -1215,19 +1275,25 @@ except Exception as exc:
         peekaboo = self._peekaboo_status()
         if not peekaboo.get("available"):
             return None
-        result = self.runner([str(peekaboo["path"]), "list", "permissions", "--json"], 10.0)
-        if result.returncode != 0:
-            return None
-        try:
-            payload = json.loads(result.stdout.strip() or "{}")
-        except json.JSONDecodeError:
-            return None
-        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        permissions = data.get("permissions") if isinstance(data.get("permissions"), list) else []
+        commands = (
+            [str(peekaboo["path"]), "permissions", "status", "--json", "--no-remote"],
+            [str(peekaboo["path"]), "permissions", "--json", "--no-remote"],
+            [str(peekaboo["path"]), "list", "permissions", "--json"],
+        )
         wanted = "Screen Recording" if permission == "screen_recording" else "Accessibility"
-        for item in permissions:
-            if isinstance(item, dict) and item.get("name") == wanted:
-                return bool(item.get("isGranted"))
+        for command in commands:
+            result = self.runner(command, 10.0)
+            if result.returncode != 0:
+                continue
+            try:
+                payload = json.loads(result.stdout.strip() or "{}")
+            except json.JSONDecodeError:
+                continue
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            permissions = data.get("permissions") if isinstance(data.get("permissions"), list) else []
+            for item in permissions:
+                if isinstance(item, dict) and item.get("name") == wanted:
+                    return bool(item.get("isGranted"))
         return None
 
     def _press_frontmost_target(self, *, target_label: str) -> CommandResult:
@@ -1381,6 +1447,30 @@ except Exception as exc:
         else:
             start = (center_x, y + margin_y)
             end = (center_x, y + height - margin_y)
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner(
+                [
+                    str(peekaboo["path"]),
+                    "swipe",
+                    "--from-coords",
+                    f"{start[0]},{start[1]}",
+                    "--to-coords",
+                    f"{end[0]},{end[1]}",
+                    "--duration",
+                    "700",
+                    "--profile",
+                    "human",
+                    "--json",
+                    "--no-remote",
+                ],
+                20.0,
+            )
+            if result.returncode == 0:
+                data: dict[str, Any] = {"performed": True, "action": action, "gesture": "swipe", "from": self._point(*start), "to": self._point(*end), "engine": "peekaboo"}
+                if direction:
+                    data["direction"] = direction
+                return CommandResult(ok=True, data=data, warnings=self._stderr_warning(result), provenance={"source": "peekaboo", "customer_control": True})
         dragged = self._mouse_action("drag", from_x=start[0], from_y=start[1], to_x=end[0], to_y=end[1])
         if not dragged.ok:
             return CommandResult(ok=False, data={"performed": False, "action": action, "direction": direction, "from": self._point(*start), "to": self._point(*end)}, errors=dragged.errors, warnings=dragged.warnings)
@@ -1686,6 +1776,7 @@ except Exception as exc:
                     "bounds": {"x": x, "y": y, "width": width, "height": height},
                     "center": {"x": x + width // 2, "y": y + height // 2},
                     "actions": item.get("actions", []),
+                    "engine": "ax_fallback",
                 }
             )
         return elements
@@ -1721,6 +1812,7 @@ except Exception as exc:
             elements.append(
                 {
                     "element_id": element_id,
+                    "peekaboo_element_id": element_id,
                     "snapshot_id": snapshot_id,
                     "label": label_text,
                     "role": role_text,
@@ -1732,12 +1824,14 @@ except Exception as exc:
             )
         return elements
 
-    def _write_snapshot_index(self, *, snapshot_id: str, target: str, elements: list[dict[str, Any]]) -> None:
+    def _write_snapshot_index(self, *, snapshot_id: str, target: str, elements: list[dict[str, Any]], engine: str, peekaboo_snapshot_id: str | None = None) -> None:
         snapshot_dir = self.state_dir / "snapshots"
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         payload = {
             "snapshot_id": snapshot_id,
             "target": target,
+            "engine": engine,
+            "peekaboo_snapshot_id": peekaboo_snapshot_id,
             "timestamp": timestamp_utc(),
             "elements": elements[:1000],
         }
@@ -1820,7 +1914,10 @@ except Exception as exc:
                 "resolved": True,
                 "snapshot_id": snapshot_id,
                 "element_id": match.get("element_id"),
+                "peekaboo_element_id": match.get("peekaboo_element_id"),
                 "target_label": match.get("label"),
+                "engine": match.get("engine") or payload.get("engine"),
+                "peekaboo_snapshot_id": payload.get("peekaboo_snapshot_id"),
                 "point": {"x": int(point["x"]), "y": int(point["y"])},
             },
         )

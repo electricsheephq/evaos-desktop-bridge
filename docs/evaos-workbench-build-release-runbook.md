@@ -18,13 +18,12 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.4.0` / build `10` is the current Codex-level Mac + iPhone control
-release target. It keeps the `0.3.3` bundled bridge helper and kill-switch gate,
-then adds visual snapshot artifacts, `snapshot_id` / `element_id` targeting,
-command-specific OpenClaw connector timeouts, and Full Access semantics for the
-older iPhone/message connector route. Earlier `0.3.x` builds proved the mode
-switch, but still left cloud agents with weak visual grounding and too much
-legacy approval behavior around phone/message workflows.
+Workbench `0.4.10` / build `20` is the current Peekaboo optimization release
+candidate. It keeps the `0.4.9` tailnet bind fix, upgrades the bundled Peekaboo
+helper to `3.2.2`, and makes native Peekaboo routes the first attempt for
+snapshot element clicks, global coordinate clicks, coordinate drags/swipes, menu
+paths, window actions, and browser URL opens before falling back to built-in
+Accessibility, Quartz, or System Events.
 
 The release keeps the `0.2.3` self-serve pairing and stuck-login recovery, then
 adds customer-granted Full Access and Ask Permission control sessions for paired
@@ -32,8 +31,9 @@ Mac and iPhone Mirroring workflows. When publishing it, keep older ZIP paths
 aliased to the fixed current ZIP so stale links cannot reinstall a broken or
 stale build. Before giving the link to a tester, verify the packaged app
 contains `Contents/Resources/Bridge/evaos-desktop-bridge`,
-`Contents/Resources/Bridge/src/evaos_desktop_bridge`, and the
-`Contents/Resources/Bridge/bin/peekaboo` launcher or bundled Peekaboo binary.
+`Contents/Resources/Bridge/src/evaos_desktop_bridge`, and a
+`Contents/Resources/Bridge/bin/peekaboo` binary whose `--version` output
+contains `3.2.2`.
 
 ## Edit Map
 

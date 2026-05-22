@@ -36,12 +36,13 @@ brew install steipete/tap/peekaboo
 
 The bridge detects Peekaboo through `customer-mac control status --json` and
 falls back to built-in macOS Accessibility, Quartz, and System Events for core
-actions. The fallback exists so customers can still use basic control while
-Peekaboo installation/packaging is being finalized.
+actions. Fallback remains intentional, but audit evidence must say whether an
+action ran through `peekaboo`, `quartz`, `system_events`, or `ax_fallback`.
 
-For `0.4.0`, release parity means Peekaboo is ready on the support/customer
-canary. The app bundle includes a `Bridge/bin/peekaboo` launcher and will use a
-bundled or Homebrew Peekaboo binary when present.
+For `0.4.10`, release parity means the app bundle contains Peekaboo `3.2.2` and
+uses the native command surface first: snapshot element clicks, global
+coordinate clicks, coordinate drags/swipes, menu paths, window commands, and
+browser URL opens should try Peekaboo before falling back.
 
 ## Agent Tools
 

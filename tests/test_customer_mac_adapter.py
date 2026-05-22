@@ -138,7 +138,7 @@ def test_desktop_scroll_uses_peekaboo_direction_flag(monkeypatch, tmp_path: Path
     monkeypatch.setattr(customer_mac, "PEEKABOO_BIN_CANDIDATES", (str(peekaboo),))
     runner = FakeRunner(
         {
-            (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="peekaboo 3.2.1\n", stderr=""),
+            (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="peekaboo 3.2.2\n", stderr=""),
             (str(peekaboo), "scroll", "--direction", "down", "--amount", "3", "--json"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
         }
     )
@@ -150,6 +150,112 @@ def test_desktop_scroll_uses_peekaboo_direction_flag(monkeypatch, tmp_path: Path
     assert result.data["engine"] == "peekaboo"
     assert (str(peekaboo), "scroll", "--direction", "down", "--amount", "3", "--json") in runner.commands
     assert not any(command[:3] == (str(peekaboo), "scroll", "down") for command in runner.commands)
+
+
+def test_desktop_click_uses_peekaboo_snapshot_element_before_coordinate_fallback(monkeypatch, tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    (tmp_path / "snapshots").mkdir()
+    (tmp_path / "snapshots" / f"{snapshot_id}.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": snapshot_id,
+                "target": "desktop",
+                "engine": "peekaboo",
+                "peekaboo_snapshot_id": "PEEKABOO-SNAPSHOT",
+                "timestamp": "2999-01-01T00:00:00Z",
+                "elements": [
+                    {
+                        "element_id": "B1",
+                        "peekaboo_element_id": "B1",
+                        "label": "Continue",
+                        "center": {"x": 10, "y": 20},
+                        "engine": "peekaboo",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("/test/peekaboo", "click", "--snapshot", "PEEKABOO-SNAPSHOT", "--on", "B1", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="B1")
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert ("/test/peekaboo", "click", "--snapshot", "PEEKABOO-SNAPSHOT", "--on", "B1", "--json", "--no-remote") in runner.commands
+    assert not any(command and command[0] == sys.executable for command in runner.commands)
+
+
+def test_desktop_click_uses_peekaboo_global_coordinates_before_quartz(monkeypatch, tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("/test/peekaboo", "click", "--coords", "10,20", "--global-coords", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_click(x=10, y=20)
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert ("/test/peekaboo", "click", "--coords", "10,20", "--global-coords", "--json", "--no-remote") in runner.commands
+
+
+def test_desktop_drag_uses_current_peekaboo_coordinate_shape(monkeypatch, tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            (
+                "/test/peekaboo",
+                "drag",
+                "--from-coords",
+                "10,20",
+                "--to-coords",
+                "30,40",
+                "--profile",
+                "human",
+                "--json",
+                "--no-remote",
+            ): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_drag(from_x=10, from_y=20, to_x=30, to_y=40)
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert not any("--from" in command or "--to" in command for command in runner.commands)
+
+
+def test_desktop_menu_and_window_use_peekaboo_subcommands(monkeypatch, tmp_path: Path) -> None:
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("/test/peekaboo", "menu", "click", "--path", "File > New Tab", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+            ("/test/peekaboo", "window", "maximize", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    menu = observer.desktop_menu(menu_path="File > New Tab")
+    window = observer.desktop_window(action="maximize")
+
+    assert menu.ok is True
+    assert window.ok is True
+    assert menu.data["engine"] == "peekaboo"
+    assert window.data["peekaboo_action"] == "maximize"
 
 
 def test_iphone_see_does_not_focus_mirroring_as_read_only(monkeypatch, tmp_path: Path) -> None:
@@ -281,10 +387,54 @@ def test_iphone_live_swipe_uses_internal_gesture_not_generic_coordinates(monkeyp
     assert_no_keystroke_commands(runner.commands)
 
 
+def test_iphone_live_swipe_prefers_peekaboo_swipe(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
+            ("osascript", "-e", 'tell application "iPhone Mirroring" to activate'): RunnerResult(returncode=0, stdout="", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ): RunnerResult(returncode=0, stdout="iPhone Mirroring\n", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to tell process "iPhone Mirroring" to get {position, size} of front window',
+            ): RunnerResult(returncode=0, stdout="100, 200, 300, 700\n", stderr=""),
+            (
+                "/test/peekaboo",
+                "swipe",
+                "--from-coords",
+                "346,550",
+                "--to-coords",
+                "154,550",
+                "--duration",
+                "700",
+                "--profile",
+                "human",
+                "--json",
+                "--no-remote",
+            ): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.iphone_mirroring_action(action="swipe_left", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert result.data["gesture"] == "swipe"
+    assert not any(command and command[0] == sys.executable for command in runner.commands)
+
+
 def test_iphone_keyboard_action_prefers_peekaboo_hotkey(monkeypatch, tmp_path: Path) -> None:
     runner = FakeRunner(
         {
-            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.1\n", stderr=""),
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
             ("/test/peekaboo", "hotkey", "cmd", "1"): RunnerResult(returncode=0, stdout="", stderr=""),
         }
     )
@@ -390,7 +540,7 @@ def test_desktop_see_prefers_peekaboo_json_without_python_tcc_fallback(monkeypat
         key = tuple(command)
         commands.append(key)
         if key == ("/test/peekaboo", "--version"):
-            return RunnerResult(returncode=0, stdout="Peekaboo 3.2.1\n", stderr="")
+            return RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr="")
         if key[:2] == ("/test/peekaboo", "see"):
             screenshot_path = Path(command[command.index("--path") + 1])
             screenshot_path.write_bytes(png)
@@ -454,12 +604,13 @@ def test_desktop_see_prefers_peekaboo_json_without_python_tcc_fallback(monkeypat
 def test_status_prefers_peekaboo_bridge_permissions_over_python_probe(monkeypatch, tmp_path: Path) -> None:
     runner = FakeRunner(
         {
-            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.1\n", stderr=""),
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
             (
                 "/test/peekaboo",
-                "list",
                 "permissions",
+                "status",
                 "--json",
+                "--no-remote",
             ): RunnerResult(
                 returncode=0,
                 stdout=json.dumps(
@@ -490,6 +641,7 @@ def test_status_prefers_peekaboo_bridge_permissions_over_python_probe(monkeypatc
 
     assert result.data["permissions"]["accessibility"]["status"] == "granted"
     assert result.data["permissions"]["screen_recording"]["status"] == "granted"
+    assert ("/test/peekaboo", "permissions", "status", "--json", "--no-remote") in runner.commands
 
 
 def test_local_site_action_dry_run_requires_local_browser_url(tmp_path: Path) -> None:
