@@ -49,13 +49,31 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_app_server_remote_control_status",
         "desktop_bridge_codex_app_server_threads",
         "customer_mac_status",
+        "desktop_control_status",
+        "desktop_control_start",
+        "desktop_control_stop",
+        "desktop_kill_switch",
         "customer_mac_complete_pairing",
         "customer_mac_capabilities",
+        "desktop_see",
+        "desktop_click",
+        "desktop_type",
+        "desktop_scroll",
+        "desktop_drag",
+        "desktop_hotkey",
+        "desktop_focus_app",
+        "desktop_window",
+        "desktop_menu",
+        "desktop_browser_action",
         "customer_mac_snapshot",
         "customer_mac_ax_tree",
         "customer_mac_app_focus",
         "customer_mac_local_site_open",
         "customer_mac_local_site_action",
+        "iphone_see",
+        "iphone_tap",
+        "iphone_swipe",
+        "iphone_type",
         "customer_mac_iphone_mirroring_status",
         "customer_mac_iphone_mirroring_home",
         "customer_mac_iphone_mirroring_app_switcher",
@@ -83,7 +101,6 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_click",
         "desktop_bridge_shell",
         "desktop_bridge_exec",
-        "customer_mac_generic_coordinates",
         "customer_mac_screen_sharing_enable",
     ]
     for tool_name in forbidden_tool_names:
@@ -105,6 +122,9 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "EVAOS_DESKTOP_BRIDGE_TOKEN" in source
     assert '"app-server"' in source
     assert '"customer-mac"' in source
+    assert "desktopClick" in source
+    assert "iphoneSwipe" in source
+    assert "customerMacControlStart" in source
     assert "customerMacIphoneMirroringOpenApp" in source
     assert "customerMacIphoneMirroringSendApprovedMessage" in source
     assert "turn/start" not in source

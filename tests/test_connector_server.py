@@ -12,9 +12,11 @@ from evaos_desktop_bridge.connector_server import (
     _live_guarded_approval_error,
     _live_guarded_without_approval,
     _make_handler,
+    _remote_control_start_error,
     build_bridge_argv,
     read_token,
 )
+from evaos_desktop_bridge.state import kill_control_session, start_control_session
 
 
 def rewrite_audit_timestamp(state_dir: Path, audit_id: str, timestamp: str) -> None:
@@ -42,6 +44,36 @@ def test_connector_defaults_guarded_commands_to_dry_run() -> None:
         "--app-name",
         "Safari",
         "--dry-run",
+    ]
+
+
+def test_connector_builds_desktop_control_argv() -> None:
+    assert build_bridge_argv("customerMacControlStart", {"mode": "full-access", "agent_label": "Aurelius"}) == [
+        "customer-mac",
+        "control",
+        "start",
+        "--json",
+        "--mode",
+        "full-access",
+        "--agent-label",
+        "Aurelius",
+    ]
+    assert build_bridge_argv("desktopClick", {"target_label": "Continue"}) == [
+        "customer-mac",
+        "desktop",
+        "click",
+        "--json",
+        "--dry-run",
+        "--target-label",
+        "Continue",
+    ]
+    assert build_bridge_argv("iphoneSwipe", {"direction": "left", "dry_run": False}) == [
+        "customer-mac",
+        "iphone-mirroring",
+        "swipe",
+        "--json",
+        "--direction",
+        "left",
     ]
 
 
@@ -81,6 +113,35 @@ def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> No
     argv = build_bridge_argv("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"})
     assert "--approval-audit-id" in argv
     assert "audit-1" in argv
+
+
+def test_connector_full_access_allows_live_remote_control_without_approval(tmp_path: Path) -> None:
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+
+    assert _live_guarded_approval_error("desktopType", {"text": "hello", "dry_run": False}, state_dir=tmp_path) is None
+    assert _live_guarded_approval_error("iphoneSwipe", {"direction": "left", "dry_run": False}, state_dir=tmp_path) is None
+    assert _live_guarded_approval_error("codexContinueThread", {"title": "SDK Docs", "prompt": "continue", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+    assert _live_guarded_approval_error("customerMacIphoneMirroringSendApprovedMessage", {"text": "hello", "recipient_context": "test", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+
+
+def test_connector_ask_permission_allows_navigation_but_gates_high_impact(tmp_path: Path) -> None:
+    start_control_session(mode="ask_permission", agent_label="Hermes", state_dir=tmp_path)
+
+    assert _live_guarded_approval_error("desktopScroll", {"direction": "down", "dry_run": False}, state_dir=tmp_path) is None
+    assert _live_guarded_approval_error("desktopClick", {"target_label": "Continue", "dry_run": False}, state_dir=tmp_path) is None
+    assert _live_guarded_approval_error("desktopHotkey", {"keys": "cmd+r", "dry_run": False}, state_dir=tmp_path) is None
+    assert _live_guarded_approval_error("desktopClick", {"target_label": "Send", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+    assert _live_guarded_approval_error("desktopClick", {"x": 10, "y": 20, "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+    assert _live_guarded_approval_error("desktopHotkey", {"keys": "return", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+    assert _live_guarded_approval_error("desktopType", {"text": "hello", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+
+
+def test_connector_kill_switch_blocks_remote_control(tmp_path: Path) -> None:
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+    kill_control_session(tmp_path)
+
+    assert _live_guarded_approval_error("desktopScroll", {"direction": "down", "dry_run": False}, state_dir=tmp_path) == "The customer Mac kill switch is active; live agent control commands are blocked."
+    assert _remote_control_start_error("customerMacControlStart", state_dir=tmp_path) == "The customer Mac kill switch is active; only the local Workbench app can start a new control session."
 
 
 def test_connector_approved_message_requires_matching_dry_run_audit(tmp_path: Path) -> None:

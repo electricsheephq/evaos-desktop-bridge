@@ -4,6 +4,7 @@ import hashlib
 import json
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ from urllib.parse import urlparse
 from ..audit import default_state_dir
 from ..redaction import cap_text, redact_value
 from ..schema import make_error, timestamp_utc
+from ..state import kill_control_session, read_control_session, start_control_session, stop_control_session
 from ..types import CommandResult
 from .codex_macos import (
     ACCESSIBILITY_GUIDANCE,
@@ -27,6 +29,12 @@ IPHONE_MIRRORING_APP = Path("/System/Applications/iPhone Mirroring.app")
 SAFE_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 SAFE_BROWSER_APPS = {"Safari", "Google Chrome", "Arc", "Firefox", "Brave Browser"}
 SAFE_LOCAL_SITE_ACTIONS = {"reload", "back", "forward"}
+CONTROL_MODES = {"full_access", "ask_permission"}
+PEEKABOO_BIN_CANDIDATES = (
+    "peekaboo",
+    "/opt/homebrew/bin/peekaboo",
+    "/usr/local/bin/peekaboo",
+)
 SAFE_IPHONE_ACTIONS = {
     "home",
     "app_switcher",
@@ -354,6 +362,61 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
 """.strip()
 
+    MOUSE_EVENT_SCRIPT = """
+import json
+import sys
+
+action = sys.argv[1]
+
+try:
+    import Quartz
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": f"pyobjc_missing: {exc}"}))
+    raise SystemExit(0)
+
+source = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateCombinedSessionState)
+
+def post(event):
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+
+def mouse_event(kind, x, y, button=Quartz.kCGMouseButtonLeft):
+    return Quartz.CGEventCreateMouseEvent(source, kind, (int(x), int(y)), button)
+
+try:
+    if action == "click":
+        x = int(float(sys.argv[2]))
+        y = int(float(sys.argv[3]))
+        post(mouse_event(Quartz.kCGEventMouseMoved, x, y))
+        post(mouse_event(Quartz.kCGEventLeftMouseDown, x, y))
+        post(mouse_event(Quartz.kCGEventLeftMouseUp, x, y))
+        print(json.dumps({"ok": True, "action": action, "point": {"x": x, "y": y}}))
+    elif action == "scroll":
+        direction = sys.argv[2]
+        amount = int(sys.argv[3])
+        dy = amount if direction == "up" else -amount
+        dx = amount if direction == "left" else -amount if direction == "right" else 0
+        if direction in {"up", "down"}:
+            dx = 0
+        else:
+            dy = 0
+        post(Quartz.CGEventCreateScrollWheelEvent(source, Quartz.kCGScrollEventUnitPixel, 2, dy, dx))
+        print(json.dumps({"ok": True, "action": action, "direction": direction, "amount": amount}))
+    elif action == "drag":
+        x1 = int(float(sys.argv[2]))
+        y1 = int(float(sys.argv[3]))
+        x2 = int(float(sys.argv[4]))
+        y2 = int(float(sys.argv[5]))
+        post(mouse_event(Quartz.kCGEventMouseMoved, x1, y1))
+        post(mouse_event(Quartz.kCGEventLeftMouseDown, x1, y1))
+        post(mouse_event(Quartz.kCGEventLeftMouseDragged, x2, y2))
+        post(mouse_event(Quartz.kCGEventLeftMouseUp, x2, y2))
+        print(json.dumps({"ok": True, "action": action, "from": {"x": x1, "y": y1}, "to": {"x": x2, "y": y2}}))
+    else:
+        print(json.dumps({"ok": False, "error": "unsupported_mouse_action"}))
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": f"mouse_event_failed:{exc}"}))
+""".strip()
+
     def __init__(
         self,
         *,
@@ -393,33 +456,268 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
         )
 
     def capabilities(self) -> CommandResult:
+        peekaboo = self._peekaboo_status()
         return CommandResult(
             ok=True,
             data={
-                "supported_targets": ["mac", "local_site", "iphone_mirroring", "screen_sharing_status"],
+                "supported_targets": ["mac", "desktop", "browser", "local_site", "iphone_mirroring", "screen_sharing_status"],
                 "actions": {
                     "mac": ["status", "capabilities", "snapshot", "ax_tree", "app_focus"],
+                    "control_session": ["status", "start", "stop", "kill_switch"],
+                    "desktop": ["see", "click", "type", "scroll", "drag", "hotkey", "focus_app", "window", "menu", "browser_action"],
                     "local_site": ["open", "reload", "back", "forward"],
-                    "iphone_mirroring": sorted(SAFE_IPHONE_ACTIONS | GUARDED_IPHONE_ACTIONS),
+                    "iphone_mirroring": sorted(SAFE_IPHONE_ACTIONS | GUARDED_IPHONE_ACTIONS | {"see", "tap", "swipe", "type"}),
                     "screen_sharing": ["status"],
                 },
-                "forbidden": [
-                    "generic_remote_desktop_passthrough",
-                    "generic_coordinates",
-                    "arbitrary_text_entry",
-                    "messages_or_calls",
-                    "purchases",
-                    "auth_bypass",
-                    "camera_or_microphone",
-                    "sensitive_app_control",
-                ],
+                "engines": {"peekaboo": peekaboo, "fallbacks": ["accessibility", "quartz", "system_events"]},
+                "control_modes": {
+                    "full_access": "Customer-granted session: live clicks, typing, scrolling, dragging, app/window/menu/browser, and iPhone Mirroring actions do not require per-action approval.",
+                    "ask_permission": "Same surface, but high-impact text/send-style actions require approval evidence.",
+                },
+                "forbidden": ["public_mac_ports", "hidden_shell", "credential_collection", "security_bypass"],
                 "approval_gates": {
-                    "mutating_named_actions": "OpenClaw tools must require approval before live execution.",
-                    "screen_sharing_enablement": "The bridge reports status only; enabling Screen Sharing requires explicit customer/admin approval outside this CLI.",
-                    "live_iphone_actions": "iPhone gestures, approved text, and approved message send require a matching dry-run audit id before live execution.",
+                    "full_access": "No per-action approval once the customer starts a Full Access control session.",
+                    "ask_permission": "High-impact actions require approval; low-level navigation stays continuous.",
+                    "screen_sharing_enablement": "The bridge reports status only; private overlay pairing remains the release path.",
                 },
             },
         )
+
+    def control_status(self) -> CommandResult:
+        session = read_control_session(self.state_dir)
+        return CommandResult(
+            ok=True,
+            data={
+                "session": session,
+                "mode": session.get("mode"),
+                "active": bool(session.get("active")),
+                "kill_switch": bool(session.get("kill_switch")),
+                "current_agent": session.get("agent_label"),
+                "current_app": redact_value(self._frontmost_app()),
+                "peekaboo": self._peekaboo_status(),
+                "permissions": {
+                    "accessibility": self._permission_status("accessibility"),
+                    "screen_recording": self._permission_status("screen_recording"),
+                },
+            },
+        )
+
+    def control_start(self, *, mode: str, agent_label: str | None = None) -> CommandResult:
+        normalized = mode.replace("-", "_")
+        if normalized not in CONTROL_MODES:
+            return CommandResult(
+                ok=False,
+                data={"active": False, "mode": normalized},
+                errors=[make_error(code="control_mode_invalid", message="Control mode must be full_access or ask_permission.", guidance="Start a customer-granted control session with --mode full-access or --mode ask-permission.")],
+            )
+        session = start_control_session(mode=normalized, agent_label=agent_label, state_dir=self.state_dir)
+        return CommandResult(ok=True, data={"started": True, "session": session, "peekaboo": self._peekaboo_status()}, provenance={"source": "control_session"})
+
+    def control_stop(self) -> CommandResult:
+        session = stop_control_session(self.state_dir)
+        return CommandResult(ok=True, data={"stopped": True, "session": session}, provenance={"source": "control_session"})
+
+    def control_kill_switch(self) -> CommandResult:
+        session = kill_control_session(self.state_dir)
+        return CommandResult(ok=True, data={"killed": True, "session": session}, provenance={"source": "control_session", "kill_switch": True})
+
+    def desktop_see(self, *, max_chars: int = 4000, max_nodes: int = 200) -> CommandResult:
+        peekaboo = self._peekaboo_status()
+        frontmost = self._frontmost_app()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "see"], 20.0)
+            output, truncated = cap_text(redact_value(result.stdout.strip() or result.stderr.strip()), max_chars)
+            if result.returncode == 0:
+                return CommandResult(
+                    ok=True,
+                    data={"engine": "peekaboo", "frontmost_app": redact_value(frontmost), "output": output, "truncated": truncated},
+                    warnings=[] if not truncated else ["Peekaboo see output truncated"],
+                    provenance={"source": "peekaboo"},
+                )
+        screenshot = self.snapshot(max_chars=max_chars)
+        ax = self.ax_tree(max_nodes=max_nodes)
+        return CommandResult(
+            ok=screenshot.ok or ax.ok,
+            data={
+                "engine": "fallback",
+                "frontmost_app": redact_value(frontmost),
+                "screenshot": screenshot.data if screenshot.ok else None,
+                "ax": ax.data if ax.ok else None,
+            },
+            warnings=screenshot.warnings + ax.warnings + ([] if peekaboo.get("available") else ["Peekaboo not installed; used built-in fallback."]),
+            errors=[] if screenshot.ok or ax.ok else screenshot.errors + ax.errors,
+            provenance={"source": "peekaboo_fallback"},
+        )
+
+    def desktop_click(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"clicked": False, "would_click": True, "target_label": target_label, "point": self._point(x, y)})
+        if target_label:
+            peekaboo = self._peekaboo_status()
+            if peekaboo.get("available"):
+                result = self.runner([str(peekaboo["path"]), "click", target_label], 10.0)
+                if result.returncode == 0:
+                    return CommandResult(ok=True, data={"clicked": True, "target_label": target_label, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+            pressed = self._press_frontmost_target(target_label=target_label)
+            if pressed.ok:
+                pressed.data["engine"] = "accessibility"
+            return pressed
+        if x is None or y is None:
+            return CommandResult(ok=False, data={"clicked": False}, errors=[make_error(code="desktop_click_target_required", message="desktop_click requires target_label or x/y.", guidance="Prefer a visible target label from desktop_see; use coordinates only when labels are unavailable.")])
+        return self._mouse_action("click", x=x, y=y)
+
+    def desktop_type(self, *, text: str, dry_run: bool = False) -> CommandResult:
+        if not isinstance(text, str) or text == "":
+            return CommandResult(ok=False, data={"typed": False}, errors=[make_error(code="desktop_text_required", message="desktop_type requires non-empty text.", guidance="Pass exact text to type into the focused field.")])
+        if dry_run:
+            return CommandResult(ok=True, data={"typed": False, "would_type": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)})
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "type", text], 20.0)
+            if result.returncode == 0:
+                return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text), "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        return self._keystroke_arbitrary_text(text)
+
+    def desktop_scroll(self, *, direction: str = "down", amount: int = 600, dry_run: bool = False) -> CommandResult:
+        if direction not in {"up", "down", "left", "right"}:
+            return CommandResult(ok=False, data={"scrolled": False, "direction": direction}, errors=[make_error(code="desktop_scroll_direction_invalid", message="desktop_scroll direction must be up, down, left, or right.", guidance="Use a named scroll direction.")])
+        amount = max(1, min(int(amount), 5000))
+        if dry_run:
+            return CommandResult(ok=True, data={"scrolled": False, "would_scroll": True, "direction": direction, "amount": amount})
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "scroll", direction, "--amount", str(amount)], 10.0)
+            if result.returncode == 0:
+                return CommandResult(ok=True, data={"scrolled": True, "direction": direction, "amount": amount, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        return self._mouse_action("scroll", direction=direction, amount=amount)
+
+    def desktop_drag(self, *, from_x: int, from_y: int, to_x: int, to_y: int, dry_run: bool = False) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"dragged": False, "would_drag": True, "from": self._point(from_x, from_y), "to": self._point(to_x, to_y)})
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "drag", "--from", f"{from_x},{from_y}", "--to", f"{to_x},{to_y}"], 20.0)
+            if result.returncode == 0:
+                return CommandResult(ok=True, data={"dragged": True, "from": self._point(from_x, from_y), "to": self._point(to_x, to_y), "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        return self._mouse_action("drag", from_x=from_x, from_y=from_y, to_x=to_x, to_y=to_y)
+
+    def desktop_hotkey(self, *, keys: str, dry_run: bool = False) -> CommandResult:
+        normalized = self._normalize_hotkey(keys)
+        if not normalized:
+            return CommandResult(ok=False, data={"pressed": False}, errors=[make_error(code="desktop_hotkey_required", message="desktop_hotkey requires keys like cmd+l or cmd+shift+4.", guidance="Use a plus-delimited hotkey string.")])
+        if dry_run:
+            return CommandResult(ok=True, data={"pressed": False, "would_press": True, "keys": normalized})
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "hotkey", *normalized.split("+")], 10.0)
+            if result.returncode == 0:
+                return CommandResult(ok=True, data={"pressed": True, "keys": normalized, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        return self._osascript_hotkey(normalized)
+
+    def desktop_focus_app(self, *, app_name: str, dry_run: bool = False) -> CommandResult:
+        if not self._safe_app_name(app_name):
+            return CommandResult(ok=False, data={"focused": False}, errors=[make_error(code="app_name_not_allowed", message="App name is outside the supported character set.", guidance="Use a visible macOS app name.")])
+        if dry_run:
+            return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "app", "focus", app_name], 10.0)
+            if result.returncode == 0:
+                return CommandResult(ok=True, data={"focused": True, "app_name": app_name, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        result = self.runner(["open", "-a", app_name], 10.0)
+        if result.returncode != 0:
+            return CommandResult(ok=False, data={"focused": False, "app_name": app_name}, errors=[make_error(code="app_focus_failed", message="macOS refused to open or focus the requested app.", guidance="Verify the app is installed and visible.")], warnings=self._stderr_warning(result))
+        return CommandResult(ok=True, data={"focused": True, "app_name": app_name, "engine": "macos_open"})
+
+    def desktop_window(self, *, action: str, dry_run: bool = False) -> CommandResult:
+        if action not in {"focus", "minimize", "zoom", "close"}:
+            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="desktop_window_action_invalid", message="desktop_window action must be focus, minimize, zoom, or close.", guidance="Use a named window action.")])
+        if dry_run:
+            return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action})
+        peekaboo = self._peekaboo_status()
+        if peekaboo.get("available"):
+            result = self.runner([str(peekaboo["path"]), "window", action], 10.0)
+            if result.returncode == 0:
+                return CommandResult(ok=True, data={"performed": True, "action": action, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+        key = {"close": "w", "minimize": "m", "zoom": "f", "focus": "`"}[action]
+        combo = "cmd+" + key if action != "zoom" else "ctrl+cmd+f"
+        return self._osascript_hotkey(combo)
+
+    def desktop_menu(self, *, menu_path: str, dry_run: bool = False) -> CommandResult:
+        if not isinstance(menu_path, str) or not menu_path.strip() or len(menu_path) > 240:
+            return CommandResult(ok=False, data={"performed": False}, errors=[make_error(code="desktop_menu_path_required", message="desktop_menu requires a menu path such as File > New Tab.", guidance="Use the visible app menu path.")])
+        if dry_run:
+            return CommandResult(ok=True, data={"performed": False, "would_perform": True, "menu_path": menu_path})
+        peekaboo = self._peekaboo_status()
+        if not peekaboo.get("available"):
+            return CommandResult(ok=False, data={"performed": False, "menu_path": menu_path}, errors=[make_error(code="peekaboo_required", message="desktop_menu requires Peekaboo for reliable menu traversal.", guidance="Install Peekaboo with brew install steipete/tap/peekaboo and approve Workbench permissions.")])
+        result = self.runner([str(peekaboo["path"]), "menu", menu_path], 10.0)
+        if result.returncode != 0:
+            return CommandResult(ok=False, data={"performed": False, "menu_path": menu_path}, errors=[make_error(code="desktop_menu_failed", message="Peekaboo could not perform the requested menu path.", guidance="Run desktop_see, verify the app is focused, then retry.")], warnings=self._stderr_warning(result))
+        return CommandResult(ok=True, data={"performed": True, "menu_path": menu_path, "engine": "peekaboo"}, warnings=self._stderr_warning(result), provenance={"source": "peekaboo"})
+
+    def desktop_browser_action(self, *, action: str, url: str | None = None, dry_run: bool = False) -> CommandResult:
+        if action not in {"reload", "back", "forward", "new_tab", "open_url"}:
+            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="browser_action_invalid", message="desktop_browser_action action must be reload, back, forward, new_tab, or open_url.", guidance="Use one of the named browser actions.")])
+        if action == "open_url" and (not url or urlparse(url).scheme not in {"http", "https"}):
+            return CommandResult(ok=False, data={"performed": False, "action": action, "url": redact_value(url)}, errors=[make_error(code="browser_url_invalid", message="open_url requires an http(s) URL.", guidance="Pass a normal website URL.")])
+        if dry_run:
+            return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action, "url": redact_value(url)})
+        if action == "open_url":
+            result = self.runner(["open", url], 10.0)
+            if result.returncode != 0:
+                return CommandResult(ok=False, data={"performed": False, "action": action, "url": redact_value(url)}, errors=[make_error(code="browser_open_url_failed", message="macOS could not open the URL.", guidance="Verify the URL and default browser.")], warnings=self._stderr_warning(result))
+            return CommandResult(ok=True, data={"performed": True, "action": action, "url": redact_value(url), "engine": "macos_open"})
+        hotkeys = {"reload": "cmd+r", "back": "cmd+[", "forward": "cmd+]", "new_tab": "cmd+t"}
+        return self.desktop_hotkey(keys=hotkeys[action], dry_run=False)
+
+    def iphone_see(self, *, max_chars: int = 4000, max_nodes: int = 200) -> CommandResult:
+        status = self.iphone_mirroring_status()
+        if not status.data.get("running"):
+            return status
+        if status.data.get("frontmost") is not True:
+            return CommandResult(
+                ok=False,
+                data={"target": "iphone_mirroring", "running": True, "frontmost": False},
+                errors=[
+                    make_error(
+                        code="iphone_mirroring_not_frontmost",
+                        message="iPhone Mirroring is running but is not the visible frontmost app.",
+                        guidance="Focus iPhone Mirroring from Workbench or an active control session, then rerun iphone_see.",
+                    )
+                ],
+            )
+        seen = self.desktop_see(max_chars=max_chars, max_nodes=max_nodes)
+        seen.data["target"] = "iphone_mirroring"
+        return seen
+
+    def iphone_tap(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"performed": False, "would_tap": True, "target_label": target_label, "point": self._point(x, y)})
+        focus = self.iphone_mirroring_focus(dry_run=False)
+        if not focus.ok:
+            return focus
+        return self.desktop_click(target_label=target_label, x=x, y=y, dry_run=False)
+
+    def iphone_swipe(self, *, direction: str, dry_run: bool = False) -> CommandResult:
+        mapping = {
+            "left": "swipe_left",
+            "right": "swipe_right",
+            "up": "swipe_up",
+            "down": "swipe_down",
+        }
+        action = mapping.get(direction)
+        if action is None:
+            return CommandResult(ok=False, data={"performed": False, "direction": direction}, errors=[make_error(code="iphone_swipe_direction_invalid", message="iphone_swipe direction must be left, right, up, or down.", guidance="Use a named direction.")])
+        return self.iphone_mirroring_action(action=action, dry_run=dry_run)
+
+    def iphone_type(self, *, text: str, dry_run: bool = False) -> CommandResult:
+        if dry_run:
+            return CommandResult(ok=True, data={"performed": False, "would_type": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)})
+        focus = self.iphone_mirroring_focus(dry_run=False)
+        if not focus.ok:
+            return focus
+        return self.desktop_type(text=text, dry_run=False)
 
     def snapshot(self, *, max_chars: int) -> CommandResult:
         frontmost = self._frontmost_app()
@@ -687,6 +985,129 @@ print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
             },
             warnings=[] if enabled else ["Screen Sharing/Remote Management is not enabled; this bridge will not enable it without explicit approval."],
         )
+
+    def _peekaboo_status(self) -> dict[str, Any]:
+        path: str | None = None
+        for candidate in PEEKABOO_BIN_CANDIDATES:
+            if "/" in candidate:
+                if Path(candidate).exists():
+                    path = candidate
+                    break
+            else:
+                found = shutil.which(candidate)
+                if found:
+                    path = found
+                    break
+        if not path:
+            return {
+                "available": False,
+                "install": "brew install steipete/tap/peekaboo",
+                "guidance": "Peekaboo gives agents the best Mac computer-control parity. Built-in Accessibility/Quartz fallbacks remain available for core actions.",
+            }
+        result = self.runner([path, "--version"], 3.0)
+        version = result.stdout.strip() or result.stderr.strip() or None
+        return {"available": result.returncode == 0, "path": path, "version": redact_value(version)}
+
+    def _press_frontmost_target(self, *, target_label: str) -> CommandResult:
+        if self.accessibility_checker() is False:
+            return CommandResult(ok=False, data={"clicked": False, "target_label": target_label}, errors=[self._permission_error("accessibility", "click a visible target")])
+        frontmost = self._frontmost_app()
+        pid = self._pid_for_app(frontmost)
+        if pid is None:
+            return CommandResult(ok=False, data={"clicked": False, "target_label": target_label, "frontmost_app": redact_value(frontmost)}, errors=[make_error(code="frontmost_pid_not_found", message="Could not resolve a frontmost app PID.", guidance="Focus the target app and rerun desktop_see.")])
+        result = self.runner([sys.executable, "-c", self.AX_PRESS_LABEL_SCRIPT, str(pid), target_label, "700", "1"], 20.0)
+        warnings = self._stderr_warning(result)
+        if result.returncode != 0:
+            return CommandResult(ok=False, data={"clicked": False, "target_label": target_label}, errors=[make_error(code="desktop_target_lookup_unavailable", message="Unable to inspect visible targets.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=warnings)
+        try:
+            payload = json.loads(result.stdout.strip() or "{}")
+        except json.JSONDecodeError:
+            return CommandResult(ok=False, data={"clicked": False, "target_label": target_label}, errors=[make_error(code="desktop_target_lookup_parse_failed", message="Unable to parse target lookup output.", guidance="Check pyobjc GUI dependencies in the bridge environment.")], warnings=warnings)
+        if not payload.get("ok"):
+            return CommandResult(
+                ok=False,
+                data={"clicked": False, "target_label": target_label, "matches": [self._safe_node(row) for row in payload.get("matches", [])]},
+                errors=[make_error(code=str(payload.get("error") or "desktop_target_click_failed").split(":", 1)[0], message="The visible target could not be clicked.", guidance="Run desktop_see and use a unique visible label, or use coordinates as a fallback.")],
+                warnings=warnings,
+            )
+        return CommandResult(ok=True, data={"clicked": True, "target_label": target_label, "matches": [self._safe_node(row) for row in payload.get("matches", [])]}, warnings=warnings, provenance={"source": "accessibility"})
+
+    def _mouse_action(self, action: str, **kwargs: Any) -> CommandResult:
+        if self.accessibility_checker() is False:
+            return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[self._permission_error("accessibility", f"perform desktop {action}")])
+        argv = [sys.executable, "-c", self.MOUSE_EVENT_SCRIPT, action]
+        data: dict[str, Any] = {"performed": False, "action": action}
+        if action == "click":
+            argv.extend([str(kwargs["x"]), str(kwargs["y"])])
+            data["point"] = self._point(kwargs["x"], kwargs["y"])
+        elif action == "scroll":
+            argv.extend([str(kwargs["direction"]), str(kwargs["amount"])])
+            data["direction"] = kwargs["direction"]
+            data["amount"] = kwargs["amount"]
+        elif action == "drag":
+            argv.extend([str(kwargs["from_x"]), str(kwargs["from_y"]), str(kwargs["to_x"]), str(kwargs["to_y"])])
+            data["from"] = self._point(kwargs["from_x"], kwargs["from_y"])
+            data["to"] = self._point(kwargs["to_x"], kwargs["to_y"])
+        result = self.runner(argv, 10.0)
+        warnings = self._stderr_warning(result)
+        try:
+            payload = json.loads(result.stdout.strip() or "{}")
+        except json.JSONDecodeError:
+            payload = {"ok": False, "error": "mouse_event_parse_failed"}
+        if result.returncode != 0 or not payload.get("ok"):
+            return CommandResult(ok=False, data=data, errors=[make_error(code=str(payload.get("error") or "mouse_event_failed").split(":", 1)[0], message=f"Unable to perform desktop {action}.", guidance="Verify Accessibility permission and try again.")], warnings=warnings)
+        data.update({"performed": True, "engine": "quartz"})
+        if action == "click":
+            data["clicked"] = True
+        if action == "scroll":
+            data["scrolled"] = True
+        if action == "drag":
+            data["dragged"] = True
+        return CommandResult(ok=True, data=data, warnings=warnings, provenance={"source": "quartz"})
+
+    def _keystroke_arbitrary_text(self, text: str) -> CommandResult:
+        if len(text) > 4000:
+            return CommandResult(ok=False, data={"typed": False, "text_sha256": self._text_hash(text)}, errors=[make_error(code="desktop_text_too_long", message="desktop_type text is capped at 4000 characters per action.", guidance="Split longer text into smaller typed chunks.")])
+        script = f'tell application "System Events" to keystroke "{self._escape_applescript(text)}"'
+        result = self.runner(["osascript", "-e", script], 20.0)
+        if result.returncode != 0:
+            return CommandResult(ok=False, data={"typed": False, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)}, errors=[make_error(code="desktop_text_entry_failed", message="macOS refused desktop text entry.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
+        return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text), "engine": "system_events"}, provenance={"source": "system_events"})
+
+    def _normalize_hotkey(self, keys: str) -> str | None:
+        if not isinstance(keys, str):
+            return None
+        parts = [part.strip().lower() for part in re.split(r"[+ ]+", keys) if part.strip()]
+        aliases = {"command": "cmd", "control": "ctrl", "option": "opt", "alt": "opt", "escape": "esc", "return": "enter"}
+        normalized = [aliases.get(part, part) for part in parts]
+        if not normalized or any(not re.fullmatch(r"[a-z0-9_\-\[\]`=,./;']", part) for part in normalized):
+            return None
+        return "+".join(normalized)
+
+    def _osascript_hotkey(self, keys: str) -> CommandResult:
+        parts = keys.split("+")
+        key = parts[-1]
+        modifiers = parts[:-1]
+        modifier_map = {"cmd": "command down", "shift": "shift down", "ctrl": "control down", "opt": "option down"}
+        using = [modifier_map[item] for item in modifiers if item in modifier_map]
+        special_key_codes = {"enter": "36", "esc": "53", "tab": "48", "space": "49", "left": "123", "right": "124", "down": "125", "up": "126"}
+        if key in special_key_codes:
+            script = f'tell application "System Events" to key code {special_key_codes[key]}'
+        elif len(key) == 1 or key in {"[", "]", "`", "-", "=", ",", ".", "/", ";", "'"}:
+            script = f'tell application "System Events" to keystroke "{self._escape_applescript(key)}"'
+        else:
+            return CommandResult(ok=False, data={"pressed": False, "keys": keys}, errors=[make_error(code="desktop_hotkey_key_unsupported", message="The fallback hotkey engine does not know that key.", guidance="Install Peekaboo for broader hotkey support.")])
+        if using:
+            script += " using {" + ", ".join(using) + "}"
+        result = self.runner(["osascript", "-e", script], 5.0)
+        if result.returncode != 0:
+            return CommandResult(ok=False, data={"pressed": False, "keys": keys}, errors=[make_error(code="desktop_hotkey_failed", message="macOS refused the hotkey.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
+        return CommandResult(ok=True, data={"pressed": True, "keys": keys, "engine": "system_events"}, provenance={"source": "system_events"})
+
+    def _point(self, x: int | None, y: int | None) -> dict[str, int] | None:
+        if x is None or y is None:
+            return None
+        return {"x": int(x), "y": int(y)}
 
     def _iphone_keyboard_action(self, action: str, key_code: str, *, customer_control: bool = False, direction: str | None = None) -> CommandResult:
         script = f'tell application "System Events" to key code {key_code}' if customer_control else f'tell application "System Events" to key code {key_code} using command down'

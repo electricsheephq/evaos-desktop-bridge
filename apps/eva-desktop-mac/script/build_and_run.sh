@@ -234,10 +234,11 @@ notarized yet.
 ## Agent Control Boundary
 
 The customer beta supports named Mac and iPhone controls through audited
-OpenClaw/Hermes tools. Live actions require a prior dry-run and matching
-approval audit id. Workbench does not expose arbitrary shell, hidden AppleScript,
-generic coordinates, password capture, payment/purchase automation, or generic
-Codex app-server mutation.
+OpenClaw/Hermes tools. Full Access can operate continuously after the customer
+starts a visible session; Ask Permission and legacy guarded actions require
+dry-run/approval at high-impact boundaries. Workbench does not expose arbitrary
+shell, hidden AppleScript, password capture, payment/purchase automation, or
+generic Codex app-server mutation.
 EOF
 }
 

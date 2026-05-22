@@ -1,8 +1,15 @@
 # evaOS Desktop Bridge for OpenClaw
 
-OpenClaw plugin wrapper for `evaos-desktop-bridge`. The Codex Desktop tools are
-read-only except the visible thread-select dry-run action. Customer Mac tools are
-named and approval-gated.
+OpenClaw plugin wrapper for `evaos-desktop-bridge`. Codex Desktop tools remain
+read-oriented except the visible support fallback. Customer Mac/iPhone tools now
+use the Workbench connector's customer-granted control session:
+
+- **Full Access**: live desktop and iPhone actions run continuously after the
+  customer starts the session in Workbench.
+- **Ask Permission**: navigation stays continuous, but risky clicks, taps,
+  hotkeys, typing, sends, and other high-impact actions still require approval
+  evidence.
+- The connector keeps the visible session state, audit log, and kill switch.
 
 ## Exposed Tools
 
@@ -24,13 +31,31 @@ named and approval-gated.
 - `desktop_bridge_codex_app_server_threads`
 - `desktop_bridge_codex_continue_thread`
 - `customer_mac_status`
+- `desktop_control_status`
+- `desktop_control_start`
+- `desktop_control_stop`
+- `desktop_kill_switch`
 - `customer_mac_complete_pairing`
 - `customer_mac_capabilities`
+- `desktop_see`
+- `desktop_click`
+- `desktop_type`
+- `desktop_scroll`
+- `desktop_drag`
+- `desktop_hotkey`
+- `desktop_focus_app`
+- `desktop_window`
+- `desktop_menu`
+- `desktop_browser_action`
 - `customer_mac_snapshot`
 - `customer_mac_ax_tree`
 - `customer_mac_app_focus`
 - `customer_mac_local_site_open`
 - `customer_mac_local_site_action`
+- `iphone_see`
+- `iphone_tap`
+- `iphone_swipe`
+- `iphone_type`
 - `customer_mac_iphone_mirroring_status`
 - `customer_mac_iphone_mirroring_focus`
 - `customer_mac_iphone_mirroring_home`
@@ -48,12 +73,11 @@ named and approval-gated.
 - `customer_mac_iphone_mirroring_send_approved_message`
 - `customer_mac_screen_sharing_status`
 
-The plugin deliberately does not expose generic click, type, prompt-send,
-mutation app-server, session database, arbitrary coordinates, Screen Sharing
-enablement, or arbitrary shell tools. Guarded actions default to dry-run.
-Customer-facing iPhone live gestures/messages use the exact same-turn approval
-flow before live execution. The connector requires a matching dry-run audit id
-for every live guarded action.
+The plugin exposes a real computer-use surface for the paired customer Mac and
+iPhone Mirroring, but not a generic shell, hidden AppleScript passthrough,
+public VNC/SSH, mutation Codex app-server RPCs, session database access, or
+Screen Sharing enablement. Approval is enforced by connector control mode, not
+by hardcoded per-action prompts.
 
 ## Local Setup
 
@@ -90,5 +114,8 @@ Local plugin tools call fixed bridge argv mappings with `shell: false`. Remote
 plugin tools post fixed command keys to `/v1/commands` on the paired Mac
 connector. Numeric caps are clamped. A `before_tool_call` firewall blocks common
 shell/computer escape hatches that would bypass the bridge boundary and requests
-approval for live guarded customer Mac actions. The connector also rejects remote
-live guarded actions unless `dry_run=false` is accompanied by `approval_audit_id`.
+approval for legacy guarded customer Mac actions. New `desktop_*` and
+`iphone_*` actions are governed by the Workbench control session: Full Access
+allows live action without `approval_audit_id`, Ask Permission gates risky
+clicks, taps, hotkeys, typing, sends, and other high-impact actions, and the
+kill switch blocks all live control immediately.

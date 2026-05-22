@@ -20,7 +20,7 @@ tags:
 
 ## Summary
 
-The bridge gives Eva/OpenClaw safe situational awareness of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions. The customer Mac connector adds named, audited Mac and iPhone Mirroring actions behind dry-run/approval gates. Live iPhone gestures/messages are customer-facing beta tools, but they remain named, visible-window actions with matching audit evidence.
+The bridge gives Eva/OpenClaw customer-granted control of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions. Desktop Control Engine V2 adds customer-controlled Full Access and Ask Permission modes for audited Mac and iPhone Mirroring operation through the Workbench connector. Full Access unlocks the new `desktop_*` and `iphone_*` computer-use tools after the customer starts a visible session; legacy Codex/message fallback commands remain dry-run/approval gated.
 
 ## Current Status
 
@@ -38,6 +38,7 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 - 2026-05-03T00:00:00Z - Added OpenClaw plugin wrapper boundary, latest/audit read APIs, and firewall control.
 - 2026-05-20T00:00:00Z - Added support-VM-only Codex remote-control readiness probe plus iPhone Mirroring gesture/message canary boundary.
 - 2026-05-21T00:00:00Z - Promoted named iPhone gestures/messages from support canary to customer beta under the same dry-run/approval/audit contract.
+- 2026-05-22T00:00:00Z - Added Desktop Control Engine V2 Full Access / Ask Permission modes, Peekaboo-first desktop tooling, and local-user kill-switch reset semantics.
 - 2026-05-02T00:00:00Z - Initial MVP threat model for read-only Codex Desktop observation.
 
 ## Assets
@@ -103,12 +104,12 @@ The MVP must not:
 | Secret leakage | Redaction replaces home paths, API-key-like strings, bearer tokens, and authorization headers. |
 | Permission confusion | Commands return structured permission errors with setup guidance. |
 | Unreviewable behavior | Every valid command writes an append-only local audit record. |
-| Plugin shell escape | OpenClaw wrapper exposes fixed read-only tool mappings only and uses `execFile` with `shell: false`. |
+| Plugin shell escape | OpenClaw wrapper exposes fixed command mappings only and uses `execFile` with `shell: false`. |
 | Generic desktop-control bypass | Plugin `before_tool_call` firewall blocks suspicious shell/computer calls containing desktop-control, Codex app-server, prompt-send, token, or session database patterns. |
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
 | Cross-customer Mac exposure | Connector is bound locally by default; paired-VM mode requires Headscale ACLs and a connector token. |
-| Accidental live control | Guarded tools default to dry-run; plugin approval and connector `approval_audit_id` are required for remote live actions. |
-| Accidental broad iPhone control | Live gesture/message actions are named, visible-window-only, block generic coordinates, and require matching dry-run audit evidence. |
+| Accidental live control | Live desktop/phone tools require an active Workbench control session; kill switch blocks future live commands. |
+| Accidental broad iPhone control | iPhone actions operate through the visible iPhone Mirroring window and are governed by Full Access / Ask Permission mode. |
 | Sensitive app mutation | Sensitive Mac/iPhone app names and dangerous visible labels are blocked before action execution. |
 | Unapproved real-world messages | `send-approved-message` requires exact same-turn recipient/context and text, then presses only an exact visible Send label with audit evidence. |
 
@@ -149,7 +150,7 @@ Before adding GUI hands beyond focus:
 
 - Split hands tools from passive observer tools.
 - Require explicit operator approval for click/type/send-capable macros.
-- Use named visible macros instead of arbitrary coordinates or text injection.
+- Prefer named visible targets, but allow audited coordinate fallback inside the customer-granted control session.
 - Preserve screenshot/AX caps and append-only audit records for every hands attempt.
 
 Before broad paired-Mac rollout:

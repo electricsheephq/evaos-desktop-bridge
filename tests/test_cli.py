@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from evaos_desktop_bridge import cli as bridge_cli
 from evaos_desktop_bridge.cli import main
+from evaos_desktop_bridge.state import kill_control_session, start_control_session
 from evaos_desktop_bridge.types import CommandResult
 
 
@@ -164,6 +165,48 @@ class FakeCustomerMac:
             },
         )
 
+    def control_status(self) -> CommandResult:
+        return CommandResult(ok=True, data={"active": False, "mode": "ask_permission", "kill_switch": False})
+
+    def control_start(self, *, mode: str, agent_label: str | None = None) -> CommandResult:
+        return CommandResult(ok=True, data={"started": True, "session": {"active": True, "mode": mode.replace("-", "_"), "agent_label": agent_label}})
+
+    def control_stop(self) -> CommandResult:
+        return CommandResult(ok=True, data={"stopped": True, "session": {"active": False, "mode": "ask_permission"}})
+
+    def control_kill_switch(self) -> CommandResult:
+        return CommandResult(ok=True, data={"killed": True, "session": {"active": False, "kill_switch": True}})
+
+    def desktop_see(self, *, max_chars: int, max_nodes: int) -> CommandResult:
+        return CommandResult(ok=True, data={"engine": "fallback", "frontmost_app": "Safari", "max_chars": max_chars, "max_nodes": max_nodes})
+
+    def desktop_click(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"clicked": not dry_run, "would_click": dry_run, "target_label": target_label, "point": {"x": x, "y": y} if x is not None and y is not None else None})
+
+    def desktop_type(self, *, text: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"typed": not dry_run, "would_type": dry_run, "text_preview": text})
+
+    def desktop_scroll(self, *, direction: str, amount: int, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"scrolled": not dry_run, "would_scroll": dry_run, "direction": direction, "amount": amount})
+
+    def desktop_drag(self, *, from_x: int, from_y: int, to_x: int, to_y: int, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"dragged": not dry_run, "would_drag": dry_run, "from": {"x": from_x, "y": from_y}, "to": {"x": to_x, "y": to_y}})
+
+    def desktop_hotkey(self, *, keys: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"pressed": not dry_run, "would_press": dry_run, "keys": keys})
+
+    def desktop_focus_app(self, *, app_name: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"focused": not dry_run, "would_focus": dry_run, "app_name": app_name})
+
+    def desktop_window(self, *, action: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "action": action})
+
+    def desktop_menu(self, *, menu_path: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "menu_path": menu_path})
+
+    def desktop_browser_action(self, *, action: str, url: str | None = None, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "action": action, "url": url})
+
     def snapshot(self, *, max_chars: int) -> CommandResult:
         return CommandResult(ok=True, data={"frontmost_app": "Safari", "screenshot_path": "~/Library/Application Support/evaos-desktop-bridge/screenshots/customer-mac.png", "max_chars": max_chars})
 
@@ -186,6 +229,18 @@ class FakeCustomerMac:
 
     def iphone_mirroring_status(self) -> CommandResult:
         return CommandResult(ok=True, data={"installed": True, "running": True, "supported_actions": ["home", "spotlight"], "disabled_actions": ["scroll"]})
+
+    def iphone_see(self, *, max_chars: int, max_nodes: int) -> CommandResult:
+        return CommandResult(ok=True, data={"target": "iphone_mirroring", "max_chars": max_chars, "max_nodes": max_nodes})
+
+    def iphone_tap(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_tap": dry_run, "target_label": target_label})
+
+    def iphone_swipe(self, *, direction: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_perform": dry_run, "direction": direction})
+
+    def iphone_type(self, *, text: str, dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"performed": not dry_run, "would_type": dry_run, "text_preview": text})
 
     def iphone_mirroring_focus(self, *, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"focused": not dry_run, "would_focus": dry_run, "app_name": "iPhone Mirroring"})
@@ -469,6 +524,50 @@ def test_customer_mac_app_focus_live_requires_matching_dry_run_audit(tmp_path: P
     assert mismatch["_exit_code"] == 2
     assert mismatch["errors"][0]["code"] == "approval_audit_required"
     assert "app_name" in mismatch["errors"][0]["message"]
+
+
+def test_customer_mac_full_access_session_allows_live_desktop_actions_without_approval(tmp_path: Path) -> None:
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+    payload = run_cli(["customer-mac", "desktop", "type", "--json", "--text", "hello"], FakeObserver(), tmp_path)
+    legacy = run_cli(["codex", "continue-thread", "--json", "--title", "SDK Docs"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "customer_mac.desktop_type"
+    assert payload["data"]["typed"] is True
+    assert legacy["_exit_code"] == 2
+    assert legacy["errors"][0]["code"] == "approval_audit_required"
+
+
+def test_customer_mac_ask_permission_allows_navigation_but_gates_text(tmp_path: Path) -> None:
+    start_control_session(mode="ask_permission", agent_label="Hermes", state_dir=tmp_path)
+
+    scroll = run_cli(["customer-mac", "desktop", "scroll", "--json", "--direction", "down"], FakeObserver(), tmp_path)
+    safe_click = run_cli(["customer-mac", "desktop", "click", "--json", "--target-label", "Continue"], FakeObserver(), tmp_path)
+    risky_click = run_cli(["customer-mac", "desktop", "click", "--json", "--target-label", "Send"], FakeObserver(), tmp_path)
+    coordinate_click = run_cli(["customer-mac", "desktop", "click", "--json", "--x", "10", "--y", "20"], FakeObserver(), tmp_path)
+    safe_hotkey = run_cli(["customer-mac", "desktop", "hotkey", "--json", "--keys", "cmd+r"], FakeObserver(), tmp_path)
+    risky_hotkey = run_cli(["customer-mac", "desktop", "hotkey", "--json", "--keys", "return"], FakeObserver(), tmp_path)
+    typed = run_cli(["customer-mac", "desktop", "type", "--json", "--text", "hello"], FakeObserver(), tmp_path)
+
+    assert scroll["_exit_code"] == 0
+    assert scroll["data"]["scrolled"] is True
+    assert safe_click["_exit_code"] == 0
+    assert risky_click["_exit_code"] == 2
+    assert coordinate_click["_exit_code"] == 2
+    assert safe_hotkey["_exit_code"] == 0
+    assert risky_hotkey["_exit_code"] == 2
+    assert typed["_exit_code"] == 2
+    assert typed["errors"][0]["code"] == "approval_audit_required"
+
+
+def test_customer_mac_kill_switch_blocks_live_control(tmp_path: Path) -> None:
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+    kill_control_session(tmp_path)
+
+    payload = run_cli(["customer-mac", "desktop", "scroll", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 2
+    assert payload["errors"][0]["code"] == "control_kill_switch_active"
 
 
 def test_customer_mac_live_approval_audit_expires(tmp_path: Path) -> None:

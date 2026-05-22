@@ -24,10 +24,12 @@ OpenClaw tool on customer VM
 
 The VM never receives public VNC, SSH, CDP, or generic shell access to the Mac.
 
-Customer-facing note: live iPhone gestures and approved message sends are part
-of the beta. They remain named, visible-window actions and require a prior
-dry-run, human approval, matching `approval_audit_id`, and connector audit
-evidence.
+Customer-facing note: Desktop Control Engine V2 is customer-granted computer
+control. Full Access mode allows continuous visible Mac and iPhone operation
+through the new `desktop_*` and `iphone_*` tools. Ask Permission mode uses the
+same control surface but asks again for risky clicks, taps, hotkeys, typing,
+sends, and other high-impact actions. Legacy Codex/message fallback commands
+remain dry-run/approval gated.
 
 ## Local Connector Server
 
@@ -133,13 +135,26 @@ Read tools:
 
 - `customer_mac_status`
 - `customer_mac_capabilities`
+- `desktop_control_status`
+- `desktop_see`
+- `iphone_see`
 - `customer_mac_snapshot`
 - `customer_mac_ax_tree`
 - `customer_mac_iphone_mirroring_status`
 - `customer_mac_screen_sharing_status`
 - `desktop_bridge_audit_tail`
 
-Guarded actions:
+Control/session actions:
+
+- `desktop_control_start` with `mode=full-access` or `mode=ask-permission`;
+- `desktop_control_stop`;
+- `desktop_kill_switch`;
+- `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`,
+  `desktop_hotkey`, `desktop_focus_app`, `desktop_window`, `desktop_menu`,
+  `desktop_browser_action`;
+- `iphone_tap`, `iphone_swipe`, `iphone_type`.
+
+Legacy guarded actions:
 
 - focus a non-sensitive app;
 - open a localhost, loopback, or `.local` website;
@@ -154,14 +169,17 @@ Guarded actions:
 
 Rules:
 
-- Dry-run defaults on for guarded tools.
-- Remote live actions require `dry_run=false` plus `approval_audit_id`. Omitting
-  `dry_run` from a connector HTTP request remains a dry-run by design.
-- The OpenClaw plugin requests approval for live actions.
-- Sensitive Mac/iPhone apps and dangerous target labels are blocked.
-- Generic coordinates, arbitrary shell, AppleScript passthrough, Screen Sharing
-  enablement, and app-server mutation passthrough are blocked.
-- Gesture/message commands also require `approval_audit_id` for live execution.
+- Full Access mode allows live `desktop_*` and `iphone_*` actions without
+  per-action approval until the customer stops or kills the session.
+- Ask Permission mode allows navigation continuously but gates risky clicks,
+  taps, hotkeys, typing, sends, and other high-impact actions with
+  `approval_audit_id`.
+- The kill switch immediately blocks future live connector commands. A paired
+  VM cannot clear the kill switch; the customer must start a new session from
+  the local Workbench app.
+- Arbitrary shell, hidden AppleScript passthrough, public VNC/SSH/CDP,
+  Screen Sharing enablement, and app-server mutation passthrough are blocked.
+- Legacy guarded actions still support dry-run/approval for compatibility.
 
 ## Live Connector Commands
 
@@ -209,10 +227,13 @@ curl -sS "${EVAOS_DESKTOP_BRIDGE_URL}/v1/commands" \
   -d '{"command":"customerMacIphoneMirroringOpenApp","params":{"app_name":"Bumble","dry_run":true}}'
 ```
 
-For any live action, rerun the exact same command with `dry_run=false` implied
+For legacy guarded actions, or for high-impact actions while Workbench is in
+Ask Permission mode, rerun the exact same command with `dry_run=false` implied
 in CLI form or explicit `"dry_run":false` in connector HTTP form, and add the
-matching approval audit id. Never send a message unless the human approved the
-recipient/context and exact message text inside the same test flow.
+matching approval audit id. Full Access mode does not require per-action
+approval for the new `desktop_*` and `iphone_*` tools. Never send a message
+unless the human approved the recipient/context and exact message text inside
+the same test flow.
 
 ## Headscale Notes
 

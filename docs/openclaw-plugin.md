@@ -23,6 +23,9 @@ Read-only tools:
 - `desktop_bridge_codex_app_server_threads`: capped app-server thread summaries through the read allowlist.
 - `customer_mac_status`: paired Mac, permission, iPhone Mirroring, and Screen Sharing readiness.
 - `customer_mac_capabilities`: supported customer Mac targets and forbidden actions.
+- `desktop_control_status`: current Full Access / Ask Permission session state.
+- `desktop_see`: desktop observation through Peekaboo or built-in screen/AX fallback.
+- `iphone_see`: iPhone Mirroring observation through the same visible Mac surface.
 - `customer_mac_snapshot`: safe screenshot path for the frontmost non-sensitive app.
 - `customer_mac_ax_tree`: capped Accessibility tree for the frontmost non-sensitive app.
 - `customer_mac_iphone_mirroring_status`: iPhone Mirroring readiness.
@@ -47,7 +50,20 @@ Guarded visible action:
 - `customer_mac_iphone_mirroring_type_approved_text`: same-turn-approved text entry.
 - `customer_mac_iphone_mirroring_send_approved_message`: same-turn-approved message send with exact recipient/context and text.
 
-No plugin tool exposes generic prompt sending, arbitrary Codex app-server RPCs, hidden shell, session database reads, Screen Sharing enablement, arbitrary coordinates, or arbitrary shell commands. The only Codex prompt-like fallback is `desktop_bridge_codex_continue_thread`, which is support-only, fixed to exact `continue`, dry-run/approval-gated, and should be used only when native Codex remote-control is unavailable.
+Full-access computer-control tools:
+
+- `desktop_control_start`, `desktop_control_stop`, `desktop_kill_switch`
+- `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`,
+  `desktop_hotkey`, `desktop_focus_app`, `desktop_window`, `desktop_menu`,
+  `desktop_browser_action`
+- `iphone_tap`, `iphone_swipe`, `iphone_type`
+
+No plugin tool exposes arbitrary Codex app-server RPCs, hidden shell, session
+database reads, Screen Sharing enablement, public VNC/SSH/CDP, or arbitrary
+shell commands. The only Codex prompt-like fallback is
+`desktop_bridge_codex_continue_thread`, which is support-only, fixed to exact
+`continue`, dry-run/approval-gated, and should be used only when native Codex
+remote-control is unavailable.
 
 ## Runtime Contract
 
@@ -64,12 +80,11 @@ export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evao
 ```
 
 Remote mode posts fixed command keys to `/v1/commands`. The connector rejects
-unknown commands and rejects remote live guarded actions unless `dry_run=false`
-includes `approval_audit_id`.
-
-Customer-facing iPhone live gestures/messages use the same approval flow as
-every other guarded action. They require a prior dry-run, plugin approval,
-matching `approval_audit_id`, and local connector audit evidence.
+unknown commands. Live `desktop_*` and `iphone_*` tools require an active
+Workbench control session. Full Access permits continuous live actions. Ask
+Permission permits navigation actions and requires approval evidence only for
+risky clicks, taps, hotkeys, typing, sends, and other high-impact actions. The
+kill switch blocks future live commands.
 
 ## Firewall Hook
 
@@ -88,15 +103,14 @@ The plugin registers a `before_tool_call` hook named `evaos-desktop-bridge-firew
 - `session.db`
 - prompt sending or typewrite-style operations
 
-This hook is a defense-in-depth control. The primary safety boundary remains the fixed bridge CLI allowlist and the absence of mutation tools.
+This hook is a defense-in-depth control. The primary boundary is the fixed bridge
+CLI allowlist, connector token auth, Workbench control mode, audit log, and kill
+switch.
 
 ## Hands Boundary
 
-GUI control is limited to named actions. Codex Desktop remains read-only plus
-the existing visible thread-selection action and the support-only exact
-`continue` fallback. Customer Mac and iPhone Mirroring actions are dry-run by
-default, approval-gated in the plugin, audited by the bridge, and blocked for
-sensitive apps/labels. Approved iPhone message sends require exact same-turn
-approval of both recipient/context and message text. Broader hands should remain
-a separate, approval-gated macro layer, not arbitrary coordinates or text
-injection.
+Codex Desktop remains read-only plus the existing visible thread-selection
+action and the support-only exact `continue` fallback. Customer Mac and iPhone
+Mirroring control is now session-based: Full Access is intended to approach
+local Mac computer-use parity; Ask Permission keeps a higher-friction mode for
+customers who want confirmation around high-impact actions.

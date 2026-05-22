@@ -44,6 +44,7 @@ Architecture and sprint docs:
 - [Eva Desktop Packaging And Notarization](docs/eva-desktop-packaging.md)
 - [evaOS Workbench Beta Release](docs/evaos-workbench-beta-release.md)
 - [Customer Mac Connector V1](docs/customer-mac-connector.md)
+- [Desktop Control Engine V2](docs/desktop-control-engine-v2.md)
 - [Support VM Mac/iPhone/Codex Canary Runbook](docs/support-vm-mac-iphone-codex-canary.md)
 
 ## Architecture
@@ -52,7 +53,7 @@ Architecture and sprint docs:
 - **Hands:** CLI-Anything-style GUI harnesses that operate visible desktop apps through macOS Accessibility/screenshot/AppleScript primitives.
 - **Brain:** Eva/OpenClaw policy, approvals, audit logging, and announcement queue.
 
-Current implementation covers the Codex Desktop eyes adapter, guarded visible focus/select actions, a read-only app-server adapter, customer Mac connector commands, iPhone Mirroring status/named-action guards, a token-gated connector server, local announcement queue, and OpenClaw plugin wrapper. External relay/mobile push remains a future sink on top of the local queue contract.
+Current implementation covers the Codex Desktop eyes adapter, guarded visible focus/select actions, a read-only app-server adapter, customer Mac connector commands, Full Access / Ask Permission control sessions for desktop and iPhone Mirroring, a token-gated connector server, local announcement queue, and OpenClaw plugin wrapper. External relay/mobile push remains a future sink on top of the local queue contract.
 
 ## Install
 
@@ -304,10 +305,13 @@ Live focus and Accessibility-tree reads require Accessibility permission. Screen
 - No generic or unapproved prompt/message/turn sending.
 - No generic OpenClaw shell passthrough through the plugin.
 - No public VNC/SSH/CDP access to the Mac.
-- No generic coordinates or arbitrary AppleScript passthrough.
+- Coordinate fallback is allowed only through the audited `desktop_*` /
+  `iphone_*` connector tools during a customer-granted control session; no
+  arbitrary AppleScript passthrough.
 - No Codex session database reads.
 - No token, auth-file, or full home-path exposure.
-- Read-only first; guarded visible actions require dry-run and approval evidence.
+- Full Access mode permits live action without per-action approval; Ask
+  Permission mode gates high-impact actions with approval evidence.
 
 Initial visible desktop concurrency cap: 1 session, 2 maximum after measurement.
 

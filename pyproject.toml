@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "evaos-desktop-bridge"
 version = "0.1.0"
-description = "Safe read-only bridge for visible desktop agent surfaces"
+description = "evaOS Workbench connector for audited Mac and iPhone agent control"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

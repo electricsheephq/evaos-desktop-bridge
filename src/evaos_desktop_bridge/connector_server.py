@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from .audit import default_state_dir
 from .schema import build_envelope, make_error
-from .state import approval_audit_freshness_error, read_audit_record
+from .state import approval_audit_freshness_error, read_audit_record, read_control_session
 
 CommandRunner = Callable[[list[str]], tuple[int, str]]
 
@@ -45,6 +45,65 @@ GUARDED_REMOTE_COMMANDS = frozenset(
     }
 )
 
+CONTROLLED_REMOTE_COMMANDS = frozenset(
+    {
+        "desktopClick",
+        "desktopType",
+        "desktopScroll",
+        "desktopDrag",
+        "desktopHotkey",
+        "desktopFocusApp",
+        "desktopWindow",
+        "desktopMenu",
+        "desktopBrowserAction",
+        "iphoneTap",
+        "iphoneSwipe",
+        "iphoneType",
+    }
+)
+
+GUARDED_REMOTE_COMMANDS = GUARDED_REMOTE_COMMANDS | CONTROLLED_REMOTE_COMMANDS
+
+ASK_PERMISSION_HIGH_IMPACT_REMOTE_COMMANDS = frozenset(
+    {
+        "desktopType",
+        "iphoneSwipe",
+        "iphoneType",
+    }
+)
+
+ASK_PERMISSION_RISK_WORDS = frozenset(
+    {
+        "approve",
+        "buy",
+        "confirm",
+        "delete",
+        "dispatch",
+        "like",
+        "match",
+        "pay",
+        "post",
+        "purchase",
+        "remove",
+        "send",
+        "submit",
+        "transfer",
+        "unlike",
+    }
+)
+
+ASK_PERMISSION_SAFE_HOTKEYS = frozenset(
+    {
+        "cmd+[",
+        "cmd+]",
+        "cmd+l",
+        "cmd+r",
+        "cmd+t",
+        "escape",
+        "tab",
+    }
+)
+
 CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "codexSelectThread": ("codex.select_thread", ("thread_id",)),
     "codexContinueThread": ("codex.continue_thread", ("title", "prompt")),
@@ -65,6 +124,18 @@ CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "customerMacIphoneMirroringSwipeDown": ("customer_mac.iphone_mirroring_swipe_down", ()),
     "customerMacIphoneMirroringTypeApprovedText": ("customer_mac.iphone_mirroring_type_approved_text", ("text",)),
     "customerMacIphoneMirroringSendApprovedMessage": ("customer_mac.iphone_mirroring_send_approved_message", ("text", "recipient_context", "target_label")),
+    "desktopClick": ("customer_mac.desktop_click", ("target_label", "x", "y")),
+    "desktopType": ("customer_mac.desktop_type", ("text",)),
+    "desktopScroll": ("customer_mac.desktop_scroll", ("direction", "amount")),
+    "desktopDrag": ("customer_mac.desktop_drag", ("from_x", "from_y", "to_x", "to_y")),
+    "desktopHotkey": ("customer_mac.desktop_hotkey", ("keys",)),
+    "desktopFocusApp": ("customer_mac.desktop_focus_app", ("app_name",)),
+    "desktopWindow": ("customer_mac.desktop_window", ("action",)),
+    "desktopMenu": ("customer_mac.desktop_menu", ("menu_path",)),
+    "desktopBrowserAction": ("customer_mac.desktop_browser_action", ("action", "url")),
+    "iphoneTap": ("customer_mac.iphone_tap", ("target_label", "x", "y")),
+    "iphoneSwipe": ("customer_mac.iphone_swipe", ("direction",)),
+    "iphoneType": ("customer_mac.iphone_type", ("text",)),
 }
 
 
@@ -80,6 +151,9 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         "codexAppServerRemoteControlStatus": ["codex", "app-server", "remote-control-status", "--json"],
         "customerMacStatus": ["customer-mac", "status", "--json"],
         "customerMacCapabilities": ["customer-mac", "capabilities", "--json"],
+        "customerMacControlStatus": ["customer-mac", "control", "status", "--json"],
+        "customerMacControlStop": ["customer-mac", "control", "stop", "--json"],
+        "customerMacControlKillSwitch": ["customer-mac", "control", "kill-switch", "--json"],
         "customerMacIphoneMirroringStatus": ["customer-mac", "iphone-mirroring", "status", "--json"],
         "customerMacScreenSharingStatus": ["customer-mac", "screen-sharing", "status", "--json"],
     }
@@ -138,6 +212,58 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         return ["customer-mac", "snapshot", "--json", "--max-chars", str(_clamp_int(params.get("max_chars"), 4000, 1, 20000))]
     if command == "customerMacAxTree":
         return ["customer-mac", "ax-tree", "--json", "--max-nodes", str(_clamp_int(params.get("max_nodes"), 200, 1, 1000))]
+    if command == "customerMacControlStart":
+        return ["customer-mac", "control", "start", "--json", "--mode", str(params.get("mode") or "full-access"), *(_optional_string_arg(params, "agent_label", "--agent-label"))]
+    if command == "desktopSee":
+        return [
+            "customer-mac",
+            "desktop",
+            "see",
+            "--json",
+            "--max-chars",
+            str(_clamp_int(params.get("max_chars"), 4000, 1, 20000)),
+            "--max-nodes",
+            str(_clamp_int(params.get("max_nodes"), 200, 1, 1000)),
+        ]
+    if command == "desktopClick":
+        argv = ["customer-mac", "desktop", "click", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+        argv.extend(_optional_string_arg(params, "target_label", "--target-label"))
+        argv.extend(_optional_int_arg(params, "x", "--x"))
+        argv.extend(_optional_int_arg(params, "y", "--y"))
+        return argv
+    if command == "desktopType":
+        return ["customer-mac", "desktop", "type", "--json", "--text", _required_string(params, "text"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "desktopScroll":
+        return ["customer-mac", "desktop", "scroll", "--json", "--direction", str(params.get("direction") or "down"), "--amount", str(_clamp_int(params.get("amount"), 600, 1, 5000)), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "desktopDrag":
+        return [
+            "customer-mac",
+            "desktop",
+            "drag",
+            "--json",
+            "--from-x",
+            str(_required_int(params, "from_x")),
+            "--from-y",
+            str(_required_int(params, "from_y")),
+            "--to-x",
+            str(_required_int(params, "to_x")),
+            "--to-y",
+            str(_required_int(params, "to_y")),
+            *_dry_run_arg(params),
+            *_approval_arg(params),
+        ]
+    if command == "desktopHotkey":
+        return ["customer-mac", "desktop", "hotkey", "--json", "--keys", _required_string(params, "keys"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "desktopFocusApp":
+        return ["customer-mac", "desktop", "focus-app", "--json", "--app-name", _required_string(params, "app_name"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "desktopWindow":
+        return ["customer-mac", "desktop", "window", "--json", "--action", _required_string(params, "action"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "desktopMenu":
+        return ["customer-mac", "desktop", "menu", "--json", "--menu-path", _required_string(params, "menu_path"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "desktopBrowserAction":
+        argv = ["customer-mac", "desktop", "browser-action", "--json", "--action", _required_string(params, "action"), *_dry_run_arg(params), *_approval_arg(params)]
+        argv.extend(_optional_string_arg(params, "url", "--url"))
+        return argv
     if command == "customerMacAppFocus":
         return ["customer-mac", "app-focus", "--json", "--app-name", _required_string(params, "app_name"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacLocalSiteOpen":
@@ -146,6 +272,27 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         return ["customer-mac", "local-site", "action", "--json", "--action", _required_string(params, "action"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringFocus":
         return ["customer-mac", "iphone-mirroring", "focus", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "iphoneSee":
+        return [
+            "customer-mac",
+            "iphone-mirroring",
+            "see",
+            "--json",
+            "--max-chars",
+            str(_clamp_int(params.get("max_chars"), 4000, 1, 20000)),
+            "--max-nodes",
+            str(_clamp_int(params.get("max_nodes"), 200, 1, 1000)),
+        ]
+    if command == "iphoneTap":
+        argv = ["customer-mac", "iphone-mirroring", "tap", "--json", *_dry_run_arg(params), *_approval_arg(params)]
+        argv.extend(_optional_string_arg(params, "target_label", "--target-label"))
+        argv.extend(_optional_int_arg(params, "x", "--x"))
+        argv.extend(_optional_int_arg(params, "y", "--y"))
+        return argv
+    if command == "iphoneSwipe":
+        return ["customer-mac", "iphone-mirroring", "swipe", "--json", "--direction", _required_string(params, "direction"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "iphoneType":
+        return ["customer-mac", "iphone-mirroring", "type", "--json", "--text", _required_string(params, "text"), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringHome":
         return ["customer-mac", "iphone-mirroring", "home", "--json", *_dry_run_arg(params), *_approval_arg(params)]
     if command == "customerMacIphoneMirroringAppSwitcher":
@@ -261,14 +408,27 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                 payload = self._read_json()
                 command = str(payload.get("command") or "")
                 params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+                start_error = _remote_control_start_error(command, state_dir=state_dir)
+                if start_error is not None:
+                    self._write_json(
+                        403,
+                        _error_envelope(
+                            command or "connector.command",
+                            "customer_mac",
+                            "control_kill_switch_active",
+                            start_error,
+                        ),
+                    )
+                    return
                 approval_error = _live_guarded_approval_error(command, params, state_dir=state_dir)
                 if approval_error is not None:
+                    error_code = "control_kill_switch_active" if "kill switch" in approval_error.lower() else "approval_audit_required"
                     self._write_json(
                         403,
                         _error_envelope(
                             command or "connector.command",
                             "customer_mac" if command.startswith("customerMac") else "desktop",
-                            "approval_audit_required",
+                            error_code,
                             approval_error,
                         ),
                     )
@@ -356,7 +516,8 @@ def complete_enrollment_via_control(
         "capabilities": {
             "connector": "evaos-desktop-bridge",
             "openclaw_tools": "enabled",
-            "iphone_mirroring": "named_actions",
+            "desktop_control": "full_access_or_ask_permission",
+            "iphone_mirroring": "visible_control_surface",
         },
         "permission_state": {
             "accessibility": "check_required",
@@ -396,6 +557,16 @@ def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool
 
 
 def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_dir: Path | None, require_lookup: bool = True) -> str | None:
+    if command in CONTROLLED_REMOTE_COMMANDS and params.get("dry_run") is False:
+        session = read_control_session(state_dir)
+        if session.get("kill_switch") is True:
+            return "The customer Mac kill switch is active; live agent control commands are blocked."
+        if session.get("active") is True:
+            if session.get("mode") == "full_access":
+                return None
+            if session.get("mode") == "ask_permission" and not _ask_permission_requires_approval(command, params):
+                return None
+
     if command not in GUARDED_REMOTE_COMMANDS:
         return None
     if params.get("dry_run") is not False:
@@ -423,6 +594,41 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
     return None
 
 
+def _remote_control_start_error(command: str, *, state_dir: Path | None) -> str | None:
+    if command != "customerMacControlStart":
+        return None
+    session = read_control_session(state_dir)
+    if session.get("kill_switch") is True:
+        return "The customer Mac kill switch is active; only the local Workbench app can start a new control session."
+    return None
+
+
+def _ask_permission_requires_approval(command: str, params: dict[str, Any]) -> bool:
+    if command in ASK_PERMISSION_HIGH_IMPACT_REMOTE_COMMANDS:
+        return True
+    if command in {"desktopClick", "iphoneTap"}:
+        label = params.get("target_label")
+        if not isinstance(label, str) or not label.strip():
+            return True
+        return _contains_risk_word(label)
+    if command == "desktopHotkey":
+        keys = str(params.get("keys") or "").strip().lower().replace("command", "cmd").replace(" ", "")
+        return keys not in ASK_PERMISSION_SAFE_HOTKEYS
+    if command == "desktopWindow":
+        return str(params.get("action") or "").strip().lower() == "close"
+    if command == "desktopBrowserAction":
+        return str(params.get("action") or "").strip().lower() in {"open_url"}
+    if command == "desktopMenu":
+        return _contains_risk_word(str(params.get("menu_path") or ""))
+    return False
+
+
+def _contains_risk_word(value: str) -> bool:
+    normalized = "".join(char.lower() if char.isalnum() else " " for char in value)
+    words = set(normalized.split())
+    return any(word in words for word in ASK_PERMISSION_RISK_WORDS)
+
+
 def _approval_field_value(command: str, params: dict[str, Any], field: str) -> Any:
     if field == "prompt" and command == "codexContinueThread":
         return params.get("prompt") or "continue"
@@ -431,6 +637,30 @@ def _approval_field_value(command: str, params: dict[str, Any], field: str) -> A
     if field == "target_label" and command == "customerMacIphoneMirroringSendApprovedMessage":
         return params.get("target_label") or "Send"
     return params.get(field)
+
+
+def _optional_string_arg(params: dict[str, Any], name: str, flag: str) -> list[str]:
+    value = params.get(name)
+    if not isinstance(value, str) or not value.strip():
+        return []
+    return [flag, value.strip()]
+
+
+def _optional_int_arg(params: dict[str, Any], name: str, flag: str) -> list[str]:
+    value = params.get(name)
+    if value is None:
+        return []
+    return [flag, str(_required_int(params, name))]
+
+
+def _required_int(params: dict[str, Any], name: str) -> int:
+    value = params.get(name)
+    if isinstance(value, bool):
+        raise ValueError(f"{name} is required")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} is required") from None
 
 
 def _dry_run_arg(params: dict[str, Any]) -> list[str]:

@@ -111,6 +111,17 @@ function readOnlyTools() {
             },
         }),
         tool("customer_mac_status", "Read paired customer Mac connector, iPhone Mirroring, and Screen Sharing readiness.", "customerMacStatus"),
+        tool("desktop_control_status", "Read the customer-granted Full Access / Ask Permission control session state.", "customerMacControlStatus"),
+        tool("desktop_control_start", "Start a customer-granted agent control session. Full Access allows continuous desktop and iPhone actions without per-action prompts.", "customerMacControlStart", {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                mode: { type: "string", enum: ["full-access", "ask-permission"], default: "full-access" },
+                agent_label: { type: "string", minLength: 1, maxLength: 160 },
+            },
+        }),
+        tool("desktop_control_stop", "Stop the active customer-granted agent control session.", "customerMacControlStop"),
+        tool("desktop_kill_switch", "Immediately stop and block future customer Mac control commands until the customer starts a new session.", "customerMacControlKillSwitch"),
         tool("customer_mac_complete_pairing", "Complete customer Mac pairing by posting a one-time enrollment code directly to the pre-token Mac connector endpoint.", "customerMacCompletePairing", {
             type: "object",
             additionalProperties: false,
@@ -126,6 +137,109 @@ function readOnlyTools() {
             },
         }),
         tool("customer_mac_capabilities", "Read supported named customer Mac actions and hard safety boundaries.", "customerMacCapabilities"),
+        tool("desktop_see", "See the customer's Mac through Peekaboo or the built-in screen/Accessibility fallback.", "desktopSee", {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                max_chars: { type: "integer", minimum: 1, maximum: 20000, default: 4000 },
+                max_nodes: { type: "integer", minimum: 1, maximum: 1000, default: 200 },
+            },
+        }),
+        tool("desktop_click", "Click a visible target label or, when labels are unavailable, an x/y point on the customer's Mac.", "desktopClick", {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                target_label: { type: "string", minLength: 1, maxLength: 200 },
+                x: { type: "integer" },
+                y: { type: "integer" },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_type", "Type exact text into the focused Mac field.", "desktopType", {
+            type: "object",
+            additionalProperties: false,
+            required: ["text"],
+            properties: {
+                text: { type: "string", minLength: 1, maxLength: 4000 },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_scroll", "Scroll the focused Mac surface.", "desktopScroll", {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                direction: { type: "string", enum: ["up", "down", "left", "right"], default: "down" },
+                amount: { type: "integer", minimum: 1, maximum: 5000, default: 600 },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_drag", "Drag from one point to another on the customer's Mac.", "desktopDrag", {
+            type: "object",
+            additionalProperties: false,
+            required: ["from_x", "from_y", "to_x", "to_y"],
+            properties: {
+                from_x: { type: "integer" },
+                from_y: { type: "integer" },
+                to_x: { type: "integer" },
+                to_y: { type: "integer" },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_hotkey", "Press a Mac hotkey such as cmd+l, cmd+r, or cmd+shift+4.", "desktopHotkey", {
+            type: "object",
+            additionalProperties: false,
+            required: ["keys"],
+            properties: {
+                keys: { type: "string", minLength: 1, maxLength: 80 },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_focus_app", "Focus or open a Mac app by name.", "desktopFocusApp", {
+            type: "object",
+            additionalProperties: false,
+            required: ["app_name"],
+            properties: {
+                app_name: { type: "string", minLength: 1, maxLength: 120 },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_window", "Perform a focused-window action: focus, minimize, zoom, or close.", "desktopWindow", {
+            type: "object",
+            additionalProperties: false,
+            required: ["action"],
+            properties: {
+                action: { type: "string", enum: ["focus", "minimize", "zoom", "close"] },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_menu", "Choose a visible menu path through Peekaboo, for example File > New Tab.", "desktopMenu", {
+            type: "object",
+            additionalProperties: false,
+            required: ["menu_path"],
+            properties: {
+                menu_path: { type: "string", minLength: 1, maxLength: 240 },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("desktop_browser_action", "Use the local Mac browser: reload, back, forward, new_tab, or open_url.", "desktopBrowserAction", {
+            type: "object",
+            additionalProperties: false,
+            required: ["action"],
+            properties: {
+                action: { type: "string", enum: ["reload", "back", "forward", "new_tab", "open_url"] },
+                url: { type: "string", maxLength: 2048 },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
         tool("customer_mac_snapshot", "Read a safe screenshot path for the frontmost non-sensitive app; sensitive apps are blocked.", "customerMacSnapshot", {
             type: "object",
             additionalProperties: false,
@@ -167,6 +281,45 @@ function readOnlyTools() {
             properties: {
                 action: { type: "string", enum: ["reload", "back", "forward"] },
                 dry_run: { type: "boolean", default: true },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("iphone_see", "See the visible iPhone Mirroring surface through the paired Mac.", "iphoneSee", {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                max_chars: { type: "integer", minimum: 1, maximum: 20000, default: 4000 },
+                max_nodes: { type: "integer", minimum: 1, maximum: 1000, default: 200 },
+            },
+        }),
+        tool("iphone_tap", "Tap a visible iPhone target label or fallback x/y point inside iPhone Mirroring.", "iphoneTap", {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                target_label: { type: "string", minLength: 1, maxLength: 200 },
+                x: { type: "integer" },
+                y: { type: "integer" },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("iphone_swipe", "Swipe the focused iPhone Mirroring surface.", "iphoneSwipe", {
+            type: "object",
+            additionalProperties: false,
+            required: ["direction"],
+            properties: {
+                direction: { type: "string", enum: ["left", "right", "up", "down"] },
+                dry_run: { type: "boolean", default: false },
+                approval_audit_id: approvalAuditIdProperty,
+            },
+        }),
+        tool("iphone_type", "Type exact text into the focused iPhone Mirroring field.", "iphoneType", {
+            type: "object",
+            additionalProperties: false,
+            required: ["text"],
+            properties: {
+                text: { type: "string", minLength: 1, maxLength: 4000 },
+                dry_run: { type: "boolean", default: false },
                 approval_audit_id: approvalAuditIdProperty,
             },
         }),

@@ -16,8 +16,8 @@ The beta includes the native Workbench shell, gateway tabs, desktop auth,
 admin/customer-service customer switching, OpenDesign configuration, Bridge
 status, customer-facing Mac and iPhone control through audited OpenClaw/Hermes
 tools, and support-runbook coverage for the support VM Codex canary. It does not
-expose arbitrary shell, generic coordinates, hidden AppleScript, password
-capture, payment/purchase automation, or generic Codex app-server mutation.
+expose arbitrary shell, hidden AppleScript, password capture, payment/purchase
+automation, or generic Codex app-server mutation.
 
 ## Build
 
