@@ -734,6 +734,23 @@ def test_connector_start_autoinstalls_user_launchagent(monkeypatch, tmp_path: Pa
     assert ["kickstart", "-k", "gui/501/com.electricsheep.evaos-desktop-bridge"] in launchctl_calls
 
 
+def test_tailscale_ip_uses_homebrew_path_when_gui_path_is_minimal(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(bridge_cli.shutil, "which", lambda name: None)
+
+    def fake_run(command: list[str], **kwargs: object):
+        calls.append(command)
+        if command[0] == "/opt/homebrew/bin/tailscale":
+            return bridge_cli.subprocess.CompletedProcess(command, 0, stdout="100.64.0.42\n", stderr="")
+        return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="missing")
+
+    monkeypatch.setattr(bridge_cli.subprocess, "run", fake_run)
+
+    assert bridge_cli._tailscale_ip() == "100.64.0.42"
+    assert calls[0] == ["/opt/homebrew/bin/tailscale", "ip", "-4"]
+
+
 def test_connector_program_path_prefers_packaged_executable(monkeypatch, tmp_path: Path) -> None:
     packaged_bridge = tmp_path / "evaOS.app" / "Contents" / "Resources" / "Bridge" / "evaos-desktop-bridge"
     packaged_bridge.parent.mkdir(parents=True)

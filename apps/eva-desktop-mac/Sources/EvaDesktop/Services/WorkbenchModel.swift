@@ -1544,24 +1544,34 @@ final class WorkbenchConnectorProcessManager {
 
     private static func tailnetIPv4() async -> String? {
         await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["tailscale", "ip", "-4"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-            do {
-                try process.run()
-            } catch {
-                return nil
+            let commands: [(String, [String])] = [
+                ("/opt/homebrew/bin/tailscale", ["ip", "-4"]),
+                ("/usr/local/bin/tailscale", ["ip", "-4"]),
+                ("/usr/bin/env", ["tailscale", "ip", "-4"])
+            ]
+            for command in commands {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: command.0)
+                process.arguments = command.1
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe()
+                do {
+                    try process.run()
+                } catch {
+                    continue
+                }
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else { continue }
+                let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                if let address = output
+                    .split(separator: "\n")
+                    .map({ String($0.trimmingCharacters(in: .whitespacesAndNewlines)) })
+                    .first(where: { $0.hasPrefix("100.") }) {
+                    return address
+                }
             }
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            return output
-                .split(separator: "\n")
-                .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                .first { $0.hasPrefix("100.") }
+            return nil
         }.value
     }
 

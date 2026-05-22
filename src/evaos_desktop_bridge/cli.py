@@ -1236,22 +1236,36 @@ def _connector_permission_target(
 
 
 def _tailscale_ip() -> str | None:
-    try:
-        completed = subprocess.run(
-            ["tailscale", "ip", "-4"],
-            text=True,
-            capture_output=True,
-            timeout=3,
-            check=False,
-        )
-    except Exception:
-        return None
-    if completed.returncode != 0:
-        return None
-    for line in completed.stdout.splitlines():
-        value = line.strip()
-        if value.startswith("100.") or value.startswith("fd7a:"):
-            return value
+    commands: list[list[str]] = []
+    seen: set[str] = set()
+    for candidate in [
+        shutil.which("tailscale"),
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "tailscale",
+    ]:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        commands.append([candidate, "ip", "-4"])
+
+    for command in commands:
+        try:
+            completed = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                timeout=3,
+                check=False,
+            )
+        except Exception:
+            continue
+        if completed.returncode != 0:
+            continue
+        for line in completed.stdout.splitlines():
+            value = line.strip()
+            if value.startswith("100.") or value.startswith("fd7a:"):
+                return value
     return None
 
 
