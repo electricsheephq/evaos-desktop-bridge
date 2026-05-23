@@ -99,13 +99,37 @@ def scrub_secrets(value):
     if isinstance(value, dict):
         redacted = {}
         for key, nested in value.items():
-            lowered = str(key).lower()
-            if lowered == "token" or lowered.endswith("_" + "token"):
+            if is_secret_metadata_key(str(key)):
                 redacted[key] = "[redacted]"
             else:
                 redacted[key] = scrub_secrets(nested)
         return redacted
     return value
+
+
+def is_secret_metadata_key(key):
+    compact_key = "".join(ch for ch in key.lower() if ch.isalnum())
+    return (
+        compact_key == "token"
+        or compact_key.endswith("token")
+        or compact_key == "authorization"
+        or compact_key.endswith("authorization")
+        or compact_key in {"header", "headers"}
+        or compact_key.endswith("header")
+        or compact_key.endswith("headers")
+        or compact_key == "password"
+        or compact_key.endswith("password")
+        or compact_key in {"credential", "credentials"}
+        or compact_key.endswith("credential")
+        or compact_key.endswith("credentials")
+        or compact_key == "secret"
+        or compact_key.endswith("secret")
+        or "apikey" in compact_key
+        or "clientsecret" in compact_key
+        or "privatekey" in compact_key
+        or "secretkey" in compact_key
+        or "accesskey" in compact_key
+    )
 
 
 def find_visual_image(value):

@@ -858,8 +858,7 @@ function redactConnectorSecrets(value) {
     }
     const redacted = {};
     for (const [key, nestedValue] of Object.entries(value)) {
-        const normalizedKey = key.toLowerCase();
-        if (normalizedKey === "token" || normalizedKey.endsWith("_" + "token")) {
+        if (isSecretMetadataKey(key)) {
             redacted[key] = "[redacted]";
         }
         else {
@@ -867,6 +866,30 @@ function redactConnectorSecrets(value) {
         }
     }
     return redacted;
+}
+function isSecretMetadataKey(key) {
+    const compactKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return (compactKey === "token" ||
+        compactKey.endsWith("token") ||
+        compactKey === "authorization" ||
+        compactKey.endsWith("authorization") ||
+        compactKey === "header" ||
+        compactKey === "headers" ||
+        compactKey.endsWith("header") ||
+        compactKey.endsWith("headers") ||
+        compactKey === "password" ||
+        compactKey.endsWith("password") ||
+        compactKey === "credential" ||
+        compactKey === "credentials" ||
+        compactKey.endsWith("credential") ||
+        compactKey.endsWith("credentials") ||
+        compactKey === "secret" ||
+        compactKey.endsWith("secret") ||
+        compactKey.includes("apikey") ||
+        compactKey.includes("clientsecret") ||
+        compactKey.includes("privatekey") ||
+        compactKey.includes("secretkey") ||
+        compactKey.includes("accesskey"));
 }
 function clampInt(value, fallback, min, max) {
     if (typeof value !== "number" || !Number.isFinite(value)) {

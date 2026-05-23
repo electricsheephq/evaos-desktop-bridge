@@ -162,6 +162,10 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
                     "active": True,
                     "grant_handle": "epg_fixture",
                     "access_token": "should-redact",
+                    "api_key": "sk-should-redact",
+                    "client_secret": "client-secret-should-redact",
+                    "authorization": "Bearer should-redact",
+                    "headers": {"x-api-key": "nested-should-redact"},
                 }
             ],
             "active_provider_key": "openai_codex",
@@ -189,7 +193,9 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
     assert payload["active"]["data"]["active_profile"]["provider_key"] == "openai_codex"
     assert payload["browser"]["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
     assert payload["browser"]["data"]["status"]["status"] == "ready"
-    assert "should-redact" not in json.dumps(payload)
+    serialized = json.dumps(payload)
+    assert "should-redact" not in serialized
+    assert "nested-should-redact" not in serialized
     assert "[redacted]" in json.dumps(payload)
 
 
@@ -496,6 +502,10 @@ def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_conn
                     "status": "connected",
                     "active": True,
                     "access_token": "should-redact",
+                    "api_key": "sk-should-redact",
+                    "client_secret": "client-secret-should-redact",
+                    "authorization": "Bearer should-redact",
+                    "headers": {"x-api-key": "nested-should-redact"},
                 }
             ],
             "active_provider_key": "openai_codex",
@@ -527,5 +537,9 @@ def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_conn
     assert active_payload["data"]["active_provider_key"] == "openai_codex"
     assert active_payload["data"]["needs_reauth"] is False
     assert active_payload["data"]["active_profile"]["access_token"] == "[redacted]"
+    assert active_payload["data"]["active_profile"]["api_key"] == "[redacted]"
+    assert active_payload["data"]["active_profile"]["client_secret"] == "[redacted]"
+    assert active_payload["data"]["active_profile"]["authorization"] == "[redacted]"
+    assert active_payload["data"]["active_profile"]["headers"] == "[redacted]"
     assert browser_payload["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
     assert browser_payload["data"]["status"]["status"] == "ready"

@@ -213,7 +213,7 @@ def test_report_redacts_tokens_contacts_and_real_world_text(tmp_path: Path, monk
         artifact_dir=tmp_path,
         run_id="qa-test",
         started_at="2026-05-23T00:00:00Z",
-        version_under_test="0.5.1",
+        version_under_test="0.5.2",
         surface="connector",
         connector_url="http://100.64.10.12:8765",
         results=[],
@@ -501,8 +501,6 @@ def test_cli_runs_readiness_suite_and_writes_reports(tmp_path: Path, monkeypatch
                 "readiness",
                 "--artifact-dir",
                 str(tmp_path),
-                "--version-under-test",
-                "0.5.1",
             ]
         )
     finally:
@@ -514,6 +512,8 @@ def test_cli_runs_readiness_suite_and_writes_reports(tmp_path: Path, monkeypatch
     assert stdout["summary"] == {"failed": 0, "passed": 6, "skipped": 0, "total": 6}
     assert (tmp_path / "qa-report.json").exists()
     assert (tmp_path / "qa-report.md").exists()
+    report = json.loads((tmp_path / "qa-report.json").read_text(encoding="utf-8"))
+    assert report["version_under_test"] == "0.5.2"
 
 
 def test_cli_returns_nonzero_when_required_suite_skips(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
