@@ -142,18 +142,21 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 ```
 
@@ -166,11 +169,17 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite kill_switch \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 ```
 
 See `docs/evaos-workbench-qa-canary.md` for optional real-world app scenarios
 and the release certification rule.
+Before running any suite with `--operator-ack-live-control`, tell the operator
+that the test may move the mouse, type, click, scroll, or operate iPhone
+Mirroring. The primitive suite proves raw control; the scenario suites prove the
+agent-style visual loop. Do not treat blind tap/swipe rows as real app-task
+certification.
 
 The OpenClaw plugin reads those environment variables directly. The bridge CLI
 itself is local-first; when testing from a bare support shell, call the

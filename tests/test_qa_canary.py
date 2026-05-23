@@ -18,6 +18,7 @@ from evaos_desktop_bridge.qa_canary import (
     main,
     redact_for_report,
     run_steps,
+    timeout_for_command,
     write_reports,
 )
 
@@ -97,6 +98,24 @@ def envelope(command: str, *, ok: bool = True, data: dict[str, Any] | None = Non
         "errors": errors or [],
         "audit_id": f"audit-{command}",
     }
+
+
+def visual_envelope(command: str, *, snapshot_id: str = "snap-test", text: str = "Calculator 0 1 2 3", app: str = "Calculator") -> dict[str, Any]:
+    return envelope(
+        command,
+        data={
+            "engine": "peekaboo",
+            "snapshot_id": snapshot_id,
+            "frontmost_app": app,
+            "elements": [
+                {"element_id": "el-one", "label": text, "bounds": {"x": 10, "y": 20, "width": 40, "height": 40}},
+            ],
+            "image": {
+                "artifact_url": "/v1/artifacts/snap-test.png",
+                "snapshot_id": snapshot_id,
+            },
+        },
+    )
 
 
 def test_connector_surface_runs_fake_command_and_materializes_artifact(tmp_path: Path) -> None:
@@ -314,9 +333,11 @@ def test_scenario_catalog_is_explicit_and_real_world_config_is_local_only() -> N
     all_steps = build_scenarios("all", allow_real_world_actions=False)
     suites = {step.suite for step in all_steps}
 
-    assert {"readiness", "codex", "desktop", "iphone", "full_access", "ask_permission"}.issubset(suites)
+    assert {"readiness", "codex", "primitive", "desktop_scenario", "iphone_scenario", "full_access", "ask_permission"}.issubset(suites)
     assert "kill_switch" not in suites
     assert "real_world_optional" not in suites
+    assert any(step.lane == "primitive" for step in all_steps)
+    assert any(step.lane == "scenario" for step in all_steps)
     assert all(step.id and step.command for step in all_steps)
     assert classify_status(envelope("desktop_see")) == "passed"
     assert classify_status(envelope("iphone_see", ok=False, errors=[{"code": "not_found", "message": "missing", "guidance": "test"}]), skip_on_unavailable=True) == "skipped"
@@ -327,6 +348,118 @@ def test_scenario_catalog_is_explicit_and_real_world_config_is_local_only() -> N
     assert "David" not in serialized
     assert "Ze Barrow" not in serialized
     assert "Johnny" not in serialized
+
+
+def test_timeout_mapping_separates_command_and_scenario_budgets() -> None:
+    assert timeout_for_command("desktop_see") == 60
+    assert timeout_for_command("iphone_see") == 60
+    assert timeout_for_command("desktop_click") == 30
+    assert timeout_for_command("iphone_tap") == 30
+    assert timeout_for_command("iphone_swipe") == 20
+    assert timeout_for_command("desktop_type") == 15
+    assert timeout_for_command("unknown_future_command") == 10
+
+
+def test_scenario_action_requires_fresh_visual_assertion(tmp_path: Path) -> None:
+    connector_url, server = serve_fake_connector(
+        {
+            "iphone_see": visual_envelope("iphone_see", text="Home Screen", app="iPhone Mirroring"),
+            "iphone_tap": envelope("iphone_tap"),
+        }
+    )
+    try:
+        surface = ConnectorSurface(connector_url=connector_url, token="secret-token", artifact_dir=tmp_path)
+        results = run_steps(
+            [
+                CanaryStep(
+                    id="iphone.see_home",
+                    suite="iphone_scenario",
+                    lane="scenario",
+                    command="iphone_see",
+                    requires_visual_evidence=True,
+                    visual_assert={"expected_visible_text": "Calculator"},
+                ),
+                CanaryStep(
+                    id="iphone.tap_after_unknown_state",
+                    suite="iphone_scenario",
+                    lane="scenario",
+                    command="iphone_tap",
+                    params={"snapshot_id": "${iphone.see_home.snapshot_id}", "x": 100, "y": 100, "dry_run": False},
+                    assert_from_step="iphone.see_home",
+                ),
+            ],
+            surface,
+        )
+    finally:
+        server.shutdown()
+
+    assert results[0].status == "failed"
+    assert results[0].errors[0]["code"] == "qa_visual_assertion_failed"
+    assert results[1].status == "failed"
+    assert results[1].errors[0]["code"] == "qa_required_visual_state_failed"
+    assert FakeConnectorHandler.seen_payloads == [{"command": "iphone_see", "params": {}}]
+
+
+def test_scenario_action_runs_after_visual_assertion_passes(tmp_path: Path) -> None:
+    connector_url, server = serve_fake_connector(
+        {
+            "iphone_see": visual_envelope("iphone_see", text="Calculator 1 2 3", app="Calculator"),
+            "iphone_tap": envelope("iphone_tap"),
+        }
+    )
+    try:
+        surface = ConnectorSurface(connector_url=connector_url, token="secret-token", artifact_dir=tmp_path)
+        results = run_steps(
+            [
+                CanaryStep(
+                    id="iphone.see_calculator",
+                    suite="iphone_scenario",
+                    lane="scenario",
+                    command="iphone_see",
+                    requires_visual_evidence=True,
+                    visual_assert={"expected_app": "Calculator", "expected_visible_text": "Calculator"},
+                ),
+                CanaryStep(
+                    id="iphone.tap_calculator",
+                    suite="iphone_scenario",
+                    lane="scenario",
+                    command="iphone_tap",
+                    params={"snapshot_id": "${iphone.see_calculator.snapshot_id}", "x": 100, "y": 100, "dry_run": False},
+                    assert_from_step="iphone.see_calculator",
+                ),
+            ],
+            surface,
+        )
+    finally:
+        server.shutdown()
+
+    assert [result.status for result in results] == ["passed", "passed"]
+    assert FakeConnectorHandler.seen_payloads[-1] == {"command": "iphone_tap", "params": {"snapshot_id": "snap-test", "x": 100, "y": 100, "dry_run": False}}
+
+
+def test_live_cli_requires_operator_ack_for_moving_suites(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
+    connector_url, server = serve_fake_connector({"desktop_control_start": envelope("desktop_control_start")})
+    monkeypatch.setenv("QA_CONNECTOR_TOKEN", "secret-token")
+    try:
+        exit_code = main(
+            [
+                "--connector-url",
+                connector_url,
+                "--token-env",
+                "QA_CONNECTOR_TOKEN",
+                "--surface",
+                "connector",
+                "--suite",
+                "full_access",
+                "--artifact-dir",
+                str(tmp_path),
+            ]
+        )
+    finally:
+        server.shutdown()
+
+    assert exit_code == 2
+    assert "operator acknowledgement" in capsys.readouterr().err
 
 
 def test_visual_see_requires_snapshot_and_artifact(tmp_path: Path) -> None:

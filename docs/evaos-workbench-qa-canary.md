@@ -27,6 +27,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "http://<mac-tailnet-ip>:8765" \
   --surface connector \
   --suite all \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 ```
 
@@ -40,10 +41,12 @@ adapter files.
 Options:
 
 - `--surface connector|openclaw|hermes`
-- `--suite readiness|desktop|iphone|full_access|ask_permission|kill_switch|real_world_optional|all`
+- `--suite readiness|primitive|desktop_scenario|iphone_scenario|full_access|ask_permission|kill_switch|real_world_optional|all`
 - `--artifact-dir /Volumes/LEXAR/Codex/evaos-workbench-qa-runs/<custom-run>`
 - `--token-env <ENV_NAME>` if the connector token is not in
   `EVAOS_DESKTOP_BRIDGE_TOKEN`
+- `--operator-ack-live-control` is required for suites that can move the
+  mouse, type, click, scroll, or operate iPhone Mirroring
 - `--allow-real-world-actions` to enable the optional app scenarios
 - `--allow-skips` to permit skipped rows while iterating locally. Do not use
   this for release certification.
@@ -59,18 +62,21 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 ```
 
@@ -83,6 +89,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite kill_switch \
+  --operator-ack-live-control \
   --version-under-test 0.5.1
 ```
 
@@ -99,13 +106,15 @@ posts to `/v1/commands`.
   audit tail, and iPhone Mirroring status.
 - `full_access`: starts Full Access and proves live scroll/hotkey do not require
   approval.
-- `desktop`: visual see, element click when an element id is available,
-  coordinate click, type, scroll, drag, hotkey, focus app, window, menu, and
-  browser open.
-- `iphone`: focus iPhone Mirroring, see, tap, swipe, type, Home, App Switcher,
-  Spotlight, and Calculator `1+1+1=` smoke. This suite opens Calculator before
-  generic tap/swipe/type probes so capability checks happen inside a known,
-  low-risk app instead of the current arbitrary iPhone state.
+- `primitive`: safe-surface capability checks for desktop and iPhone control
+  primitives. This proves the engine can click/type/scroll/drag/tap, but it is
+  not scenario certification.
+- `desktop_scenario`: opens a known browser page, captures a visual snapshot,
+  asserts the expected state, then performs follow-up actions from that verified
+  state.
+- `iphone_scenario`: focuses iPhone Mirroring, opens Calculator, verifies the
+  screen, enters `1+1+1=`, captures another snapshot, then navigates Home,
+  Spotlight, and App Switcher only after a verified iPhone state.
 - `ask_permission`: starts Ask Permission, proves a high-impact live type is
   denied without approval, then proves the dry-run audit id can approve the
   matching action.
@@ -115,11 +124,17 @@ posts to `/v1/commands`.
   never enabled unless `--allow-real-world-actions` is set and local environment
   variables provide exact text/contact/app values.
 
-The required suites are capability certification, not a replacement for
-scenario QA. Real task canaries should use a fresh `iphone_see` or
-`desktop_see` before each action, assert the expected app/screen is visible, run
-one action, then capture another `see` result to prove the intended state
-changed. Do not use blind swipes or coordinates for scenario certification.
+`primitive` and `scenario` lanes are both required. Primitive rows prove the
+transport and automation engine; scenario rows prove the agent-style loop. Real
+task canaries must use a fresh `iphone_see` or `desktop_see`, assert the
+expected app/screen, run one action, then capture another `see` result to prove
+the intended state changed. Do not use blind swipes or coordinates for scenario
+certification.
+
+The command timeout is per primitive command, not a task budget. A multi-minute
+agent task is expected to issue many bounded commands. Current defaults are 60s
+for visual `see` commands, 30s for click/tap, 20s for drag/swipe/browser/menu
+style actions, 15s for type/hotkey, and 10s for unknown future commands.
 
 ## Real-World Optional Config
 
@@ -137,6 +152,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite real_world_optional \
+  --operator-ack-live-control \
   --allow-real-world-actions
 ```
 
