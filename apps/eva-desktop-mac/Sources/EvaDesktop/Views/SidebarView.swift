@@ -18,6 +18,30 @@ struct SidebarView: View {
                 Label(AppBrand.macAndIPhoneTitle, systemImage: "macbook.and.iphone")
                     .tag(SidebarSelection.bridge)
             }
+
+            if model.featureFlags.isEnabled(.providersHub) || model.featureFlags.isEnabled(.sharedBrowser2) || model.featureFlags.isEnabled(.sessionCenter) || model.featureFlags.isEnabled(.creativeStudio) {
+                Section("Preview") {
+                    if model.featureFlags.isEnabled(.providersHub) {
+                        FeatureSidebarRow(title: "Providers & Auth Hub", systemImage: "person.badge.key")
+                            .tag(SidebarSelection.providersHub)
+                    }
+
+                    if model.featureFlags.isEnabled(.sharedBrowser2) {
+                        FeatureSidebarRow(title: "Shared Browser 2.0", systemImage: "globe.badge.chevron.backward")
+                            .tag(SidebarSelection.sharedBrowser2)
+                    }
+
+                    if model.featureFlags.isEnabled(.sessionCenter) {
+                        FeatureSidebarRow(title: "Session Center", systemImage: "rectangle.3.group.bubble.left")
+                            .tag(SidebarSelection.sessionCenter)
+                    }
+
+                    if model.featureFlags.isEnabled(.creativeStudio) {
+                        FeatureSidebarRow(title: "Creative Studio", systemImage: "paintbrush.pointed")
+                            .tag(SidebarSelection.creativeStudio)
+                    }
+                }
+            }
         }
         .listStyle(.sidebar)
         .tint(Color.electricSheepGoldSoft)
@@ -85,5 +109,21 @@ private struct RuntimeSidebarRow: View {
             return .secondary
         }
         return runtime.requiresAdmin ? .electricSheepAmber : .secondary
+    }
+}
+
+private struct FeatureSidebarRow: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+
+            Text(title)
+                .lineLimit(1)
+        }
     }
 }

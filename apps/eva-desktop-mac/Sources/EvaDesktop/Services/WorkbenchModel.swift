@@ -74,6 +74,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var updateAvailable = false
     @Published var updateDownloadURL: URL?
     @Published var updateReleaseNotesURL: URL?
+    let featureFlags: WorkbenchFeatureFlags
 
     let webViews = WebViewStore()
 
@@ -91,6 +92,7 @@ final class WorkbenchModel: ObservableObject {
         let dashboardBaseURL = URL(string: UserDefaults.standard.string(forKey: "EvaDesktop.dashboardBaseURL") ?? "https://www.electricsheephq.com")
             ?? URL(string: "https://www.electricsheephq.com")!
         let runtimeBaseDomain = UserDefaults.standard.string(forKey: "EvaDesktop.runtimeBaseDomain") ?? "ecs.electricsheephq.com"
+        featureFlags = WorkbenchFeatureFlags(userDefaults: .standard)
         broker = RuntimeSessionBrokerClient()
         resolver = RuntimeURLResolver(runtimeBaseDomain: runtimeBaseDomain, dashboardBaseURL: dashboardBaseURL)
         webViews.onNavigationEvent = { [weak self] runtime, event in
@@ -121,6 +123,10 @@ final class WorkbenchModel: ObservableObject {
 
     var visibleRuntimes: [RuntimeDefinition] {
         RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
+    }
+
+    var creativeStudioURL: URL {
+        resolver.creativeStudioURL()
     }
 
     var loadedRuntimeKeys: [RuntimeKey] {

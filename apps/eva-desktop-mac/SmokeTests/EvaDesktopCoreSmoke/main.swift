@@ -9,6 +9,30 @@ precondition(AppBrand.signedOutStatus == "Sign in to launch evaOS gateways")
 precondition(AppBrand.bundleDisplayName == "evaOS Workbench")
 precondition(AppBrand.defaultUpdateManifestURL == "https://www.electricsheephq.com/evaos-workbench/updates.json")
 
+precondition(WorkbenchFeatureFlagKey.allCases.map(\.rawValue) == [
+    "providers_hub",
+    "shared_browser_2",
+    "session_center",
+    "creative_studio"
+])
+let featureFlags = WorkbenchFeatureFlags()
+precondition(!featureFlags.isEnabled(.providersHub))
+precondition(!featureFlags.isEnabled(.sharedBrowser2))
+precondition(!featureFlags.isEnabled(.sessionCenter))
+precondition(!featureFlags.isEnabled(.creativeStudio))
+precondition(featureFlags.enabledKeys.isEmpty)
+precondition(featureFlags.storedValue(for: .creativeStudio) == false)
+
+let featureFlagDefaults = UserDefaults(suiteName: "EvaDesktopCoreSmoke.feature-flags.\(UUID().uuidString)")!
+featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.providersHub.userDefaultsKey)
+featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.creativeStudio.userDefaultsKey)
+let configuredFeatureFlags = WorkbenchFeatureFlags(userDefaults: featureFlagDefaults)
+precondition(configuredFeatureFlags.isEnabled(.providersHub))
+precondition(!configuredFeatureFlags.isEnabled(.sharedBrowser2))
+precondition(!configuredFeatureFlags.isEnabled(.sessionCenter))
+precondition(configuredFeatureFlags.isEnabled(.creativeStudio))
+precondition(resolver.creativeStudioURL().absoluteString == "https://www.electricsheephq.com/creative-studio")
+
 precondition(resolver.sanitizedCustomerId(" Jackie David ") == "jackie-david")
 precondition(resolver.sanitizedCustomerId("David_Poku!") == "david-poku")
 precondition(resolver.sanitizedCustomerId("") == "golden")
@@ -21,6 +45,7 @@ precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: true).con
 precondition(RuntimeDefinition.definition(for: .openDesign).availability == .enabled)
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 precondition(RuntimeDefinition.definition(for: .liveBrowser).title == "Shared Browser")
+precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal])
 
 let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.5.1/evaOS-Workbench-0.5.1.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
