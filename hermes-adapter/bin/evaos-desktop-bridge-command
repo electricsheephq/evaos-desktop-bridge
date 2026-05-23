@@ -272,7 +272,106 @@ def read_json_env(name):
         return None
 
 
+def provider_discovery_endpoint():
+    explicit = os.environ.get("EVAOS_PROVIDER_DISCOVERY_URL", "").strip()
+    if explicit:
+        return explicit
+    broker = os.environ.get("EVAOS_DESKTOP_RUNTIME_SESSION_URL", "").strip()
+    if broker:
+        return broker
+    return None
+
+
+def provider_grant_handle_for(agent_runtime):
+    direct = os.environ.get("EVAOS_PROVIDER_GRANT_HANDLE", "").strip()
+    if direct:
+        return direct
+    grants_payload = read_json_env("EVAOS_PROVIDER_GRANTS_JSON")
+    runtime_grant = grants_payload.get(agent_runtime) if isinstance(grants_payload, dict) else None
+    if isinstance(runtime_grant, dict) and isinstance(runtime_grant.get("grant_handle"), str):
+        return runtime_grant["grant_handle"].strip() or None
+    return None
+
+
+def provider_agent_discovery_payload(agent_runtime):
+    endpoint = provider_discovery_endpoint()
+    customer_id = os.environ.get("EVAOS_CUSTOMER_ID", "").strip()
+    grant_handle = provider_grant_handle_for(agent_runtime)
+    if not endpoint or not customer_id or not grant_handle:
+        return None
+
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps({
+            "action": "provider_agent_discovery",
+            "customer_id": customer_id,
+            "agent_runtime": agent_runtime,
+        }).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Evaos-Provider-Grant": grant_handle,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    active_profile = payload.get("provider_profile") if isinstance(payload.get("provider_profile"), dict) else None
+    active_key = payload.get("active_provider_key") if isinstance(payload.get("active_provider_key"), str) else None
+    grant_status = payload.get("grant_status") if isinstance(payload.get("grant_status"), str) else "unknown"
+    grant_expires_at = payload.get("grant_expires_at") if isinstance(payload.get("grant_expires_at"), str) else None
+    provider_profiles = [active_profile] if active_profile else []
+    profiles_payload = scrub_secrets({
+        "ok": True,
+        "data": {
+            "customer_id": customer_id,
+            "provider_profiles": provider_profiles,
+            "provider_grants": {
+                agent_runtime: {
+                    "grant_handle": grant_handle,
+                    "status": grant_status,
+                    "expires_at": grant_expires_at,
+                },
+            },
+            "active_provider_key": active_key,
+            "raw_secrets_available": False,
+            "raw_secrets_stored_in_workbench": False,
+            "raw_provider_token_returned": False,
+            "source": "broker",
+        },
+        "warnings": [] if provider_profiles else ["No active provider profile is available from the broker."],
+    })
+    active_payload = scrub_secrets({
+        "ok": True,
+        "data": {
+            "customer_id": customer_id,
+            "active_provider_key": active_key,
+            "active_profile": active_profile,
+            "provider_identity": payload.get("provider_identity") if isinstance(payload.get("provider_identity"), str) else None,
+            "provider_scopes": [str(scope) for scope in payload.get("provider_scopes", [])] if isinstance(payload.get("provider_scopes"), list) else [],
+            "grant_status": grant_status,
+            "grant_expires_at": grant_expires_at,
+            "needs_reauth": bool(payload.get("reauth_needed")) or active_profile is None,
+            "raw_secrets_available": False,
+            "raw_provider_token_returned": False,
+            "source": "broker",
+        },
+        "warnings": [] if active_profile else ["No verified active provider grant is available. Ask the customer to connect or re-auth the provider in evaOS Workbench."],
+    })
+    return {"profiles": profiles_payload, "active": active_payload}
+
+
 def provider_profiles_payload():
+    broker_payload = provider_agent_discovery_payload("hermes")
+    if broker_payload:
+        return broker_payload["profiles"]
+
     profiles_payload = read_json_env("EVAOS_PROVIDER_PROFILES_JSON")
     if isinstance(profiles_payload, list):
         provider_profiles = profiles_payload
@@ -299,21 +398,37 @@ def provider_profiles_payload():
 
 
 def provider_active_profile_payload():
+    broker_payload = provider_agent_discovery_payload("hermes")
+    if broker_payload:
+        return broker_payload["active"]
+
     payload = provider_profiles_payload()
     data = payload.get("data", {}) if isinstance(payload, dict) else {}
     profiles = data.get("provider_profiles", []) if isinstance(data, dict) else []
     active_key = data.get("active_provider_key") if isinstance(data, dict) else None
     active_profile = next((profile for profile in profiles if isinstance(profile, dict) and profile.get("provider_key") == active_key), None)
+    grants = data.get("provider_grants", {}) if isinstance(data, dict) else {}
+    hermes_grant = grants.get("hermes") if isinstance(grants, dict) else None
+    openclaw_grant = grants.get("openclaw") if isinstance(grants, dict) else None
+    has_connection_proof = (
+        isinstance(active_profile, dict)
+        and active_profile.get("status") == "connected"
+        and isinstance(active_profile.get("last_validated_at"), str)
+        and (
+            (isinstance(hermes_grant, dict) and isinstance(hermes_grant.get("grant_handle"), str))
+            or (isinstance(openclaw_grant, dict) and isinstance(openclaw_grant.get("grant_handle"), str))
+        )
+    )
     return scrub_secrets({
         "ok": True,
         "data": {
             "customer_id": os.environ.get("EVAOS_CUSTOMER_ID"),
             "active_provider_key": active_key,
             "active_profile": active_profile,
-            "needs_reauth": active_profile is None,
+            "needs_reauth": not has_connection_proof,
             "raw_secrets_available": False,
         },
-        "warnings": [] if active_profile else ["No active provider profile is available. Ask the customer to connect or select a provider in evaOS Workbench."],
+        "warnings": [] if has_connection_proof else ["No verified active provider grant is available. Ask the customer to connect or re-auth the provider in evaOS Workbench."],
     })
 
 

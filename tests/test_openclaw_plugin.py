@@ -4,6 +4,8 @@ import json
 import os
 import plistlib
 import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
@@ -160,6 +162,7 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
                     "provider_key": "openai_codex",
                     "status": "connected",
                     "active": True,
+                    "last_validated_at": "2026-05-24T10:00:00Z",
                     "grant_handle": "epg_fixture",
                     "access_token": "should-redact",
                     "api_key": "sk-should-redact",
@@ -197,6 +200,173 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
     assert "should-redact" not in serialized
     assert "nested-should-redact" not in serialized
     assert "[redacted]" in json.dumps(payload)
+
+
+def test_openclaw_plugin_discovers_provider_profile_from_broker_grant() -> None:
+    script = """
+        import { createServer } from 'node:http';
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+
+        const server = createServer((req, res) => {
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', () => {
+            const parsed = JSON.parse(body || '{}');
+            if (req.headers['x-evaos-provider-grant'] !== 'epg_broker_openclaw_12345678901234567890') {
+              res.writeHead(401, { 'content-type': 'application/json' });
+              res.end(JSON.stringify({ error: 'bad grant' }));
+              return;
+            }
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({
+              customer_id: parsed.customer_id,
+              agent_runtime: parsed.agent_runtime,
+              active_provider_key: 'openai_codex',
+              provider_profile: {
+                provider_key: 'openai_codex',
+                status: 'connected',
+                active: true,
+                last_validated_at: '2026-05-24T12:00:00Z',
+                access_token: 'should-redact'
+              },
+              provider_identity: 'admin@100yen.org',
+              provider_scopes: ['openid', 'offline_access'],
+              grant_status: 'active',
+              grant_expires_at: '2026-05-25T12:00:00Z',
+              raw_provider_token_returned: false
+            }));
+          });
+        });
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const address = server.address();
+        process.env.EVAOS_CUSTOMER_ID = 'cust-1';
+        process.env.EVAOS_PROVIDER_DISCOVERY_URL = `http://127.0.0.1:${address.port}/functions/v1/desktop-runtime-session`;
+        process.env.EVAOS_PROVIDER_GRANT_HANDLE = 'epg_broker_openclaw_12345678901234567890';
+        const profiles = await runBridge('evaosProviderProfiles', {});
+        const active = await runBridge('evaosProviderActiveProfile', {});
+        server.close();
+        console.log(JSON.stringify({ profiles, active }));
+    """
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        env=os.environ.copy(),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["profiles"]["data"]["source"] == "broker"
+    assert payload["profiles"]["data"]["provider_profiles"][0]["provider_key"] == "openai_codex"
+    assert payload["active"]["data"]["source"] == "broker"
+    assert payload["active"]["data"]["needs_reauth"] is False
+    assert payload["active"]["data"]["provider_identity"] == "admin@100yen.org"
+    serialized = json.dumps(payload)
+    assert "should-redact" not in serialized
+    assert "[redacted]" in serialized
+
+
+def test_openclaw_plugin_requires_verified_provider_grant_for_active_profile() -> None:
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        const active = await runBridge('evaosProviderActiveProfile', {});
+        console.log(JSON.stringify(active));
+    """
+    env = {
+        **os.environ,
+        "EVAOS_CUSTOMER_ID": "cust-1",
+        "EVAOS_ACTIVE_PROVIDER_KEY": "openai_codex",
+        "EVAOS_PROVIDER_PROFILES_JSON": json.dumps({
+            "provider_profiles": [
+                {
+                    "provider_key": "openai_codex",
+                    "status": "connected",
+                    "active": True,
+                }
+            ],
+            "active_provider_key": "openai_codex",
+        }),
+    }
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["ok"] is True
+    assert payload["data"]["needs_reauth"] is True
+    assert "verified active provider grant" in payload["warnings"][0]
+
+
+def test_hermes_adapter_discovers_provider_profile_from_broker_grant() -> None:
+    adapter = ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command"
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            parsed = json.loads(body or b"{}")
+            assert self.headers.get("X-Evaos-Provider-Grant") == "epg_broker_hermes_12345678901234567890"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "customer_id": parsed["customer_id"],
+                "agent_runtime": parsed["agent_runtime"],
+                "active_provider_key": "openai_codex",
+                "provider_profile": {
+                    "provider_key": "openai_codex",
+                    "status": "connected",
+                    "active": True,
+                    "last_validated_at": "2026-05-24T12:00:00Z",
+                    "access_token": "should-redact",
+                },
+                "provider_identity": "admin@100yen.org",
+                "provider_scopes": ["openid", "offline_access"],
+                "grant_status": "active",
+                "grant_expires_at": "2026-05-25T12:00:00Z",
+                "raw_provider_token_returned": False,
+            }).encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        env = {
+            **os.environ,
+            "EVAOS_CUSTOMER_ID": "cust-1",
+            "EVAOS_PROVIDER_DISCOVERY_URL": f"http://127.0.0.1:{server.server_port}/functions/v1/desktop-runtime-session",
+            "EVAOS_PROVIDER_GRANT_HANDLE": "epg_broker_hermes_12345678901234567890",
+        }
+        completed = subprocess.run(
+            [str(adapter), "evaosProviderActiveProfile"],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    payload = json.loads(completed.stdout)
+    assert payload["data"]["source"] == "broker"
+    assert payload["data"]["needs_reauth"] is False
+    assert payload["data"]["provider_identity"] == "admin@100yen.org"
+    serialized = json.dumps(payload)
+    assert "should-redact" not in serialized
+    assert "[redacted]" in serialized
 
 
 def test_customer_mac_complete_pairing_validates_connector_urls() -> None:
@@ -501,6 +671,7 @@ def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_conn
                     "provider_key": "openai_codex",
                     "status": "connected",
                     "active": True,
+                    "last_validated_at": "2026-05-24T10:00:00Z",
                     "access_token": "should-redact",
                     "api_key": "sk-should-redact",
                     "client_secret": "client-secret-should-redact",
@@ -510,6 +681,7 @@ def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_conn
             ],
             "active_provider_key": "openai_codex",
         }),
+        "EVAOS_PROVIDER_GRANTS_JSON": json.dumps({"hermes": {"grant_handle": "epg_fixture"}}),
         "EVAOS_SHARED_BROWSER_STATUS_JSON": json.dumps({"status": "ready"}),
     }
     completed = subprocess.run(

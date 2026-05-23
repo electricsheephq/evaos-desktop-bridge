@@ -1,6 +1,5 @@
 import EvaDesktopCore
 import SwiftUI
-import WebKit
 
 struct ProvidersHubView: View {
     @ObservedObject var model: WorkbenchModel
@@ -54,67 +53,34 @@ struct ProvidersHubView: View {
     }
 }
 
-struct SharedBrowser2View: View {
-    @ObservedObject var model: WorkbenchModel
-    let openSharedBrowser: () -> Void
-
-    var body: some View {
-        WorkbenchSurface(title: "Shared Browser 2.0", subtitle: "A stronger shared browsing room for agent web tasks, auth handoff awareness, and default agent guidance.") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
-                MetricTile(title: "Status", value: model.sharedBrowserStatusText, systemImage: "waveform.path.ecg")
-                MetricTile(title: "Session", value: model.runtimeURLs[.liveBrowser] == nil ? "Not opened" : "Loaded", systemImage: "globe")
-                MetricTile(title: "Owner", value: model.sanitizedCustomerId, systemImage: "person.crop.circle")
-                MetricTile(title: "Room", value: model.sharedBrowserRoomText, systemImage: "rectangle.connected.to.line.below")
-                MetricTile(title: "Current URL", value: model.sharedBrowserCurrentURLText, systemImage: "link")
-                MetricTile(title: "Last Activity", value: model.sharedBrowserLastActivityText, systemImage: "clock")
-            }
-
-            WorkbenchInfoPanel(
-                title: "Agent Guidance",
-                systemImage: "network",
-                detail: "OpenClaw and Hermes should prefer Shared Browser for cloud web tasks that need a persistent VM browser, CAPTCHA/auth handoff, or a human-visible page. This release reads status only and keeps the existing browser open/stop behavior intact."
-            )
-
-            HStack(spacing: 10) {
-                Button("Open Shared Browser") {
-                    openSharedBrowser()
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("Reload Runtime") {
-                    model.selectedRuntime = .liveBrowser
-                    model.reloadSelectedRuntime()
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.runtimeURLs[.liveBrowser] == nil)
-
-                Button {
-                    Task {
-                        await model.refreshSharedBrowserStatus()
-                    }
-                } label: {
-                    Label(model.isRefreshingSharedBrowserStatus ? "Refreshing" : "Refresh Status", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!model.isSignedIn || model.isRefreshingSharedBrowserStatus)
-            }
-        }
-    }
-}
-
 struct SessionCenterView: View {
     @ObservedObject var model: WorkbenchModel
     let jumpToRuntime: (RuntimeKey) -> Void
 
     var body: some View {
         WorkbenchSurface(title: "Session Center", subtitle: "One place to see active gateways, attention states, Mac control readiness, and recent activity.") {
+            HStack(spacing: 10) {
+                StatusPill(title: model.sessionCenterStatusText, systemImage: "rectangle.3.group.bubble.left", tint: sessionCenterTint)
+                Spacer()
+                Button {
+                    Task {
+                        await model.refreshSessionCenterState()
+                    }
+                } label: {
+                    Label(model.isRefreshingSessionCenter ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.isSignedIn || model.isRefreshingSessionCenter)
+            }
+
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-                ForEach(RuntimeDefinition.all) { runtime in
+                ForEach(model.visibleRuntimes) { runtime in
+                    let status = model.runtimeStatuses[runtime.key]
                     SessionCard(
                         title: runtime.title,
                         systemImage: runtime.systemImage,
-                        status: model.runtimeURLs[runtime.key] == nil ? "Ready to open" : "Loaded",
-                        detail: model.runtimeErrors[runtime.key] ?? runtime.subtitle
+                        status: sessionStatusCopy(status?.status, localURLLoaded: model.runtimeURLs[runtime.key] != nil),
+                        detail: sessionDetail(runtime: runtime, status: status)
                     ) {
                         jumpToRuntime(runtime.key)
                     }
@@ -129,70 +95,66 @@ struct SessionCenterView: View {
         }
     }
 
+    private var sessionCenterTint: Color {
+        if model.sessionCenterStatusText == "Ready" {
+            return .electricSheepSuccess
+        }
+        if model.sessionCenterStatusText == "Unavailable" {
+            return .electricSheepDanger
+        }
+        return .electricSheepGoldSoft
+    }
+
+    private func sessionStatusCopy(_ status: String?, localURLLoaded: Bool) -> String {
+        guard let status else {
+            return localURLLoaded ? "Loaded" : "Unchecked"
+        }
+        switch status {
+        case "enabled":
+            return localURLLoaded ? "Loaded" : "Ready"
+        case "degraded":
+            return "Needs attention"
+        case "disabled":
+            return "Blocked"
+        case "coming_soon":
+            return "Unavailable"
+        default:
+            return status.capitalized
+        }
+    }
+
+    private func sessionDetail(runtime: RuntimeDefinition, status: RuntimeStatusResponse?) -> String {
+        if let error = model.runtimeErrors[runtime.key] {
+            return error
+        }
+        guard let status else {
+            return "Runtime status has not been checked yet."
+        }
+        if runtime.key == .liveBrowser {
+            if status.authNeeded == true {
+                return "Shared Browser needs auth handoff."
+            }
+            if status.captchaNeeded == true {
+                return "Shared Browser reports CAPTCHA needed."
+            }
+        }
+        return status.healthSummary ?? runtime.subtitle
+    }
+
     private var sessionAttentionSummary: String {
-        if model.runtimeErrors.isEmpty && model.bridgeAuditText.lowercased().contains("not checked") {
-            return "No attention state has been loaded yet. Open gateways or check Mac & iPhone setup to start collecting activity."
+        if model.runtimeStatuses.isEmpty {
+            return "No broker session state has been loaded yet. Refresh Session Center to read gateway status."
         }
         if !model.runtimeErrors.isEmpty {
             return "\(model.runtimeErrors.count) gateway session needs attention."
         }
-        return "No gateway errors in the current Workbench session."
-    }
-}
-
-struct CreativeStudioPlaceholderView: View {
-    @ObservedObject var model: WorkbenchModel
-    @StateObject private var webViewModel = CreativeStudioWebViewModel()
-
-    var body: some View {
-        WorkbenchSurface(title: "Creative Studio", subtitle: "Hosted ComfyUI-style creative workflows without putting model and GPU operations inside the macOS app.") {
-            WorkbenchInfoPanel(
-                title: "Hosted-first Gateway",
-                systemImage: "paintbrush.pointed",
-                detail: "Workbench opens the configured hosted Creative Studio URL. VM-local ComfyUI remains deferred until GPU, storage, node, and model governance are proven."
-            )
-
-            HStack(spacing: 10) {
-                Text(model.creativeStudioURL.absoluteString)
-                    .font(.system(.callout, design: .monospaced))
-                    .lineLimit(1)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.electricSheepSurfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                Button("Load") {
-                    webViewModel.load(model.creativeStudioURL)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Link(destination: model.creativeStudioURL) {
-                    Label("Open", systemImage: "arrow.up.forward.square")
-                }
-            }
-
-            RuntimeWebView(webView: webViewModel.webView)
-                .frame(minHeight: 420)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.electricSheepLineWarm, lineWidth: 1)
-                )
+        let attentionCount = model.runtimeStatuses.values.filter { response in
+            response.status == "degraded" || response.authNeeded == true || response.captchaNeeded == true
+        }.count
+        if attentionCount > 0 {
+            return "\(attentionCount) session attention state needs review."
         }
-        .onAppear {
-            webViewModel.load(model.creativeStudioURL)
-        }
-    }
-}
-
-private final class CreativeStudioWebViewModel: ObservableObject {
-    let webView = WKWebView()
-    private var loadedURL: URL?
-
-    func load(_ url: URL) {
-        guard loadedURL != url else { return }
-        loadedURL = url
-        webView.load(URLRequest(url: url))
+        return "No gateway errors in the brokered session state."
     }
 }
 
@@ -303,10 +265,13 @@ private struct ProviderProfileCard: View {
 
     private var statusText: String {
         if profile.active {
-            return "Active"
+            return profile.hasConnectionProof ? "Active" : "Needs verification"
         }
         if !isSignedIn, profile.status != .planned {
             return "Sign in first"
+        }
+        if profile.status == .connected && !profile.hasConnectionProof {
+            return "Needs verification"
         }
         return profile.status.displayText
     }
@@ -316,7 +281,7 @@ private struct ProviderProfileCard: View {
             return "Active"
         }
         if profile.status == .connected {
-            return "Make Active"
+            return profile.hasConnectionProof ? "Make Active" : "Verify"
         }
         return "Connect"
     }

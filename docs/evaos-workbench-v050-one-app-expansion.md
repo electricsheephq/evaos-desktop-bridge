@@ -9,7 +9,7 @@ All flags default to `false` and are read from `UserDefaults` on app launch.
 | Flag | UserDefaults key | Primary issue | Surface |
 | --- | --- | --- | --- |
 | `providers_hub` | `EvaDesktop.feature.providers_hub` | `#96` | Native Providers & Auth Hub metadata surface |
-| `shared_browser_2` | `EvaDesktop.feature.shared_browser_2` | `#97` | Shared Browser 2.0 status/control preview |
+| `shared_browser_2` | `EvaDesktop.feature.shared_browser_2` | `#97` | Enhanced metadata on the existing Shared Browser gateway |
 | `session_center` | `EvaDesktop.feature.session_center` | `#100` | Native Session Center registry surface |
 | `creative_studio` | `EvaDesktop.feature.creative_studio` | `#102` | Hosted Creative Studio gateway surface |
 
@@ -39,9 +39,9 @@ When these are absent, the dashboard routes/sidebar entries remain dark even tho
 
 - Existing gateway runtime order and persistent WebViews are unchanged.
 - Shared Browser remains the existing brokered `browser` runtime; customer-facing copy stays `Shared Browser`, while infrastructure may still use `Live Browser`.
-- Creative Studio is hosted/configured URL first at `<dashboard-base-url>/creative-studio` and opens inside Workbench when the flag is enabled. ComfyUI is not bundled in the macOS app.
-- Provider/Auth Hub stores no raw provider secrets in this slice; it exposes provider readiness metadata, active profile, usage summary, and opaque VM-agent grant handles only.
-- Session Center is a native dark-launch registry for current gateway state and attention summaries.
+- Creative Studio is a first-class brokered `creative_studio` runtime. Enabled customers land in the hosted ComfyUI gateway; ComfyUI is not bundled in the macOS app.
+- Provider/Auth Hub stores no raw provider secrets in this slice. Connected state requires server-side proof metadata; stale metadata is shown as needing login rather than connected.
+- Session Center is a native dark-launch registry for real gateway state and attention summaries.
 - No `cmux`, `cc-switch`, or ComfyUI dependency is embedded in the macOS app.
 
 ## Broker Actions
@@ -51,11 +51,11 @@ The Workbench macOS app talks to the existing `desktop-runtime-session` Supabase
 | Action | Purpose |
 | --- | --- |
 | `provider_profiles` | Read metadata-only provider profiles for the customer VM owner/admin target. |
-| `provider_connect` | Mark a provider connected through the control plane and make it active. MVP behavior is metadata/grant readiness, not raw OAuth token storage in Workbench. |
+| `provider_connect` | Mark a provider connected only when the control plane supplies signed provider-auth proof with identity, scopes, expiry, and a server-side secret reference. |
 | `provider_switch` | Make an already connected provider active. |
 | `provider_revoke` | Revoke the provider metadata profile and associated opaque agent grants. |
 | `provider_mint_grant` | Mint or refresh an opaque grant handle for `openclaw` or `hermes`. |
-| `runtime_status` | Read safe runtime status metadata for Workbench feature surfaces such as Shared Browser 2.0. |
+| `runtime_status` | Read safe runtime status metadata for Workbench feature surfaces such as Session Center and the existing Shared Browser gateway. |
 
 Provider rows live in `customer_provider_profiles`; agent grants live in `customer_provider_agent_grants`. Both are RLS-enabled. Grant handles are broker handles only and must never be treated as raw provider credentials.
 
@@ -71,6 +71,8 @@ evaosSharedBrowserGuidance
 
 The VM environment may provide:
 
+- `EVAOS_PROVIDER_DISCOVERY_URL` or `EVAOS_DESKTOP_RUNTIME_SESSION_URL`
+- `EVAOS_PROVIDER_GRANT_HANDLE`
 - `EVAOS_PROVIDER_PROFILES_JSON`
 - `EVAOS_PROVIDER_GRANTS_JSON`
 - `EVAOS_ACTIVE_PROVIDER_KEY`

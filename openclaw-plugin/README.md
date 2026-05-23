@@ -105,12 +105,15 @@ export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
 export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evaos-desktop-bridge/connector.token")"
 ```
 
-Provider/Auth Hub and Shared Browser 2.0 discovery are metadata-only VM tools.
-They read these optional environment values when the control plane has minted
-them; they never expose raw provider credentials:
+Provider/Auth Hub and Shared Browser discovery are metadata-only VM tools.
+When the control plane has minted an opaque provider grant, the plugin can
+discover the active provider profile from the broker; otherwise it falls back to
+optional VM environment snapshots. It never exposes raw provider credentials:
 
 ```bash
 export EVAOS_CUSTOMER_ID="<customer-id>"
+export EVAOS_PROVIDER_DISCOVERY_URL="https://<supabase-project>.supabase.co/functions/v1/desktop-runtime-session"
+export EVAOS_PROVIDER_GRANT_HANDLE="epg_..."
 export EVAOS_PROVIDER_PROFILES_JSON='{"provider_profiles":[]}'
 export EVAOS_PROVIDER_GRANTS_JSON='[]'
 export EVAOS_SHARED_BROWSER_STATUS_JSON='{"status":"ready"}'
