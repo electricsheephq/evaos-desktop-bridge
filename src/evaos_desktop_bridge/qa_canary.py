@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import time
 import uuid
 import urllib.error
@@ -15,6 +16,37 @@ from pathlib import Path
 from typing import Any, Protocol
 
 DEFAULT_RUN_ROOT = Path("/Volumes/LEXAR/Codex/evaos-workbench-qa-runs")
+LIVE_CONTROL_SUITES = {
+    "all",
+    "full",
+    "full_access",
+    "primitive",
+    "desktop",
+    "iphone",
+    "desktop_scenario",
+    "iphone_scenario",
+    "ask_permission",
+    "real_world_optional",
+    "kill_switch",
+}
+ACTION_COMMANDS = {
+    "desktop_browser_action",
+    "desktop_click",
+    "desktop_drag",
+    "desktop_focus_app",
+    "desktop_hotkey",
+    "desktop_menu",
+    "desktop_scroll",
+    "desktop_type",
+    "desktop_window",
+    "iphone_swipe",
+    "iphone_tap",
+    "iphone_type",
+    "customer_mac_iphone_mirroring_app_switcher",
+    "customer_mac_iphone_mirroring_home",
+    "customer_mac_iphone_mirroring_open_app",
+    "customer_mac_iphone_mirroring_spotlight",
+}
 REAL_WORLD_ENV_KEYS = (
     "QA_BUMBLE_TEXT",
     "QA_SMS_CONTACT",
@@ -41,12 +73,15 @@ class CanaryStep:
     suite: str
     command: str
     params: dict[str, Any] = field(default_factory=dict)
+    lane: str = "primitive"
     description: str = ""
     skip_on_unavailable: bool = False
     expect_error_code: str | None = None
     skip_if_unresolved: bool = False
     env_required: tuple[str, ...] = ()
     requires_visual_evidence: bool = False
+    visual_assert: dict[str, Any] = field(default_factory=dict)
+    assert_from_step: str | None = None
 
 
 @dataclass
@@ -82,6 +117,7 @@ class SurfaceResponse:
 class CanaryResult:
     id: str
     suite: str
+    lane: str
     command: str
     params_redacted: dict[str, Any]
     ok: bool
@@ -99,6 +135,7 @@ class CanaryResult:
         return {
             "id": self.id,
             "suite": self.suite,
+            "lane": self.lane,
             "command": self.command,
             "params_redacted": redact_for_report(self.params_redacted),
             "ok": self.ok,
@@ -140,15 +177,18 @@ class ConnectorSurface:
                 "Content-Type": "application/json",
             },
         )
+        command = str(body.get("command") or "connector.command")
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - operator-supplied private connector URL.
+            with urllib.request.urlopen(request, timeout=timeout_for_command(command) + 5) as response:  # noqa: S310 - operator-supplied private connector URL.
                 return _loads_json_response(response.read())
         except urllib.error.HTTPError as exc:
             body_bytes = exc.read()
             try:
                 return _loads_json_response(body_bytes)
             except ValueError:
-                return _error_payload(command=str(body.get("command") or "connector.command"), code="connector_http_error", message=body_bytes.decode("utf-8", errors="replace") or f"HTTP {exc.code}")
+                return _error_payload(command=command, code="connector_http_error", message=body_bytes.decode("utf-8", errors="replace") or f"HTTP {exc.code}")
+        except TimeoutError:
+            return _error_payload(command=command, code="connector_timeout", message=f"{command} timed out after {timeout_for_command(command)} seconds.")
 
     def _materialize_visual_artifact(self, payload: dict[str, Any]) -> str | None:
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
@@ -202,7 +242,7 @@ class OpenClawSurface:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=90,
+            timeout=timeout_for_command(command) + 30,
             check=False,
         )
         payload = _payload_from_completed_process(completed, command)
@@ -235,7 +275,7 @@ class HermesSurface:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=90,
+            timeout=timeout_for_command(command) + 30,
             check=False,
         )
         payload = _payload_from_completed_process(completed, command)
@@ -259,6 +299,12 @@ def run_steps(steps: list[CanaryStep], surface: CanarySurface) -> list[CanaryRes
             results.append(result)
             context[step.id] = result
             continue
+        dependency_error = _scenario_dependency_error(step, context)
+        if dependency_error:
+            result = _failed_result(step, dependency_error, code="qa_required_visual_state_failed")
+            results.append(result)
+            context[step.id] = result
+            continue
         started = time.monotonic()
         try:
             response = surface.run(step.command, params)
@@ -275,9 +321,15 @@ def run_steps(steps: list[CanaryStep], surface: CanarySurface) -> list[CanaryRes
                         "guidance": "Fix screenshot artifact return/materialization before certifying this release.",
                     }
                 )
+            if status == "passed" and step.visual_assert:
+                assertion_errors = _visual_assertion_errors(response.payload, _resolve_params(step.visual_assert, context))
+                if assertion_errors:
+                    status = "failed"
+                    errors.extend(assertion_errors)
             result = CanaryResult(
                 id=step.id,
                 suite=step.suite,
+                lane=step.lane,
                 command=step.command,
                 params_redacted=params,
                 ok=response.ok,
@@ -296,6 +348,7 @@ def run_steps(steps: list[CanaryStep], surface: CanarySurface) -> list[CanaryRes
             result = CanaryResult(
                 id=step.id,
                 suite=step.suite,
+                lane=step.lane,
                 command=step.command,
                 params_redacted=params,
                 ok=False,
@@ -326,20 +379,46 @@ def classify_status(payload: dict[str, Any], *, skip_on_unavailable: bool = Fals
     return "failed"
 
 
+def timeout_for_command(command: str) -> int:
+    """Per-primitive timeout in seconds. Scenario suites may run many primitives."""
+    if command in {"desktop_see", "iphone_see", "customer_mac_snapshot", "customer_mac_ax_tree"}:
+        return 60
+    if command in {"desktop_click", "iphone_tap"}:
+        return 30
+    if command in {"desktop_drag", "desktop_scroll", "iphone_swipe", "customer_mac_iphone_mirroring_scroll"}:
+        return 20
+    if command in {"desktop_menu", "desktop_window", "desktop_browser_action", "desktop_focus_app", "customer_mac_iphone_mirroring_open_app"}:
+        return 20
+    if command in {
+        "desktop_type",
+        "desktop_hotkey",
+        "iphone_type",
+        "customer_mac_iphone_mirroring_type_approved_text",
+        "customer_mac_iphone_mirroring_send_approved_message",
+    }:
+        return 15
+    return 10
+
+
 def build_scenarios(suite: str, *, allow_real_world_actions: bool) -> list[CanaryStep]:
     normalized = "full_access" if suite == "full" else suite
+    if normalized == "desktop":
+        normalized = "desktop_scenario"
+    if normalized == "iphone":
+        normalized = "iphone_scenario"
     suites: dict[str, list[CanaryStep]] = {
         "readiness": _readiness_steps(),
         "codex": _codex_steps(),
         "full_access": _full_access_steps(),
-        "desktop": _desktop_steps(),
-        "iphone": _iphone_steps(),
+        "primitive": _primitive_steps(),
+        "desktop_scenario": _desktop_scenario_steps(),
+        "iphone_scenario": _iphone_scenario_steps(),
         "ask_permission": _ask_permission_steps(),
         "kill_switch": _kill_switch_steps(),
         "real_world_optional": _real_world_steps() if allow_real_world_actions else [],
     }
     if normalized == "all":
-        ordered = ["readiness", "codex", "full_access", "desktop", "iphone", "ask_permission"]
+        ordered = ["readiness", "codex", "full_access", "primitive", "desktop_scenario", "iphone_scenario", "ask_permission"]
         if allow_real_world_actions:
             ordered.append("real_world_optional")
         return [step for name in ordered for step in suites[name]]
@@ -420,9 +499,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--connector-url", required=True)
     parser.add_argument("--token-env", default="EVAOS_DESKTOP_BRIDGE_TOKEN")
     parser.add_argument("--surface", choices=("connector", "openclaw", "hermes"), default="connector")
-    parser.add_argument("--suite", choices=("readiness", "codex", "desktop", "iphone", "full", "full_access", "ask_permission", "kill_switch", "real_world_optional", "all"), default="readiness")
+    parser.add_argument(
+        "--suite",
+        choices=("readiness", "codex", "desktop", "iphone", "primitive", "desktop_scenario", "iphone_scenario", "full", "full_access", "ask_permission", "kill_switch", "real_world_optional", "all"),
+        default="readiness",
+    )
     parser.add_argument("--artifact-dir", type=Path)
     parser.add_argument("--allow-real-world-actions", action="store_true")
+    parser.add_argument("--operator-ack-live-control", action="store_true", help="Required for suites that may move the mouse, keyboard, or iPhone Mirroring.")
     parser.add_argument("--allow-skips", action="store_true", help="Exit 0 when required suites contain skipped rows; release certification should not use this.")
     parser.add_argument("--repo-root", type=Path, help="Repository root containing openclaw-plugin/ and hermes-adapter/ for adapter surfaces.")
     parser.add_argument("--version-under-test", default="0.5.1")
@@ -431,6 +515,18 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get(args.token_env)
     if not token:
         parser.error(f"{args.token_env} is required")
+    if _suite_requires_operator_ack(args.suite, allow_real_world_actions=args.allow_real_world_actions) and not args.operator_ack_live_control:
+        print(
+            "Refusing to run live-control QA without operator acknowledgement. "
+            "Re-run with --operator-ack-live-control when the Mac/iPhone can be controlled.",
+            file=sys.stderr,
+        )
+        return 2
+    if _suite_requires_operator_ack(args.suite, allow_real_world_actions=args.allow_real_world_actions):
+        print(
+            "evaOS QA live-control warning: this suite may move the mouse, type, click, scroll, or operate iPhone Mirroring.",
+            file=sys.stderr,
+        )
     run_id = f"qa-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     artifact_dir = args.artifact_dir or DEFAULT_RUN_ROOT / run_id
     started_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -463,6 +559,15 @@ def _surface_for_name(name: str, *, connector_url: str, token: str, artifact_dir
     raise ValueError(f"unknown surface: {name}")
 
 
+def _suite_requires_operator_ack(suite: str, *, allow_real_world_actions: bool) -> bool:
+    normalized = "full_access" if suite == "full" else suite
+    if normalized in {"readiness", "codex"}:
+        return False
+    if normalized == "real_world_optional" and not allow_real_world_actions:
+        return False
+    return normalized in LIVE_CONTROL_SUITES
+
+
 def _readiness_steps() -> list[CanaryStep]:
     return [
         CanaryStep(id="readiness.bridge_status", suite="readiness", command="desktop_bridge_status"),
@@ -493,41 +598,50 @@ def _full_access_steps() -> list[CanaryStep]:
     ]
 
 
-def _desktop_steps() -> list[CanaryStep]:
+def _primitive_steps() -> list[CanaryStep]:
     return [
-        CanaryStep(id="desktop.see", suite="desktop", command="desktop_see", params={"max_chars": 4000, "max_nodes": 200}, requires_visual_evidence=True),
+        CanaryStep(id="primitive.desktop_see", suite="primitive", lane="primitive", command="desktop_see", params={"max_chars": 4000, "max_nodes": 200}, requires_visual_evidence=True),
         CanaryStep(
-            id="desktop.click_element",
-            suite="desktop",
+            id="primitive.desktop_click_element",
+            suite="primitive",
+            lane="primitive",
             command="desktop_click",
-            params={"snapshot_id": "${desktop.see.snapshot_id}", "element_id": "${desktop.see.first_element_id}", "dry_run": False},
+            params={"snapshot_id": "${primitive.desktop_see.snapshot_id}", "element_id": "${primitive.desktop_see.first_element_id}", "dry_run": False},
             skip_on_unavailable=True,
         ),
-        CanaryStep(id="desktop.click_coordinates", suite="desktop", command="desktop_click", params={"snapshot_id": "${desktop.see.snapshot_id}", "x": 100, "y": 100, "dry_run": False}),
-        CanaryStep(id="desktop.type", suite="desktop", command="desktop_type", params={"text": "evaOS QA smoke", "dry_run": False}),
-        CanaryStep(id="desktop.scroll", suite="desktop", command="desktop_scroll", params={"direction": "down", "amount": 400, "dry_run": False}),
-        CanaryStep(id="desktop.drag", suite="desktop", command="desktop_drag", params={"from_x": 180, "from_y": 180, "to_x": 260, "to_y": 260, "dry_run": False}),
-        CanaryStep(id="desktop.hotkey", suite="desktop", command="desktop_hotkey", params={"keys": "escape", "dry_run": False}),
-        CanaryStep(id="desktop.focus_app", suite="desktop", command="desktop_focus_app", params={"app_name": "Finder", "dry_run": False}),
-        CanaryStep(id="desktop.window_focus", suite="desktop", command="desktop_window", params={"action": "focus", "dry_run": False}),
-        CanaryStep(id="desktop.menu_probe", suite="desktop", command="desktop_menu", params={"menu_path": "Window", "dry_run": True}, skip_on_unavailable=True),
-        CanaryStep(id="desktop.browser_open", suite="desktop", command="desktop_browser_action", params={"action": "open_url", "url": "https://example.com", "dry_run": False}),
+        CanaryStep(id="primitive.desktop_click_coordinates", suite="primitive", lane="primitive", command="desktop_click", params={"snapshot_id": "${primitive.desktop_see.snapshot_id}", "x": 100, "y": 100, "dry_run": False}),
+        CanaryStep(id="primitive.desktop_type", suite="primitive", lane="primitive", command="desktop_type", params={"text": "evaOS QA smoke", "dry_run": False}),
+        CanaryStep(id="primitive.desktop_scroll", suite="primitive", lane="primitive", command="desktop_scroll", params={"direction": "down", "amount": 400, "dry_run": False}),
+        CanaryStep(id="primitive.desktop_drag", suite="primitive", lane="primitive", command="desktop_drag", params={"from_x": 180, "from_y": 180, "to_x": 260, "to_y": 260, "dry_run": False}),
+        CanaryStep(id="primitive.desktop_hotkey", suite="primitive", lane="primitive", command="desktop_hotkey", params={"keys": "escape", "dry_run": False}),
+        CanaryStep(id="primitive.iphone_focus", suite="primitive", lane="primitive", command="customer_mac_iphone_mirroring_focus", params={"dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="primitive.iphone_open_calculator", suite="primitive", lane="primitive", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="primitive.iphone_see", suite="primitive", lane="primitive", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True),
+        CanaryStep(id="primitive.iphone_tap_coordinates", suite="primitive", lane="primitive", command="iphone_tap", params={"snapshot_id": "${primitive.iphone_see.snapshot_id}", "x": 140, "y": 140, "dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="primitive.iphone_type", suite="primitive", lane="primitive", command="iphone_type", params={"text": "evaOS QA", "dry_run": False}, skip_on_unavailable=True),
     ]
 
 
-def _iphone_steps() -> list[CanaryStep]:
+def _desktop_scenario_steps() -> list[CanaryStep]:
     return [
-        CanaryStep(id="iphone.focus", suite="iphone", command="customer_mac_iphone_mirroring_focus", params={"dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.open_calculator", suite="iphone", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.see", suite="iphone", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True),
-        CanaryStep(id="iphone.tap_coordinates", suite="iphone", command="iphone_tap", params={"snapshot_id": "${iphone.see.snapshot_id}", "x": 140, "y": 140, "dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.swipe_left", suite="iphone", command="iphone_swipe", params={"direction": "left", "dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.swipe_right", suite="iphone", command="iphone_swipe", params={"direction": "right", "dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.type", suite="iphone", command="iphone_type", params={"text": "evaOS QA", "dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.calculator_smoke", suite="iphone", command="iphone_type", params={"text": "1+1+1=", "dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.home", suite="iphone", command="customer_mac_iphone_mirroring_home", params={"dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.app_switcher", suite="iphone", command="customer_mac_iphone_mirroring_app_switcher", params={"dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.spotlight", suite="iphone", command="customer_mac_iphone_mirroring_spotlight", params={"dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="desktop_scenario.browser_open", suite="desktop_scenario", lane="scenario", command="desktop_browser_action", params={"action": "open_url", "url": "https://example.com", "dry_run": False}),
+        CanaryStep(id="desktop_scenario.see_browser", suite="desktop_scenario", lane="scenario", command="desktop_see", params={"max_chars": 4000, "max_nodes": 200}, requires_visual_evidence=True, visual_assert={"expected_visible_text": "Example"}),
+        CanaryStep(id="desktop_scenario.escape", suite="desktop_scenario", lane="scenario", command="desktop_hotkey", params={"keys": "escape", "dry_run": False}, assert_from_step="desktop_scenario.see_browser"),
+        CanaryStep(id="desktop_scenario.menu_probe", suite="desktop_scenario", lane="scenario", command="desktop_menu", params={"menu_path": "Window", "dry_run": True}, skip_on_unavailable=True, assert_from_step="desktop_scenario.see_browser"),
+    ]
+
+
+def _iphone_scenario_steps() -> list[CanaryStep]:
+    return [
+        CanaryStep(id="iphone_scenario.focus", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_focus", params={"dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="iphone_scenario.open_calculator", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="iphone_scenario.see_calculator", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"expected_visible_text": "Calculator"}),
+        CanaryStep(id="iphone_scenario.calculator_entry", suite="iphone_scenario", lane="scenario", command="iphone_type", params={"text": "1+1+1=", "dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_calculator"),
+        CanaryStep(id="iphone_scenario.see_result", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"allowed_states": ["Calculator", "3"]}),
+        CanaryStep(id="iphone_scenario.home", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_home", params={"dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_result"),
+        CanaryStep(id="iphone_scenario.see_home", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True),
+        CanaryStep(id="iphone_scenario.spotlight", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_spotlight", params={"dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_home"),
+        CanaryStep(id="iphone_scenario.app_switcher", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_app_switcher", params={"dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_home"),
     ]
 
 
@@ -550,12 +664,14 @@ def _kill_switch_steps() -> list[CanaryStep]:
 
 def _real_world_steps() -> list[CanaryStep]:
     return [
-        CanaryStep(id="real.bumble_open", suite="real_world_optional", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Bumble", "dry_run": False}, env_required=("QA_BUMBLE_TEXT",), skip_on_unavailable=True),
-        CanaryStep(id="real.bumble_swipe_left", suite="real_world_optional", command="iphone_swipe", params={"direction": "left", "dry_run": False}, env_required=("QA_BUMBLE_TEXT",), skip_on_unavailable=True),
-        CanaryStep(id="real.bumble_text", suite="real_world_optional", command="iphone_type", params={"text": "${env.QA_BUMBLE_TEXT}", "dry_run": False}, env_required=("QA_BUMBLE_TEXT",), skip_on_unavailable=True),
-        CanaryStep(id="real.sms_text", suite="real_world_optional", command="iphone_type", params={"text": "${env.QA_SMS_TEXT}", "dry_run": False}, env_required=("QA_SMS_CONTACT", "QA_SMS_TEXT"), skip_on_unavailable=True),
-        CanaryStep(id="real.social_open", suite="real_world_optional", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "${env.QA_SOCIAL_APP}", "dry_run": False}, env_required=("QA_SOCIAL_APP", "QA_SOCIAL_TEXT"), skip_on_unavailable=True),
-        CanaryStep(id="real.social_text", suite="real_world_optional", command="iphone_type", params={"text": "${env.QA_SOCIAL_TEXT}", "dry_run": False}, env_required=("QA_SOCIAL_APP", "QA_SOCIAL_TEXT"), skip_on_unavailable=True),
+        CanaryStep(id="real.bumble_open", suite="real_world_optional", lane="real_world", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Bumble", "dry_run": False}, env_required=("QA_BUMBLE_TEXT",), skip_on_unavailable=True),
+        CanaryStep(id="real.bumble_see", suite="real_world_optional", lane="real_world", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, env_required=("QA_BUMBLE_TEXT",), skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"expected_visible_text": "Bumble"}),
+        CanaryStep(id="real.bumble_swipe_left", suite="real_world_optional", lane="real_world", command="iphone_swipe", params={"direction": "left", "dry_run": False}, env_required=("QA_BUMBLE_TEXT",), skip_on_unavailable=True, assert_from_step="real.bumble_see"),
+        CanaryStep(id="real.bumble_text", suite="real_world_optional", lane="real_world", command="iphone_type", params={"text": "${env.QA_BUMBLE_TEXT}", "dry_run": False}, env_required=("QA_BUMBLE_TEXT",), skip_on_unavailable=True, assert_from_step="real.bumble_see"),
+        CanaryStep(id="real.sms_text", suite="real_world_optional", lane="real_world", command="iphone_type", params={"text": "${env.QA_SMS_TEXT}", "dry_run": False}, env_required=("QA_SMS_CONTACT", "QA_SMS_TEXT"), skip_on_unavailable=True),
+        CanaryStep(id="real.social_open", suite="real_world_optional", lane="real_world", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "${env.QA_SOCIAL_APP}", "dry_run": False}, env_required=("QA_SOCIAL_APP", "QA_SOCIAL_TEXT"), skip_on_unavailable=True),
+        CanaryStep(id="real.social_see", suite="real_world_optional", lane="real_world", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, env_required=("QA_SOCIAL_APP", "QA_SOCIAL_TEXT"), skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"expected_visible_text": "${env.QA_SOCIAL_APP}"}),
+        CanaryStep(id="real.social_text", suite="real_world_optional", lane="real_world", command="iphone_type", params={"text": "${env.QA_SOCIAL_TEXT}", "dry_run": False}, env_required=("QA_SOCIAL_APP", "QA_SOCIAL_TEXT"), skip_on_unavailable=True, assert_from_step="real.social_see"),
     ]
 
 
@@ -622,6 +738,75 @@ def _find_first_element_id(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _scenario_dependency_error(step: CanaryStep, context: dict[str, CanaryResult]) -> str | None:
+    if step.lane not in {"scenario", "real_world"} or step.command not in ACTION_COMMANDS:
+        return None
+    if not step.assert_from_step:
+        return "Scenario live actions require assert_from_step so the harness acts from a verified visual state."
+    dependency = context.get(step.assert_from_step)
+    if not dependency:
+        return f"{step.assert_from_step} did not run before this live action."
+    if dependency.status != "passed":
+        return f"{step.assert_from_step} did not pass visual assertions."
+    if not dependency.snapshot_id or not dependency.artifact_path:
+        return f"{step.assert_from_step} did not produce visual evidence."
+    return None
+
+
+def _visual_assertion_errors(payload: dict[str, Any], assertion: dict[str, Any]) -> list[dict[str, Any]]:
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    text = _visible_text(data).lower()
+    frontmost_app = str(data.get("frontmost_app") or data.get("app") or data.get("active_app") or "").lower()
+    errors: list[dict[str, Any]] = []
+    expected_app = assertion.get("expected_app")
+    if isinstance(expected_app, str) and expected_app.strip() and expected_app.lower() not in frontmost_app and expected_app.lower() not in text:
+        errors.append(_visual_assertion_error(f"Expected app/state containing '{expected_app}' but saw '{frontmost_app or text[:80]}'."))
+    expected_text = assertion.get("expected_visible_text")
+    if isinstance(expected_text, str) and expected_text.strip() and expected_text.lower() not in text:
+        errors.append(_visual_assertion_error(f"Expected visible text '{expected_text}' was not found."))
+    expected_label = assertion.get("expected_label")
+    if isinstance(expected_label, str) and expected_label.strip() and expected_label.lower() not in text:
+        errors.append(_visual_assertion_error(f"Expected visible label '{expected_label}' was not found."))
+    allowed_states = assertion.get("allowed_states")
+    if isinstance(allowed_states, list) and allowed_states:
+        normalized = [str(state).lower() for state in allowed_states if str(state).strip()]
+        if normalized and not any(state in text or state in frontmost_app for state in normalized):
+            errors.append(_visual_assertion_error(f"None of the allowed states matched: {', '.join(str(state) for state in allowed_states)}."))
+    return errors
+
+
+def _visual_assertion_error(message: str) -> dict[str, str]:
+    return {
+        "code": "qa_visual_assertion_failed",
+        "message": message,
+        "guidance": "Run a fresh see command, verify the target app/screen, then retry the scenario action.",
+    }
+
+
+def _visible_text(data: dict[str, Any]) -> str:
+    chunks: list[str] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, str):
+            chunks.append(value)
+            return
+        if isinstance(value, list):
+            for item in value:
+                collect(item)
+            return
+        if isinstance(value, dict):
+            for key in ("label", "title", "text", "value", "name", "description", "frontmost_app", "app", "active_app"):
+                nested = value.get(key)
+                if isinstance(nested, str):
+                    chunks.append(nested)
+            for key in ("elements", "items", "nodes", "screenshot", "image"):
+                if key in value:
+                    collect(value[key])
+
+    collect(data)
+    return " ".join(chunks)
+
+
 class _UnresolvedPlaceholder(ValueError):
     pass
 
@@ -630,6 +815,7 @@ def _skipped_result(step: CanaryStep, message: str) -> CanaryResult:
     return CanaryResult(
         id=step.id,
         suite=step.suite,
+        lane=step.lane,
         command=step.command,
         params_redacted=step.params,
         ok=False,
@@ -645,10 +831,11 @@ def _skipped_result(step: CanaryStep, message: str) -> CanaryResult:
     )
 
 
-def _failed_result(step: CanaryStep, message: str) -> CanaryResult:
+def _failed_result(step: CanaryStep, message: str, *, code: str = "qa_placeholder_unresolved") -> CanaryResult:
     return CanaryResult(
         id=step.id,
         suite=step.suite,
+        lane=step.lane,
         command=step.command,
         params_redacted=step.params,
         ok=False,
@@ -658,7 +845,7 @@ def _failed_result(step: CanaryStep, message: str) -> CanaryResult:
         snapshot_id=None,
         artifact_path=None,
         duration_ms=0,
-        errors=[{"code": "qa_placeholder_unresolved", "message": message, "guidance": "Inspect previous canary steps."}],
+        errors=[{"code": code, "message": message, "guidance": "Inspect previous canary steps."}],
         warnings=[],
         payload={},
     )
@@ -692,13 +879,14 @@ def _markdown_report(report: dict[str, Any]) -> str:
         f"- Connector: `{report['connector_url_redacted']}`",
         f"- Summary: {summary['passed']} passed, {summary['failed']} failed, {summary['skipped']} skipped, {summary['total']} total",
         "",
-        "| Status | Suite | Step | Command | Audit | Engine | Snapshot | Artifact | Duration |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Status | Lane | Suite | Step | Command | Audit | Engine | Snapshot | Artifact | Duration |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for result in report["results"]:
         lines.append(
-            "| {status} | {suite} | `{id}` | `{command}` | `{audit}` | `{engine}` | `{snapshot}` | `{artifact}` | {duration}ms |".format(
+            "| {status} | {lane} | {suite} | `{id}` | `{command}` | `{audit}` | `{engine}` | `{snapshot}` | `{artifact}` | {duration}ms |".format(
                 status=result["status"],
+                lane=result.get("lane") or "",
                 suite=result["suite"],
                 id=result["id"],
                 command=result["command"],
