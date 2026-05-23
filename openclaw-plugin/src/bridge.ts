@@ -27,6 +27,9 @@ export type BridgeCommandKey =
   | "codexAppServerStatus"
   | "codexAppServerThreads"
   | "codexAppServerRemoteControlStatus"
+  | "evaosProviderProfiles"
+  | "evaosProviderActiveProfile"
+  | "evaosSharedBrowserGuidance"
   | "customerMacStatus"
   | "customerMacCompletePairing"
   | "customerMacCapabilities"
@@ -122,6 +125,9 @@ const FIXED_COMMANDS: Record<
     | "codexContinueThread"
     | "codexSelectThread"
     | "codexAppServerThreads"
+    | "evaosProviderProfiles"
+    | "evaosProviderActiveProfile"
+    | "evaosSharedBrowserGuidance"
     | "customerMacSnapshot"
     | "customerMacCompletePairing"
     | "customerMacControlStart"
@@ -546,6 +552,15 @@ function optionalStringArg(value: unknown, flag: string): string[] {
 }
 
 export async function runBridge(command: BridgeCommandKey, params: BridgeParams = {}): Promise<unknown> {
+  if (command === "evaosProviderProfiles") {
+    return providerProfilesPayload();
+  }
+  if (command === "evaosProviderActiveProfile") {
+    return providerActiveProfilePayload();
+  }
+  if (command === "evaosSharedBrowserGuidance") {
+    return sharedBrowserGuidancePayload();
+  }
   if (command === "customerMacCompletePairing") {
     return runEnrollmentBridge(params);
   }
@@ -583,6 +598,74 @@ export async function runBridge(command: BridgeCommandKey, params: BridgeParams 
         },
       ],
     };
+  }
+}
+
+function providerProfilesPayload(): unknown {
+  const profilesPayload = readJSONEnv("EVAOS_PROVIDER_PROFILES_JSON");
+  const providerProfiles = Array.isArray(profilesPayload)
+    ? profilesPayload
+    : isRecord(profilesPayload) && Array.isArray(profilesPayload.provider_profiles)
+      ? profilesPayload.provider_profiles
+      : [];
+  const grantsPayload = readJSONEnv("EVAOS_PROVIDER_GRANTS_JSON");
+  return redactConnectorSecrets({
+    ok: true,
+    data: {
+      customer_id: process.env.EVAOS_CUSTOMER_ID || null,
+      provider_profiles: providerProfiles,
+      provider_grants: grantsPayload || null,
+      active_provider_key:
+        process.env.EVAOS_ACTIVE_PROVIDER_KEY ||
+        (isRecord(profilesPayload) && typeof profilesPayload.active_provider_key === "string" ? profilesPayload.active_provider_key : null),
+      raw_secrets_available: false,
+      raw_secrets_stored_in_workbench: false,
+    },
+    warnings: providerProfiles.length === 0 ? ["Provider profiles are not configured on this VM yet."] : [],
+  });
+}
+
+function providerActiveProfilePayload(): unknown {
+  const profiles = providerProfilesPayload() as Record<string, unknown>;
+  const data = isRecord(profiles.data) ? profiles.data : {};
+  const providerProfiles = Array.isArray(data.provider_profiles) ? data.provider_profiles : [];
+  const activeProviderKey = typeof data.active_provider_key === "string" ? data.active_provider_key : null;
+  const activeProfile = providerProfiles.find((profile) => isRecord(profile) && profile.provider_key === activeProviderKey) ?? null;
+  return redactConnectorSecrets({
+    ok: true,
+    data: {
+      customer_id: process.env.EVAOS_CUSTOMER_ID || null,
+      active_provider_key: activeProviderKey,
+      active_profile: activeProfile,
+      needs_reauth: !activeProfile,
+      raw_secrets_available: false,
+    },
+    warnings: activeProfile ? [] : ["No active provider profile is available. Ask the customer to connect or select a provider in evaOS Workbench."],
+  });
+}
+
+function sharedBrowserGuidancePayload(): unknown {
+  const status = readJSONEnv("EVAOS_SHARED_BROWSER_STATUS_JSON");
+  return redactConnectorSecrets({
+    ok: true,
+    data: {
+      customer_id: process.env.EVAOS_CUSTOMER_ID || null,
+      shared_browser_preferred_for_cloud_web_tasks: true,
+      instructions:
+        "Use Shared Browser for cloud web tasks that need a persistent VM browser, user auth/CAPTCHA handoff, or human-visible browsing state. Use local Mac browser tools only when the task explicitly needs the customer's Mac browser.",
+      status: status || null,
+    },
+    warnings: status ? [] : ["Shared Browser live status is not configured in this VM environment yet."],
+  });
+}
+
+function readJSONEnv(name: string): unknown {
+  const raw = process.env[name];
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
 }
 

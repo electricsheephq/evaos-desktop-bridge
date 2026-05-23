@@ -30,6 +30,9 @@ use the Workbench connector's customer-granted control session:
 - `desktop_bridge_codex_app_server_remote_control_status`
 - `desktop_bridge_codex_app_server_threads`
 - `desktop_bridge_codex_continue_thread`
+- `evaos_provider_profiles`
+- `evaos_provider_active_profile`
+- `evaos_shared_browser_guidance`
 - `customer_mac_status`
 - `desktop_control_status`
 - `desktop_control_start`
@@ -100,6 +103,17 @@ plugin at the connector server instead:
 ```bash
 export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
 export EVAOS_DESKTOP_BRIDGE_TOKEN="$(cat "$HOME/Library/Application Support/evaos-desktop-bridge/connector.token")"
+```
+
+Provider/Auth Hub and Shared Browser 2.0 discovery are metadata-only VM tools.
+They read these optional environment values when the control plane has minted
+them; they never expose raw provider credentials:
+
+```bash
+export EVAOS_CUSTOMER_ID="<customer-id>"
+export EVAOS_PROVIDER_PROFILES_JSON='{"provider_profiles":[]}'
+export EVAOS_PROVIDER_GRANTS_JSON='[]'
+export EVAOS_SHARED_BROWSER_STATUS_JSON='{"status":"ready"}'
 ```
 
 Before a VM has a connector token, `customer_mac_complete_pairing` posts the

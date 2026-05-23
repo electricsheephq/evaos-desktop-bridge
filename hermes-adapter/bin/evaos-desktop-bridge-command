@@ -238,6 +238,85 @@ def timeout_for_command(command):
     return 10
 
 
+def read_json_env(name):
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def provider_profiles_payload():
+    profiles_payload = read_json_env("EVAOS_PROVIDER_PROFILES_JSON")
+    if isinstance(profiles_payload, list):
+        provider_profiles = profiles_payload
+        active_provider_key = os.environ.get("EVAOS_ACTIVE_PROVIDER_KEY")
+    elif isinstance(profiles_payload, dict):
+        provider_profiles = profiles_payload.get("provider_profiles") if isinstance(profiles_payload.get("provider_profiles"), list) else []
+        active_provider_key = os.environ.get("EVAOS_ACTIVE_PROVIDER_KEY") or profiles_payload.get("active_provider_key")
+    else:
+        provider_profiles = []
+        active_provider_key = os.environ.get("EVAOS_ACTIVE_PROVIDER_KEY")
+    payload = {
+        "ok": True,
+        "data": {
+            "customer_id": os.environ.get("EVAOS_CUSTOMER_ID"),
+            "provider_profiles": provider_profiles,
+            "provider_grants": read_json_env("EVAOS_PROVIDER_GRANTS_JSON"),
+            "active_provider_key": active_provider_key,
+            "raw_secrets_available": False,
+            "raw_secrets_stored_in_workbench": False,
+        },
+        "warnings": [] if provider_profiles else ["Provider profiles are not configured on this VM yet."],
+    }
+    return scrub_secrets(payload)
+
+
+def provider_active_profile_payload():
+    payload = provider_profiles_payload()
+    data = payload.get("data", {}) if isinstance(payload, dict) else {}
+    profiles = data.get("provider_profiles", []) if isinstance(data, dict) else []
+    active_key = data.get("active_provider_key") if isinstance(data, dict) else None
+    active_profile = next((profile for profile in profiles if isinstance(profile, dict) and profile.get("provider_key") == active_key), None)
+    return scrub_secrets({
+        "ok": True,
+        "data": {
+            "customer_id": os.environ.get("EVAOS_CUSTOMER_ID"),
+            "active_provider_key": active_key,
+            "active_profile": active_profile,
+            "needs_reauth": active_profile is None,
+            "raw_secrets_available": False,
+        },
+        "warnings": [] if active_profile else ["No active provider profile is available. Ask the customer to connect or select a provider in evaOS Workbench."],
+    })
+
+
+def shared_browser_guidance_payload():
+    return scrub_secrets({
+        "ok": True,
+        "data": {
+            "customer_id": os.environ.get("EVAOS_CUSTOMER_ID"),
+            "shared_browser_preferred_for_cloud_web_tasks": True,
+            "instructions": "Use Shared Browser for cloud web tasks that need a persistent VM browser, user auth/CAPTCHA handoff, or human-visible browsing state. Use local Mac browser tools only when the task explicitly needs the customer's Mac browser.",
+            "status": read_json_env("EVAOS_SHARED_BROWSER_STATUS_JSON"),
+        },
+        "warnings": [] if os.environ.get("EVAOS_SHARED_BROWSER_STATUS_JSON") else ["Shared Browser live status is not configured in this VM environment yet."],
+    })
+
+
+if command in {"evaosProviderProfiles", "providerProfiles"}:
+    sys.stdout.write(json.dumps(provider_profiles_payload(), separators=(",", ":")) + "\n")
+    raise SystemExit(0)
+if command in {"evaosProviderActiveProfile", "providerActiveProfile"}:
+    sys.stdout.write(json.dumps(provider_active_profile_payload(), separators=(",", ":")) + "\n")
+    raise SystemExit(0)
+if command in {"evaosSharedBrowserGuidance", "sharedBrowserGuidance"}:
+    sys.stdout.write(json.dumps(shared_browser_guidance_payload(), separators=(",", ":")) + "\n")
+    raise SystemExit(0)
+
+
 headers = {
     "Content-Type": "application/json",
     "Accept": "application/json",

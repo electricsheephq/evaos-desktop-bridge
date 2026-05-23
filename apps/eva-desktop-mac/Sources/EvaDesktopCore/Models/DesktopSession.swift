@@ -118,6 +118,88 @@ public struct RuntimeLaunchRequest: Codable, Equatable, Sendable {
     }
 }
 
+public struct RuntimeStatusRequest: Codable, Equatable, Sendable {
+    public let action: String
+    public let customerId: String
+    public let runtime: RuntimeKey
+
+    public init(customerId: String, runtime: RuntimeKey) {
+        self.action = "runtime_status"
+        self.customerId = customerId
+        self.runtime = runtime
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case customerId = "customer_id"
+        case runtime
+    }
+}
+
+public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
+    public let runtimeKey: RuntimeKey
+    public let displayLabel: String
+    public let status: String
+    public let healthSummary: String?
+    public let lastCheckedAt: Date?
+    public let roomId: String?
+    public let currentUrl: String?
+    public let owner: String?
+    public let authNeeded: Bool?
+    public let captchaNeeded: Bool?
+    public let lastActivityAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case runtimeKey = "runtime_key"
+        case displayLabel = "display_label"
+        case status
+        case healthSummary = "health_summary"
+        case lastCheckedAt = "last_checked_at"
+        case roomId = "room_id"
+        case currentUrl = "current_url"
+        case owner
+        case authNeeded = "auth_needed"
+        case captchaNeeded = "captcha_needed"
+        case lastActivityAt = "last_activity_at"
+    }
+}
+
+public struct WorkbenchProviderProfilesRequest: Codable, Equatable, Sendable {
+    public let action: String
+    public let customerId: String
+
+    public init(customerId: String) {
+        self.action = "provider_profiles"
+        self.customerId = customerId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case customerId = "customer_id"
+    }
+}
+
+public struct WorkbenchProviderActionRequest: Codable, Equatable, Sendable {
+    public let action: String
+    public let customerId: String
+    public let providerKey: WorkbenchProviderKey
+    public let agentRuntime: String?
+
+    public init(action: String, customerId: String, providerKey: WorkbenchProviderKey, agentRuntime: String? = nil) {
+        self.action = action
+        self.customerId = customerId
+        self.providerKey = providerKey
+        self.agentRuntime = agentRuntime
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case customerId = "customer_id"
+        case providerKey = "provider_key"
+        case agentRuntime = "agent_runtime"
+    }
+}
+
 public struct DesktopCustomerTargetsRequest: Codable, Equatable, Sendable {
     public let action: String
 

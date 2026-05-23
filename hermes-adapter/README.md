@@ -39,7 +39,15 @@ hermes-adapter/bin/evaos-desktop-bridge-command desktopSee '{}'
 hermes-adapter/bin/evaos-desktop-bridge-command desktopClick '{"target_label":"Continue","dry_run":false}'
 hermes-adapter/bin/evaos-desktop-bridge-command customerMacIphoneMirroringStatus '{}'
 hermes-adapter/bin/evaos-desktop-bridge-command iphoneSwipe '{"direction":"up","dry_run":false}'
+hermes-adapter/bin/evaos-desktop-bridge-command evaosProviderProfiles '{}'
+hermes-adapter/bin/evaos-desktop-bridge-command evaosSharedBrowserGuidance '{}'
 ```
+
+Provider/Auth Hub and Shared Browser guidance commands read optional
+`EVAOS_PROVIDER_PROFILES_JSON`, `EVAOS_PROVIDER_GRANTS_JSON`,
+`EVAOS_ACTIVE_PROVIDER_KEY`, `EVAOS_SHARED_BROWSER_STATUS_JSON`, and
+`EVAOS_CUSTOMER_ID` environment values. They return metadata and opaque grant
+handles only, never raw provider credentials.
 
 Full Access mode allows live desktop/iPhone commands without per-action
 approval. Ask Permission mode gates risky clicks, taps, hotkeys, typing,

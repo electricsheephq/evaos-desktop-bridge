@@ -24,14 +24,60 @@ defaults write com.electricsheephq.EvaDesktop EvaDesktop.feature.creative_studio
 
 Then relaunch Workbench. Disable with `defaults delete ... <key>` or set the key to `false`.
 
+The dashboard uses matching build-time env flags, also defaulting to off:
+
+```bash
+VITE_EVAOS_PROVIDERS_HUB=true
+VITE_EVAOS_SHARED_BROWSER_2=true
+VITE_EVAOS_SESSION_CENTER=true
+VITE_EVAOS_CREATIVE_STUDIO=true
+```
+
+When these are absent, the dashboard routes/sidebar entries remain dark even though the code can ship in the same release train.
+
 ## Current Scope
 
 - Existing gateway runtime order and persistent WebViews are unchanged.
 - Shared Browser remains the existing brokered `browser` runtime; customer-facing copy stays `Shared Browser`, while infrastructure may still use `Live Browser`.
-- Creative Studio is hosted/configured URL first at `<dashboard-base-url>/creative-studio` and opens inside Workbench when the flag is enabled.
-- Provider/Auth Hub stores no raw provider secrets in this slice; it exposes provider readiness metadata only.
+- Creative Studio is hosted/configured URL first at `<dashboard-base-url>/creative-studio` and opens inside Workbench when the flag is enabled. ComfyUI is not bundled in the macOS app.
+- Provider/Auth Hub stores no raw provider secrets in this slice; it exposes provider readiness metadata, active profile, usage summary, and opaque VM-agent grant handles only.
 - Session Center is a native dark-launch registry for current gateway state and attention summaries.
 - No `cmux`, `cc-switch`, or ComfyUI dependency is embedded in the macOS app.
+
+## Broker Actions
+
+The Workbench macOS app talks to the existing `desktop-runtime-session` Supabase function with the desktop session token. The v0.5 additions are:
+
+| Action | Purpose |
+| --- | --- |
+| `provider_profiles` | Read metadata-only provider profiles for the customer VM owner/admin target. |
+| `provider_connect` | Mark a provider connected through the control plane and make it active. MVP behavior is metadata/grant readiness, not raw OAuth token storage in Workbench. |
+| `provider_switch` | Make an already connected provider active. |
+| `provider_revoke` | Revoke the provider metadata profile and associated opaque agent grants. |
+| `provider_mint_grant` | Mint or refresh an opaque grant handle for `openclaw` or `hermes`. |
+| `runtime_status` | Read safe runtime status metadata for Workbench feature surfaces such as Shared Browser 2.0. |
+
+Provider rows live in `customer_provider_profiles`; agent grants live in `customer_provider_agent_grants`. Both are RLS-enabled. Grant handles are broker handles only and must never be treated as raw provider credentials.
+
+## Agent Metadata
+
+OpenClaw and Hermes can discover v0.5 metadata without connector-token access:
+
+```bash
+evaosProviderProfiles
+evaosProviderActiveProfile
+evaosSharedBrowserGuidance
+```
+
+The VM environment may provide:
+
+- `EVAOS_PROVIDER_PROFILES_JSON`
+- `EVAOS_PROVIDER_GRANTS_JSON`
+- `EVAOS_ACTIVE_PROVIDER_KEY`
+- `EVAOS_SHARED_BROWSER_STATUS_JSON`
+- `EVAOS_CUSTOMER_ID`
+
+These commands intentionally return `raw_secrets_available: false`. Agents should use `evaosSharedBrowserGuidance` to prefer Shared Browser for cloud web tasks that need persistent VM browser state, auth/CAPTCHA handoff, or human-visible browser collaboration.
 
 ## Release Gate
 
