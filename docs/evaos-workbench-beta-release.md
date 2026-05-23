@@ -84,11 +84,11 @@ Workbench checks the public update manifest on launch:
 https://www.electricsheephq.com/evaos-workbench/updates.json
 ```
 
-The package command writes the matching manifest JSON next to the beta zip. For
-the current ElectricSheep release path, copy the zip and manifest into the
-Lovable dashboard repo under `public/evaos-workbench/`, merge that dashboard PR,
-then publish through Lovable: project -> Publish -> Update. The customer-facing
-install page is:
+The package command writes the matching manifest JSON next to the ZIP. For
+v0.5.0 and later, upload the ZIP to the matching GitHub Release and copy only
+`updates.json` plus `appcast.xml` into the Lovable dashboard repo under
+`public/evaos-workbench/`. Merge that dashboard PR, then publish through
+Lovable: project -> Publish -> Update. The customer-facing install page is:
 
 ```text
 https://www.electricsheephq.com/evaos-workbench

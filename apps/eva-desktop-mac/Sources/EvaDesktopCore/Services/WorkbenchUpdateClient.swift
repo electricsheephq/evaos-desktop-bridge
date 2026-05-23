@@ -146,6 +146,10 @@ public struct WorkbenchUpdateClient: Sendable {
         guard scheme == "https" else {
             return false
         }
+        if host == "github.com" {
+            return url.path.hasPrefix("/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v")
+                && url.path.hasSuffix(".zip")
+        }
         guard host == "www.electricsheephq.com" || host == "electricsheephq.com" else {
             return false
         }

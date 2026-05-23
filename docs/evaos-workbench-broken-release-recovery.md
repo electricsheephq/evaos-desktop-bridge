@@ -43,7 +43,7 @@ needed a manual reinstall.
 For the fixed artifact:
 
 ```bash
-curl -fsSLO 'https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-X.Y.Z.zip?cb=<sha>'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 unzip -q evaOS-Workbench-X.Y.Z.zip -d fixed
 test -d fixed/evaOS.app/Contents/Frameworks/Sparkle.framework
 otool -l fixed/evaOS.app/Contents/MacOS/EvaDesktop | grep -A2 LC_RPATH
@@ -53,8 +53,8 @@ codesign --verify --deep --strict fixed/evaOS.app
 For old-path aliasing:
 
 ```bash
-curl -fsSLO 'https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-OLD.zip?cb=<sha>'
-curl -fsSLO 'https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-X.Y.Z.zip?cb=<sha>'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vOLD/evaOS-Workbench-OLD.zip'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 shasum -a 256 evaOS-Workbench-OLD.zip evaOS-Workbench-X.Y.Z.zip
 ```
 
@@ -71,4 +71,3 @@ and drag evaOS.app to Applications.
 ```
 
 Do not ask customers to disable Gatekeeper globally.
-

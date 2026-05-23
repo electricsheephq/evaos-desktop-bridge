@@ -1014,12 +1014,10 @@ def _capabilities() -> dict[str, object]:
 
 def _prime_permission(permission: str) -> CommandResult:
     normalized = "screen_recording" if permission == "screen-recording" else permission
-    target = Path(sys.executable).name or "evaos-desktop-bridge"
-    executable = str(Path(sys.executable))
     if sys.platform != "darwin":
         return CommandResult(
             ok=False,
-            data={"permission": normalized, "status": "unsupported", "target": target},
+            data={"permission": normalized, "status": "unsupported", "target": "evaOS Workbench"},
             errors=[
                 make_error(
                     code="permission_platform_unsupported",
@@ -1029,43 +1027,132 @@ def _prime_permission(permission: str) -> CommandResult:
             ],
         )
 
-    try:
-        if normalized == "accessibility":
-            import ApplicationServices as AS  # type: ignore
-
-            trusted = bool(AS.AXIsProcessTrustedWithOptions({AS.kAXTrustedCheckOptionPrompt: True}))
-        elif normalized == "screen_recording":
-            import Quartz  # type: ignore
-
-            trusted = bool(Quartz.CGPreflightScreenCaptureAccess())
-            if not trusted:
-                trusted = bool(Quartz.CGRequestScreenCaptureAccess())
-        else:
-            raise ValueError(f"unsupported permission: {permission}")
-    except Exception as exc:
+    permission_name = "Screen Recording" if normalized == "screen_recording" else "Accessibility"
+    peekaboo_path = _peekaboo_binary_path()
+    if not peekaboo_path:
+        _open_privacy_pane(normalized)
         return CommandResult(
             ok=False,
-            data={"permission": normalized, "status": "unavailable", "target": target, "executable": executable},
+            data={
+                "permission": normalized,
+                "status": "unavailable",
+                "target": "evaOS Workbench",
+                "permission_holder": "evaOS Workbench",
+            },
             errors=[
                 make_error(
-                    code="permission_prime_failed",
-                    message=f"Unable to request {normalized} permission: {exc}",
-                    guidance="Install the bridge GUI extras, then approve the Workbench app or bridge helper in System Settings.",
+                    code="peekaboo_permission_helper_missing",
+                    message="Peekaboo is required to check Mac control permissions without prompting for Python.",
+                    guidance="Reinstall evaOS Workbench so the bundled Peekaboo helper is available, then approve evaOS Workbench or the Peekaboo helper shown by macOS.",
                     permission=normalized,
                 )
             ],
         )
 
+    grant_result = _run_peekaboo_permissions(peekaboo_path, ["grant", "--json"])
+    status_result = _run_peekaboo_permissions(peekaboo_path, ["status", "--json"])
+    event_result: dict[str, object] | None = None
+    if normalized == "accessibility":
+        event_result = _run_peekaboo_permissions(peekaboo_path, ["request-event-synthesizing", "--json"])
+        status_result = _run_peekaboo_permissions(peekaboo_path, ["status", "--json"])
+
+    trusted = _peekaboo_permission_granted(status_result, permission_name)
+    if trusted is not True:
+        _open_privacy_pane(normalized)
+
     return CommandResult(
         ok=True,
         data={
             "permission": normalized,
-            "status": "granted" if trusted else "requested",
-            "target": target,
-            "executable": executable,
-            "guidance": "If macOS opened Privacy & Security, enable the evaOS Workbench app or bridge helper shown there.",
+            "status": "granted" if trusted is True else "requested",
+            "target": "Peekaboo automation helper",
+            "executable": peekaboo_path,
+            "permission_holder": _peekaboo_permission_source(status_result),
+            "grant": grant_result,
+            "event_synthesizing": event_result,
+            "guidance": "Approve evaOS Workbench, Peekaboo, or the selected Peekaboo Bridge host shown by macOS. Python should not be the permission target for this flow.",
         },
     )
+
+
+def _peekaboo_binary_path() -> str | None:
+    for candidate in PEEKABOO_BIN_CANDIDATES:
+        if "/" in candidate:
+            if Path(candidate).exists():
+                return candidate
+        else:
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+    return None
+
+
+def _run_peekaboo_permissions(peekaboo_path: str, args: list[str]) -> dict[str, object]:
+    command = [peekaboo_path, "permissions", *args]
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            timeout=12,
+            check=False,
+        )
+    except Exception as exc:
+        return {"ok": False, "command": command[:3], "error": str(exc)}
+    try:
+        payload = json.loads(completed.stdout.strip() or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    return {
+        "ok": completed.returncode == 0,
+        "command": command[:3],
+        "returncode": completed.returncode,
+        "payload": payload if isinstance(payload, dict) else {},
+        "stderr": completed.stderr[-1200:],
+    }
+
+
+def _peekaboo_permission_granted(status_result: dict[str, object], permission_name: str) -> bool | None:
+    payload = status_result.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data")
+    permissions: object
+    if isinstance(data, dict):
+        permissions = data.get("permissions")
+    else:
+        permissions = data
+    if not isinstance(permissions, list):
+        return None
+    for item in permissions:
+        if isinstance(item, dict) and item.get("name") == permission_name:
+            return bool(item.get("isGranted"))
+    return None
+
+
+def _peekaboo_permission_source(status_result: dict[str, object]) -> str:
+    payload = status_result.get("payload")
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, dict):
+            source = data.get("source")
+            if isinstance(source, str) and source:
+                return f"Peekaboo {source}"
+    return "Peekaboo Bridge host or bundled Peekaboo CLI"
+
+
+def _open_privacy_pane(permission: str) -> None:
+    pane = "Privacy_ScreenCapture" if permission == "screen_recording" else "Privacy_Accessibility"
+    try:
+        subprocess.run(
+            ["open", f"x-apple.systempreferences:com.apple.preference.security?{pane}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+            check=False,
+        )
+    except Exception:
+        return
 
 
 def _target_for_command(command: str) -> str:
@@ -1082,6 +1169,12 @@ CONNECTOR_LABEL = "com.electricsheep.evaos-desktop-bridge"
 CONNECTOR_PORT = 8765
 CONNECTOR_SYSTEM_PLIST = Path("/Library/LaunchAgents/com.electricsheep.evaos-desktop-bridge.plist")
 CONNECTOR_USER_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
+PEEKABOO_BIN_CANDIDATES = (
+    "evaos-connector-helper",
+    "peekaboo",
+    "/opt/homebrew/bin/peekaboo",
+    "/usr/local/bin/peekaboo",
+)
 
 
 def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
@@ -1211,8 +1304,9 @@ def _connector_permission_target(
     launch_program = program_arguments[0] if program_arguments else None
     target_paths = {
         "bridge_executable": launch_program or _connector_program_path(),
-        "python_executable": sys.executable,
         "launch_program": launch_program,
+        "permission_holder": "Peekaboo Bridge host or bundled Peekaboo CLI",
+        "automation_engine": "Peekaboo",
     }
     if health.get("reachable") is not True:
         return {
@@ -1223,16 +1317,16 @@ def _connector_permission_target(
         }
     if managed_by == "launchagent":
         return {
-            "name": "evaos-desktop-bridge LaunchAgent helper",
+            "name": "evaOS Connector",
             "mode": "launchagent",
             **target_paths,
-            "guidance": "If Accessibility is missing through VM tools, approve the exact Python or packaged helper launched by the LaunchAgent.",
+            "guidance": "If Accessibility or Screen Recording is missing, approve evaOS Workbench, evaOS Connector, or the selected Peekaboo helper shown in Privacy & Security.",
         }
     return {
-        "name": "evaOS Workbench / evaos-desktop-bridge helper",
+        "name": "evaOS Workbench / evaOS Connector",
         "mode": "workbench_managed",
         **target_paths,
-        "guidance": "For beta, keep Workbench open and approve evaOS Workbench or the bridge helper in Accessibility and Screen Recording.",
+        "guidance": "Keep Workbench open and approve evaOS Workbench, evaOS Connector, or the selected Peekaboo helper in Accessibility and Screen Recording.",
     }
 
 

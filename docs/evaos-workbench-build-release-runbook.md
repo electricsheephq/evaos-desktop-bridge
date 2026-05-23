@@ -173,21 +173,20 @@ and runs `spctl --assess` when Apple has accepted the submission. If Apple keeps
 the submission in progress, record the submission id and continue polling out of
 band instead of blocking a terminal for hours.
 
-Host the selected zip and update manifest at:
+Host the selected ZIP as a GitHub Release asset. The ElectricSheep website keeps
+only the Sparkle appcast, legacy `updates.json`, and customer-facing install
+copy:
 
 ```text
-https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-Beta-<version>.zip
-https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-<version>.zip
+https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v<version>/evaOS-Workbench-<version>.zip
 https://www.electricsheephq.com/evaos-workbench/updates.json
 https://www.electricsheephq.com/evaos-workbench/appcast.xml
 ```
 
-For the Lovable dashboard deploy, copy those two files into the dashboard repo:
+For the Lovable dashboard deploy, copy only metadata into the dashboard repo:
 
 ```bash
 mkdir -p public/evaos-workbench
-cp apps/eva-desktop-mac/dist/evaOS-Workbench-<version>.zip \
-  /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/
 cp apps/eva-desktop-mac/dist/updates.json \
   /path/to/electric-sheep-website-dashboard-6158a244/public/evaos-workbench/updates.json
 cp apps/eva-desktop-mac/dist/appcast.xml \

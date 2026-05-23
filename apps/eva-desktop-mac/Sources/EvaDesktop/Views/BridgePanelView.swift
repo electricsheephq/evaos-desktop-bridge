@@ -375,9 +375,9 @@ struct BridgePanelView: View {
             return "Accessibility and Screen Recording are approved."
         }
         if isUnchecked(model.customerMacStatusText) {
-            return "Open macOS settings and approve the Workbench app or helper macOS shows. In this beta, macOS may list the helper as Python."
+            return "Open macOS settings and approve evaOS Workbench, evaOS Connector, or the Peekaboo helper macOS shows."
         }
-        return shortStatus(model.customerMacStatusText, unchecked: "Open macOS settings and approve access. If macOS lists Python, approve that helper for this beta.")
+        return shortStatus(model.customerMacStatusText, unchecked: "Open macOS settings and approve evaOS Workbench, evaOS Connector, or the Peekaboo helper shown there.")
     }
 
     private var permissionBadge: String {
