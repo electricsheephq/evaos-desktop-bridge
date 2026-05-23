@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.4.12"
-BUILD_NUMBER="22"
+VERSION="0.5.0"
+BUILD_NUMBER="30"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-(^|[^0-9.])${REQUIRED_PEEKABOO_VERSION//./\\.}([^0-9.]|$)}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -26,12 +26,9 @@ SPARKLE_PUBLIC_ED_KEY="${EVA_DESKTOP_SPARKLE_PUBLIC_ED_KEY:-xbeQ5mJ0u7pwhQP716i8
 SPARKLE_KEY_ACCOUNT="${EVA_DESKTOP_SPARKLE_KEY_ACCOUNT:-electricsheephq-evaos-workbench}"
 SPARKLE_PRIVATE_KEY_FILE="${EVA_DESKTOP_SPARKLE_PRIVATE_KEY_FILE:-/Users/lume/.openclaw/secrets/evaos-workbench-sparkle-ed25519-private-key.txt}"
 NOTARY_TIMEOUT="${EVA_DESKTOP_NOTARY_TIMEOUT:-45m}"
-if [ "$MODE" = "--package-release" ] || [ "$MODE" = "package-release" ] || [ "$MODE" = "--notarize-release" ] || [ "$MODE" = "notarize-release" ]; then
-  DEFAULT_UPDATE_DOWNLOAD_URL="https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-$VERSION.zip"
-else
-  DEFAULT_UPDATE_DOWNLOAD_URL="https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-Beta-$VERSION.zip"
-fi
+DEFAULT_UPDATE_DOWNLOAD_URL="https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v$VERSION/evaOS-Workbench-$VERSION.zip"
 UPDATE_DOWNLOAD_URL="${EVA_DESKTOP_UPDATE_DOWNLOAD_URL:-$DEFAULT_UPDATE_DOWNLOAD_URL}"
+SPARKLE_DOWNLOAD_URL_PREFIX="${EVA_DESKTOP_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v$VERSION/}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
@@ -242,9 +239,15 @@ copy_peekaboo_helper() {
       fi
     fi
     cp "$peekaboo_source" "$bridge_bin_dir/peekaboo"
-    chmod +x "$bridge_bin_dir/peekaboo"
+    cat > "$bridge_bin_dir/evaos-connector-helper" <<'EOF'
+#!/bin/sh
+set -eu
+HELPER_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$HELPER_DIR/peekaboo" "$@"
+EOF
+    chmod +x "$bridge_bin_dir/evaos-connector-helper" "$bridge_bin_dir/peekaboo"
   else
-    cat > "$bridge_bin_dir/peekaboo" <<'EOF'
+    cat > "$bridge_bin_dir/evaos-connector-helper" <<'EOF'
 #!/bin/sh
 set -eu
 for candidate in /opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo; do
@@ -255,7 +258,8 @@ done
 echo "peekaboo not installed. Install with: brew install steipete/tap/peekaboo" >&2
 exit 127
 EOF
-    chmod +x "$bridge_bin_dir/peekaboo"
+    cp "$bridge_bin_dir/evaos-connector-helper" "$bridge_bin_dir/peekaboo"
+    chmod +x "$bridge_bin_dir/evaos-connector-helper" "$bridge_bin_dir/peekaboo"
   fi
   local bundled_peekaboo_version
   bundled_peekaboo_version="$("$bridge_bin_dir/peekaboo" --version 2>&1 || true)"
@@ -475,7 +479,7 @@ EOF
 
   "$generate_appcast" \
     "${key_args[@]}" \
-    --download-url-prefix "https://www.electricsheephq.com/evaos-workbench/" \
+    --download-url-prefix "$SPARKLE_DOWNLOAD_URL_PREFIX" \
     --release-notes-url-prefix "https://www.electricsheephq.com/evaos-workbench/" \
     --link "$UPDATE_RELEASE_NOTES_URL" \
     -o "$APPCAST_OUTPUT" \

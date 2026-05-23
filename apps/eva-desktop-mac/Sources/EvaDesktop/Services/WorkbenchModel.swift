@@ -1708,18 +1708,18 @@ enum BridgeStatusFormatter {
         let managedBy = (status["managed_by"] as? String) ?? ((status["loaded"] as? Bool == true) ? "launchagent" : "workbench")
         let permissionTarget = value(at: ["permission_target", "name"], in: status) as? String
         let permissionPath = value(at: ["permission_target", "bridge_executable"], in: status) as? String
-        let pythonPath = value(at: ["permission_target", "python_executable"], in: status) as? String
+        let permissionHolder = value(at: ["permission_target", "permission_holder"], in: status) as? String
         let tokenPresent = status["token_present"] as? Bool == true
         let reachable = health?["reachable"] as? Bool == true
-        let mode = managedBy == "launchagent" ? "Background helper" : reachable ? "Workbench-managed beta connector" : "Offline"
+        let mode = managedBy == "launchagent" ? "Background helper" : reachable ? "Workbench-managed connector" : "Offline"
         return compact([
             ok ? "Ready" : "Needs attention",
             "Mode: \(mode)",
             (host != nil && port != nil) ? "Address: \(host!):\(port!)" : nil,
             "Token: \(tokenPresent ? "ready" : "missing")",
             permissionTarget.map { "Permission target: \($0)" },
+            permissionHolder.map { "Permission holder: \($0)" },
             permissionPath.map { "Bridge file: \($0)" },
-            pythonPath.map { "Python helper: \($0)" },
             ok ? nil : firstGuidance(status)
         ])
     }

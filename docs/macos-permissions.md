@@ -37,6 +37,9 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 
 - 2026-05-21T00:00:00Z - Added Workbench connector/LaunchAgent TCC caveat from
   support VM canary.
+- 2026-05-23T00:00:00Z - Updated v0.5.0 guidance so permission prompts should
+  belong to evaOS Workbench, evaOS Connector, or the bundled Peekaboo helper,
+  not Python.
 - 2026-05-02T00:00:00Z - Initial TCC setup guide for passive Codex Desktop observation.
 
 ## Required Permissions
@@ -63,10 +66,11 @@ Setup:
 2. Go to Privacy & Security.
 3. Open Accessibility.
 4. Enable the exact process identity that runs `evaos-desktop-bridge`.
-   - For interactive local tests, this is usually Codex, Terminal, or the
-     wrapper app that launched the command.
-   - For `connector-service start`, macOS may require approving the Python app
-     or packaged helper used by the LaunchAgent, not only Workbench itself.
+   - For the packaged Workbench connector, this should be evaOS Workbench,
+     evaOS Connector, or the bundled Peekaboo helper macOS shows.
+   - Python is not an acceptable v0.5.0 release-certification permission owner;
+     if it appears, restart Mac Access from Workbench and recheck the helper
+     path before customer rollout.
 5. Restart the terminal session if macOS does not apply the grant immediately.
 
 Graceful failure shape:
@@ -100,7 +104,8 @@ Setup:
 4. Enable the exact process identity that runs `evaos-desktop-bridge`.
    - macOS may not automatically show the process in this pane after the first
      click. If it does not appear, use the add button and choose the actual app
-     or helper executable being used for the connector.
+     or helper executable being used for the connector: evaOS Workbench, evaOS
+     Connector, or the bundled Peekaboo helper.
 5. Restart the terminal session if macOS does not apply the grant immediately.
 
 If Screen Recording is missing, snapshot still returns visible text fields when available and includes a warning that screenshot capture failed.
@@ -138,9 +143,9 @@ Expected behavior:
 - If `status` reports Accessibility as `missing`, grant Accessibility to the exact app that launches the bridge.
 - If `status` reports Accessibility as `granted` interactively but `missing`
   through the VM connector, the LaunchAgent/helper process has a different TCC
-  identity than the interactive shell. Approve that exact helper or run the
-  support canary connector interactively until the app-owned helper path is
-  shipped.
+  identity than the interactive shell. For v0.5.0, approve the evaOS/Peekaboo
+  helper shown by macOS; if the prompt says Python, treat it as a TCC identity
+  blocker for release certification.
 - If `snapshot` returns `screenshot_path: null`, grant Screen Recording and rerun the terminal.
 - If `ax-tree` returns `ax_tree_unavailable`, confirm Codex Desktop is running and visible, then recheck Accessibility.
 - If `ax-tree`, `windows`, or `threads` returns `ax_dependency_missing`, install the GUI extras with `python3 -m pip install -e '.[gui]'` in the bridge environment.

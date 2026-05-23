@@ -108,9 +108,12 @@ git -C /Volumes/LEXAR/repos/electric-sheep-website-dashboard-6158a244 worktree a
 
 Copy:
 
+Upload the ZIP to the GitHub Release named `evaos-workbench-vX.Y.Z`. Do not
+commit new Workbench ZIP binaries into the dashboard repo. The dashboard only
+publishes customer copy plus update metadata that points Sparkle and legacy
+clients at the GitHub-hosted asset.
+
 ```bash
-cp /Volumes/LEXAR/repos/worktrees/evaos-desktop-bridge-X.Y.Z/apps/eva-desktop-mac/dist/evaOS-Workbench-X.Y.Z.zip \
-  public/evaos-workbench/evaOS-Workbench-X.Y.Z.zip
 cp /Volumes/LEXAR/repos/worktrees/evaos-desktop-bridge-X.Y.Z/apps/eva-desktop-mac/dist/updates.json \
   public/evaos-workbench/updates.json
 cp /Volumes/LEXAR/repos/worktrees/evaos-desktop-bridge-X.Y.Z/apps/eva-desktop-mac/dist/appcast.xml \
@@ -131,7 +134,7 @@ Verify production after Lovable:
 ```bash
 curl -fsSL 'https://www.electricsheephq.com/evaos-workbench/updates.json?cb=<merge_sha>'
 curl -fsSL 'https://www.electricsheephq.com/evaos-workbench/appcast.xml?cb=<merge_sha>'
-curl -fsSI 'https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-X.Y.Z.zip?cb=<merge_sha>'
+curl -fsSI 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 ```
 
 Download and launch-smoke the live artifact:
@@ -139,7 +142,7 @@ Download and launch-smoke the live artifact:
 ```bash
 mkdir -p /Volumes/LEXAR/Codex/workbench-live-smoke-X.Y.Z
 cd /Volumes/LEXAR/Codex/workbench-live-smoke-X.Y.Z
-curl -fsSLO 'https://www.electricsheephq.com/evaos-workbench/evaOS-Workbench-X.Y.Z.zip?cb=<merge_sha>'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 unzip -q evaOS-Workbench-X.Y.Z.zip
 test -d evaOS.app/Contents/Frameworks/Sparkle.framework
 otool -l evaOS.app/Contents/MacOS/EvaDesktop | grep -A2 LC_RPATH

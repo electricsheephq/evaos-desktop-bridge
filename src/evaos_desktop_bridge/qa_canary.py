@@ -425,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-real-world-actions", action="store_true")
     parser.add_argument("--allow-skips", action="store_true", help="Exit 0 when required suites contain skipped rows; release certification should not use this.")
     parser.add_argument("--repo-root", type=Path, help="Repository root containing openclaw-plugin/ and hermes-adapter/ for adapter surfaces.")
-    parser.add_argument("--version-under-test", default="0.4.12")
+    parser.add_argument("--version-under-test", default="0.5.0")
     args = parser.parse_args(argv)
 
     token = os.environ.get(args.token_env)

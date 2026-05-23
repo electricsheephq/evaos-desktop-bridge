@@ -40,15 +40,14 @@ Validated support VM commands:
 
 Open release blocker found:
 
-- `connector-service start` now auto-installs the per-user LaunchAgent, but a
-  LaunchAgent-started Python connector did not inherit the same Accessibility
-  grant as the interactive terminal/Codex-launched connector. For customer beta,
-  either guide the user to approve the exact Python/app helper that launchd runs
-  or move the connector into an app-owned helper with a stable TCC identity.
+- TCC identity is now a v0.5.0 certification gate. macOS should show evaOS
+  Workbench, evaOS Connector, or the bundled Peekaboo helper for Accessibility
+  and Screen Recording. If it asks for Python, stop the customer canary and fix
+  the helper/launch path before calling the build certified.
 - Workbench beta now prefers a Workbench-managed connector process for normal
-  setup. That path avoids the manual `screen` workaround and keeps the
-  permission target closer to the visible app. The LaunchAgent path remains for
-  background/restart testing and future packaged-helper work.
+  setup. That path avoids the manual `screen` workaround and puts the signed
+  bundled Peekaboo helper first on `PATH`. The LaunchAgent path remains for
+  background/restart testing.
 - OpenClaw support-agent proof is blocked by the support VM's expired
   `openai-codex` OAuth refresh. The plugin and connector path are installed, but
   the real agent turn fails before tool execution until the support VM auth is
@@ -87,8 +86,8 @@ evaos-desktop-bridge serve --host <mac-headscale-ip> --port 8765
 
 Workbench can start the beta connector from the app. This is the recommended
 friendly beta path: open Workbench, use **Turn On Mac Access**, then grant
-Accessibility/Screen Recording to Workbench or the bridge helper macOS shows in
-Privacy & Security.
+Accessibility/Screen Recording to evaOS Workbench, evaOS Connector, or the
+Peekaboo helper macOS shows in Privacy & Security.
 
 Workbench can also test the LaunchAgent-backed connector:
 
@@ -97,10 +96,9 @@ evaos-desktop-bridge connector-service start --json
 evaos-desktop-bridge connector-service status --json
 ```
 
-Use the LaunchAgent path for service/restart testing. Use the interactive
-connector command above when validating live Accessibility-dependent actions
-or the Workbench-managed connector for beta validation until the app-owned
-helper/TCC identity is fully productized.
+Use the LaunchAgent path for service/restart testing. Use the Workbench-managed
+connector for v0.5.0 certification so the active control path uses the packaged
+evaOS/Peekaboo helper instead of a raw Python permission owner.
 
 If the operator Mac is on a different tailnet than the support VM, keep the
 connector loopback-only and use a temporary SSH reverse tunnel from the Mac to
@@ -144,19 +142,19 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 ```
 
 Run the kill-switch suite once at the end of the certification pass, after the
@@ -168,7 +166,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite kill_switch \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 ```
 
 See `docs/evaos-workbench-qa-canary.md` for optional real-world app scenarios

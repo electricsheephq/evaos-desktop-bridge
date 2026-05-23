@@ -194,7 +194,7 @@ def test_report_redacts_tokens_contacts_and_real_world_text(tmp_path: Path, monk
         artifact_dir=tmp_path,
         run_id="qa-test",
         started_at="2026-05-23T00:00:00Z",
-        version_under_test="0.4.12",
+        version_under_test="0.5.0",
         surface="connector",
         connector_url="http://100.64.10.12:8765",
         results=[],
@@ -280,6 +280,36 @@ def test_hermes_surface_calls_adapter_script(monkeypatch: Any, tmp_path: Path) -
     assert captured["env"]["EVAOS_DESKTOP_BRIDGE_TOKEN"] == "secret-token"
 
 
+def test_hermes_adapter_materializes_visual_evidence_against_fake_connector(tmp_path: Path) -> None:
+    connector_url, server = serve_fake_connector(
+        {
+            "desktop_see": envelope(
+                "desktop_see",
+                data={
+                    "engine": "peekaboo",
+                    "snapshot_id": "snap-test",
+                    "image": {
+                        "artifact_url": "/v1/artifacts/snap-test.png",
+                        "snapshot_id": "snap-test",
+                    },
+                },
+            )
+        }
+    )
+    try:
+        surface = HermesSurface(connector_url=connector_url, token="secret-token", artifact_dir=tmp_path, repo_root=ROOT)
+        response = surface.run("desktop_see", {"max_chars": 10})
+    finally:
+        server.shutdown()
+
+    assert response.ok is True
+    assert response.engine == "peekaboo"
+    assert response.snapshot_id == "snap-test"
+    assert response.artifact_path is not None
+    assert Path(response.artifact_path).read_bytes().startswith(b"\x89PNG")
+    assert FakeConnectorHandler.seen_payloads[-1] == {"command": "desktop_see", "params": {"max_chars": 10}}
+
+
 def test_scenario_catalog_is_explicit_and_real_world_config_is_local_only() -> None:
     all_steps = build_scenarios("all", allow_real_world_actions=False)
     suites = {step.suite for step in all_steps}
@@ -339,7 +369,7 @@ def test_cli_runs_readiness_suite_and_writes_reports(tmp_path: Path, monkeypatch
                 "--artifact-dir",
                 str(tmp_path),
                 "--version-under-test",
-                "0.4.12",
+                "0.5.0",
             ]
         )
     finally:

@@ -887,7 +887,8 @@ def test_connector_status_accepts_workbench_managed_health_without_launchagent(m
     assert payload["running"] is False
     assert payload["permission_target"]["mode"] == "workbench_managed"
     assert payload["permission_target"]["bridge_executable"]
-    assert payload["permission_target"]["python_executable"]
+    assert payload["permission_target"]["permission_holder"] == "Peekaboo Bridge host or bundled Peekaboo CLI"
+    assert "python_executable" not in payload["permission_target"]
 
 
 def test_connector_status_reports_launchagent_program_as_permission_target(monkeypatch, tmp_path: Path) -> None:
@@ -921,3 +922,53 @@ def test_connector_status_reports_launchagent_program_as_permission_target(monke
     assert payload["managed_by"] == "launchagent"
     assert payload["permission_target"]["bridge_executable"] == "/opt/evaos/helper/evaos-desktop-bridge"
     assert payload["permission_target"]["launch_program"] == "/opt/evaos/helper/evaos-desktop-bridge"
+
+
+def test_permission_prime_uses_peekaboo_not_python_tcc(monkeypatch, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(bridge_cli.sys, "platform", "darwin")
+    monkeypatch.setattr(bridge_cli, "PEEKABOO_BIN_CANDIDATES", ("peekaboo",))
+    monkeypatch.setattr(bridge_cli.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    monkeypatch.setattr(bridge_cli, "_open_privacy_pane", lambda permission: None)
+
+    def fake_run(command: list[str], **kwargs: object):
+        calls.append(command)
+        if command[:3] == ["/test/peekaboo", "permissions", "grant"]:
+            return bridge_cli.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps({"success": True, "data": [{"name": "Accessibility", "isGranted": True}]}),
+                stderr="",
+            )
+        if command[:3] == ["/test/peekaboo", "permissions", "request-event-synthesizing"]:
+            return bridge_cli.subprocess.CompletedProcess(command, 0, stdout=json.dumps({"success": True}), stderr="")
+        if command[:3] == ["/test/peekaboo", "permissions", "status"]:
+            return bridge_cli.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "success": True,
+                        "data": {
+                            "source": "local",
+                            "permissions": [
+                                {"name": "Accessibility", "isGranted": True},
+                                {"name": "Screen Recording", "isGranted": True},
+                            ],
+                        },
+                    }
+                ),
+                stderr="",
+            )
+        return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected")
+
+    monkeypatch.setattr(bridge_cli.subprocess, "run", fake_run)
+
+    payload = run_cli(["permissions", "prime", "--json", "--permission", "accessibility"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["target"] == "Peekaboo automation helper"
+    assert payload["data"]["executable"] == "/test/peekaboo"
+    assert payload["data"]["permission_holder"] == "Peekaboo local"
+    assert all(command[0] == "/test/peekaboo" for command in calls)

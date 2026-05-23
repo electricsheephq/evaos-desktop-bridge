@@ -27,8 +27,10 @@ if [[ -z "${EVAOS_DESKTOP_BRIDGE_URL:-}" || -z "${EVAOS_DESKTOP_BRIDGE_TOKEN:-}"
 fi
 
 python3 - "$command_name" "$params_json" <<'PY'
+import base64
 import json
 import os
+import pathlib
 import sys
 import urllib.parse
 import urllib.request
@@ -106,6 +108,133 @@ def scrub_secrets(value):
     return value
 
 
+def find_visual_image(value):
+    if isinstance(value, dict):
+        if isinstance(value.get("bytes_base64"), str) or isinstance(value.get("artifact_url"), str):
+            return value
+        for nested in value.values():
+            found = find_visual_image(nested)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for nested in value:
+            found = find_visual_image(nested)
+            if found:
+                return found
+    return None
+
+
+def safe_filename(value):
+    text = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in str(value or "visual"))
+    return text[:96] or "visual"
+
+
+def materialize_visual_evidence(payload):
+    artifact_dir = os.environ.get("EVAOS_DESKTOP_BRIDGE_ARTIFACT_DIR")
+    if not artifact_dir or not isinstance(payload, dict):
+        return payload
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return payload
+    image = find_visual_image(data)
+    if not image:
+        return payload
+    content = None
+    if isinstance(image.get("bytes_base64"), str):
+        try:
+            content = base64.b64decode(image["bytes_base64"])
+        except Exception:
+            content = None
+    artifact_url = image.get("artifact_url")
+    if content is None and isinstance(artifact_url, str):
+        parsed_base = urllib.parse.urlparse(os.environ.get("EVAOS_DESKTOP_BRIDGE_URL", ""))
+        endpoint = urllib.parse.urljoin(os.environ.get("EVAOS_DESKTOP_BRIDGE_URL", "").rstrip("/") + "/", artifact_url)
+        parsed_endpoint = urllib.parse.urlparse(endpoint)
+        if parsed_base.netloc == parsed_endpoint.netloc and parsed_endpoint.path.startswith("/v1/artifacts/"):
+            request = urllib.request.Request(endpoint, method="GET", headers={"Authorization": f"Bearer {os.environ.get('EVAOS_DESKTOP_BRIDGE_TOKEN', '')}"})
+            try:
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    content = response.read()
+            except Exception as exc:
+                payload.setdefault("warnings", []).append(f"Unable to fetch connector artifact: {exc}")
+    if content is None:
+        return payload
+    snapshot_id = (
+        data.get("snapshot_id")
+        or image.get("snapshot_id")
+        or image.get("artifact_id")
+        or pathlib.Path(str(artifact_url or "visual")).stem
+    )
+    evidence_dir = pathlib.Path(artifact_dir) / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    output_path = evidence_dir / f"{safe_filename(snapshot_id)}.png"
+    output_path.write_bytes(content)
+    data["vm_visual_artifact_path"] = str(output_path)
+    image["vm_artifact_path"] = str(output_path)
+    return payload
+
+
+def timeout_for_command(command):
+    if command in {
+        "desktopSee",
+        "desktop_see",
+        "iphoneSee",
+        "iphone_see",
+        "customerMacSnapshot",
+        "customer_mac_snapshot",
+        "customerMacAxTree",
+        "customer_mac_ax_tree",
+    }:
+        return 30
+    if command in {
+        "desktopDrag",
+        "desktop_drag",
+        "desktopScroll",
+        "desktop_scroll",
+        "iphoneSwipe",
+        "iphone_swipe",
+        "customerMacIphoneMirroringScroll",
+        "customer_mac_iphone_mirroring_scroll",
+        "customerMacIphoneMirroringSwipeLeft",
+        "customer_mac_iphone_mirroring_swipe_left",
+        "customerMacIphoneMirroringSwipeRight",
+        "customer_mac_iphone_mirroring_swipe_right",
+        "customerMacIphoneMirroringSwipeUp",
+        "customer_mac_iphone_mirroring_swipe_up",
+        "customerMacIphoneMirroringSwipeDown",
+        "customer_mac_iphone_mirroring_swipe_down",
+        "desktopMenu",
+        "desktop_menu",
+        "desktopWindow",
+        "desktop_window",
+        "desktopBrowserAction",
+        "desktop_browser_action",
+        "desktopFocusApp",
+        "desktop_focus_app",
+        "customerMacIphoneMirroringOpenApp",
+        "customer_mac_iphone_mirroring_open_app",
+    }:
+        return 20
+    if command in {
+        "desktopClick",
+        "desktop_click",
+        "desktopType",
+        "desktop_type",
+        "desktopHotkey",
+        "desktop_hotkey",
+        "iphoneTap",
+        "iphone_tap",
+        "iphoneType",
+        "iphone_type",
+        "customerMacIphoneMirroringTypeApprovedText",
+        "customer_mac_iphone_mirroring_type_approved_text",
+        "customerMacIphoneMirroringSendApprovedMessage",
+        "customer_mac_iphone_mirroring_send_approved_message",
+    }:
+        return 15
+    return 10
+
+
 headers = {
     "Content-Type": "application/json",
     "Accept": "application/json",
@@ -132,10 +261,10 @@ else:
 
 request = urllib.request.Request(url, data=body, method="POST", headers=headers)
 try:
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with urllib.request.urlopen(request, timeout=timeout_for_command(command)) as response:
         response_body = response.read().decode()
         try:
-            sys.stdout.write(json.dumps(scrub_secrets(json.loads(response_body)), separators=(",", ":")))
+            sys.stdout.write(json.dumps(scrub_secrets(materialize_visual_evidence(json.loads(response_body))), separators=(",", ":")))
         except json.JSONDecodeError:
             sys.stdout.write(response_body)
         sys.stdout.write("\n")
@@ -143,7 +272,7 @@ except urllib.error.HTTPError as exc:
     error_body = exc.read().decode(errors="replace")
     if error_body.strip().startswith("{"):
         try:
-            sys.stdout.write(json.dumps(scrub_secrets(json.loads(error_body)), separators=(",", ":")))
+            sys.stdout.write(json.dumps(scrub_secrets(materialize_visual_evidence(json.loads(error_body))), separators=(",", ":")))
         except json.JSONDecodeError:
             sys.stdout.write(error_body)
         sys.stdout.write("\n")

@@ -37,6 +37,7 @@ SAFE_BROWSER_APPS = {"Safari", "Google Chrome", "Arc", "Firefox", "Brave Browser
 SAFE_LOCAL_SITE_ACTIONS = {"reload", "back", "forward"}
 CONTROL_MODES = {"full_access", "ask_permission"}
 PEEKABOO_BIN_CANDIDATES = (
+    "evaos-connector-helper",
     "peekaboo",
     "/opt/homebrew/bin/peekaboo",
     "/usr/local/bin/peekaboo",

@@ -53,13 +53,16 @@ loopback-only debug run.
 
 If agent tools report Accessibility missing through the VM while local terminal
 commands show it granted, the connector is running under a different macOS TCC
-identity. For beta, restart from Workbench and approve Workbench or the bridge
-helper macOS displays in Privacy & Security. The future GA path is a stable
-Developer ID signed helper.
+identity. For v0.5.0 certification, restart from Workbench and approve evaOS
+Workbench, evaOS Connector, or the bundled Peekaboo helper macOS displays in
+Privacy & Security. If macOS asks for Python, treat that as a release blocker
+instead of asking the customer to approve it.
 
-`connector-service status --json` reports the permission target plus the bridge
-and Python helper paths. Use those paths when macOS does not show a toggle after
-opening Privacy & Security and you need to add the helper manually.
+`connector-service status --json` reports the permission target plus the bridge,
+bundled Peekaboo, and connector helper paths. Use those paths when macOS does
+not show a toggle after opening Privacy & Security and you need to add the
+helper manually. For v0.5.0 certification, macOS should show evaOS Workbench,
+evaOS Connector, or Peekaboo as the permission owner, not Python.
 
 Run locally for development:
 

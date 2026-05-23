@@ -27,7 +27,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "http://<mac-tailnet-ip>:8765" \
   --surface connector \
   --suite all \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 ```
 
 When running from an uninstalled checkout, prefix commands with
@@ -59,19 +59,19 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 ```
 
 Then run the destructive kill-switch proof once, after the other surfaces are
@@ -83,7 +83,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite kill_switch \
-  --version-under-test 0.4.12
+  --version-under-test 0.5.0
 ```
 
 The OpenClaw path shells through `openclaw-plugin/scripts/qa-run-bridge.mjs`,
@@ -107,8 +107,6 @@ posts to `/v1/commands`.
 - `ask_permission`: starts Ask Permission, proves a high-impact live type is
   denied without approval, then proves the dry-run audit id can approve the
   matching action.
-- `kill_switch`: activates the kill switch and proves future live control fails
-  closed.
 - `kill_switch`: activates the kill switch and proves future live control fails
   closed. Run this last because it intentionally changes connector state.
 - `real_world_optional`: Bumble, SMS, and social-post style workflows. These are

@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.4.12"' in script
-    assert 'BUILD_NUMBER="22"' in script
-    assert 'version = "0.4.12"' in app_brand
-    assert 'buildNumber = "22"' in app_brand
+    assert 'VERSION="0.5.0"' in script
+    assert 'BUILD_NUMBER="30"' in script
+    assert 'version = "0.5.0"' in app_brand
+    assert 'buildNumber = "30"' in app_brand
     assert 'REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-0}"' in script
@@ -75,7 +75,8 @@ def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector()
     assert "stopManagedConnectorForAppTermination" in model
     assert "NSApplication.willTerminateNotification" in content_view
     assert "Bridge file:" in model
-    assert "Python helper:" in model
+    assert "Permission holder:" in model
+    assert "Python helper:" not in model
     assert 'bridgeSectionTitle = "Settings"' in app_brand
     assert 'macAndIPhoneTitle = "Mac & iPhone"' in app_brand
     assert 'Text("Settings")' in bridge_panel
@@ -106,6 +107,7 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "copy_bridge_helper" in script
     assert 'cp -R "$REPO_ROOT/src/evaos_desktop_bridge" "$bridge_dir/src/"' in script
     assert "copy_peekaboo_helper" in script
+    assert "evaos-connector-helper" in script
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
@@ -114,6 +116,7 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "/opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo" in script
     assert "/usr/local/bin/peekaboo peekaboo" not in script
     assert 'exec "$PYTHON_BIN" -m evaos_desktop_bridge.cli "$@"' in script
+    assert "https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v$VERSION/evaOS-Workbench-$VERSION.zip" in script
     assert "customer-mac\", \"control\", \"status\", \"--json" in model
     assert "customer-mac\", \"control\", \"stop\", \"--json" in model
     assert "customer-mac\", \"control\", \"kill-switch\", \"--json" in model
