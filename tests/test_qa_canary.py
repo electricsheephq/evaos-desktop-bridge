@@ -194,7 +194,7 @@ def test_report_redacts_tokens_contacts_and_real_world_text(tmp_path: Path, monk
         artifact_dir=tmp_path,
         run_id="qa-test",
         started_at="2026-05-23T00:00:00Z",
-        version_under_test="0.5.0",
+        version_under_test="0.5.1",
         surface="connector",
         connector_url="http://100.64.10.12:8765",
         results=[],
@@ -369,7 +369,7 @@ def test_cli_runs_readiness_suite_and_writes_reports(tmp_path: Path, monkeypatch
                 "--artifact-dir",
                 str(tmp_path),
                 "--version-under-test",
-                "0.5.0",
+                "0.5.1",
             ]
         )
     finally:

@@ -27,7 +27,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "http://<mac-tailnet-ip>:8765" \
   --surface connector \
   --suite all \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 ```
 
 When running from an uninstalled checkout, prefix commands with
@@ -59,19 +59,19 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 ```
 
 Then run the destructive kill-switch proof once, after the other surfaces are
@@ -83,7 +83,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite kill_switch \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 ```
 
 The OpenClaw path shells through `openclaw-plugin/scripts/qa-run-bridge.mjs`,
@@ -103,7 +103,9 @@ posts to `/v1/commands`.
   coordinate click, type, scroll, drag, hotkey, focus app, window, menu, and
   browser open.
 - `iphone`: focus iPhone Mirroring, see, tap, swipe, type, Home, App Switcher,
-  Spotlight, and Calculator `1+1+1=` smoke.
+  Spotlight, and Calculator `1+1+1=` smoke. This suite opens Calculator before
+  generic tap/swipe/type probes so capability checks happen inside a known,
+  low-risk app instead of the current arbitrary iPhone state.
 - `ask_permission`: starts Ask Permission, proves a high-impact live type is
   denied without approval, then proves the dry-run audit id can approve the
   matching action.
@@ -112,6 +114,12 @@ posts to `/v1/commands`.
 - `real_world_optional`: Bumble, SMS, and social-post style workflows. These are
   never enabled unless `--allow-real-world-actions` is set and local environment
   variables provide exact text/contact/app values.
+
+The required suites are capability certification, not a replacement for
+scenario QA. Real task canaries should use a fresh `iphone_see` or
+`desktop_see` before each action, assert the expected app/screen is visible, run
+one action, then capture another `see` result to prove the intended state
+changed. Do not use blind swipes or coordinates for scenario certification.
 
 ## Real-World Optional Config
 

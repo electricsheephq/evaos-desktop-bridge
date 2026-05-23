@@ -545,7 +545,7 @@ async function runRemoteBridge(remoteURL, command, params) {
 }
 function timeoutForCommand(command) {
     if (command === "desktopSee" || command === "iphoneSee" || command === "customerMacSnapshot" || command === "customerMacAxTree") {
-        return 30_000;
+        return 60_000;
     }
     if (command === "desktopDrag" ||
         command === "desktopScroll" ||
@@ -565,9 +565,11 @@ function timeoutForCommand(command) {
         return 20_000;
     }
     if (command === "desktopClick" ||
-        command === "desktopType" ||
+        command === "iphoneTap") {
+        return 30_000;
+    }
+    if (command === "desktopType" ||
         command === "desktopHotkey" ||
-        command === "iphoneTap" ||
         command === "iphoneType" ||
         command === "customerMacIphoneMirroringTypeApprovedText" ||
         command === "customerMacIphoneMirroringSendApprovedMessage") {

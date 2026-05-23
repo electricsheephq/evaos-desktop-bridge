@@ -202,7 +202,7 @@ class OpenClawSurface:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=45,
+            timeout=90,
             check=False,
         )
         payload = _payload_from_completed_process(completed, command)
@@ -235,7 +235,7 @@ class HermesSurface:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=45,
+            timeout=90,
             check=False,
         )
         payload = _payload_from_completed_process(completed, command)
@@ -425,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-real-world-actions", action="store_true")
     parser.add_argument("--allow-skips", action="store_true", help="Exit 0 when required suites contain skipped rows; release certification should not use this.")
     parser.add_argument("--repo-root", type=Path, help="Repository root containing openclaw-plugin/ and hermes-adapter/ for adapter surfaces.")
-    parser.add_argument("--version-under-test", default="0.5.0")
+    parser.add_argument("--version-under-test", default="0.5.1")
     args = parser.parse_args(argv)
 
     token = os.environ.get(args.token_env)
@@ -518,16 +518,16 @@ def _desktop_steps() -> list[CanaryStep]:
 def _iphone_steps() -> list[CanaryStep]:
     return [
         CanaryStep(id="iphone.focus", suite="iphone", command="customer_mac_iphone_mirroring_focus", params={"dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="iphone.open_calculator", suite="iphone", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone.see", suite="iphone", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True),
         CanaryStep(id="iphone.tap_coordinates", suite="iphone", command="iphone_tap", params={"snapshot_id": "${iphone.see.snapshot_id}", "x": 140, "y": 140, "dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone.swipe_left", suite="iphone", command="iphone_swipe", params={"direction": "left", "dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone.swipe_right", suite="iphone", command="iphone_swipe", params={"direction": "right", "dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone.type", suite="iphone", command="iphone_type", params={"text": "evaOS QA", "dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="iphone.calculator_smoke", suite="iphone", command="iphone_type", params={"text": "1+1+1=", "dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone.home", suite="iphone", command="customer_mac_iphone_mirroring_home", params={"dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone.app_switcher", suite="iphone", command="customer_mac_iphone_mirroring_app_switcher", params={"dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone.spotlight", suite="iphone", command="customer_mac_iphone_mirroring_spotlight", params={"dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.open_calculator", suite="iphone", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone.calculator_smoke", suite="iphone", command="iphone_type", params={"text": "1+1+1=", "dry_run": False}, skip_on_unavailable=True),
     ]
 
 
