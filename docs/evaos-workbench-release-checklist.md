@@ -134,7 +134,7 @@ Verify production after Lovable:
 ```bash
 curl -fsSL 'https://www.electricsheephq.com/evaos-workbench/updates.json?cb=<merge_sha>'
 curl -fsSL 'https://www.electricsheephq.com/evaos-workbench/appcast.xml?cb=<merge_sha>'
-curl -fsSI 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
+curl -fsSI 'https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 ```
 
 Download and launch-smoke the live artifact:
@@ -142,7 +142,7 @@ Download and launch-smoke the live artifact:
 ```bash
 mkdir -p /Volumes/LEXAR/Codex/workbench-live-smoke-X.Y.Z
 cd /Volumes/LEXAR/Codex/workbench-live-smoke-X.Y.Z
-curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 unzip -q evaOS-Workbench-X.Y.Z.zip
 test -d evaOS.app/Contents/Frameworks/Sparkle.framework
 otool -l evaOS.app/Contents/MacOS/EvaDesktop | grep -A2 LC_RPATH

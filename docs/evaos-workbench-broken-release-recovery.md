@@ -43,7 +43,7 @@ needed a manual reinstall.
 For the fixed artifact:
 
 ```bash
-curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 unzip -q evaOS-Workbench-X.Y.Z.zip -d fixed
 test -d fixed/evaOS.app/Contents/Frameworks/Sparkle.framework
 otool -l fixed/evaOS.app/Contents/MacOS/EvaDesktop | grep -A2 LC_RPATH
@@ -53,8 +53,8 @@ codesign --verify --deep --strict fixed/evaOS.app
 For old-path aliasing:
 
 ```bash
-curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vOLD/evaOS-Workbench-OLD.zip'
-curl -fsSLO 'https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-vOLD/evaOS-Workbench-OLD.zip'
+curl -fsSLO 'https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-vX.Y.Z/evaOS-Workbench-X.Y.Z.zip'
 shasum -a 256 evaOS-Workbench-OLD.zip evaOS-Workbench-X.Y.Z.zip
 ```
 

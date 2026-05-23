@@ -26,9 +26,9 @@ SPARKLE_PUBLIC_ED_KEY="${EVA_DESKTOP_SPARKLE_PUBLIC_ED_KEY:-xbeQ5mJ0u7pwhQP716i8
 SPARKLE_KEY_ACCOUNT="${EVA_DESKTOP_SPARKLE_KEY_ACCOUNT:-electricsheephq-evaos-workbench}"
 SPARKLE_PRIVATE_KEY_FILE="${EVA_DESKTOP_SPARKLE_PRIVATE_KEY_FILE:-/Users/lume/.openclaw/secrets/evaos-workbench-sparkle-ed25519-private-key.txt}"
 NOTARY_TIMEOUT="${EVA_DESKTOP_NOTARY_TIMEOUT:-45m}"
-DEFAULT_UPDATE_DOWNLOAD_URL="https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v$VERSION/evaOS-Workbench-$VERSION.zip"
+DEFAULT_UPDATE_DOWNLOAD_URL="https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v$VERSION/evaOS-Workbench-$VERSION.zip"
 UPDATE_DOWNLOAD_URL="${EVA_DESKTOP_UPDATE_DOWNLOAD_URL:-$DEFAULT_UPDATE_DOWNLOAD_URL}"
-SPARKLE_DOWNLOAD_URL_PREFIX="${EVA_DESKTOP_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v$VERSION/}"
+SPARKLE_DOWNLOAD_URL_PREFIX="${EVA_DESKTOP_SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v$VERSION/}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
