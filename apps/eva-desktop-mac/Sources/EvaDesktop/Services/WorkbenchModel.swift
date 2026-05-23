@@ -85,6 +85,9 @@ final class WorkbenchModel: ObservableObject {
     @Published var sharedBrowserCurrentURLText = "Unavailable"
     @Published var sharedBrowserLastActivityText = "Not checked"
     @Published var isRefreshingSharedBrowserStatus = false
+    @Published var runtimeStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
+    @Published var sessionCenterStatusText = "Unchecked"
+    @Published var isRefreshingSessionCenter = false
     let featureFlags: WorkbenchFeatureFlags
 
     let webViews = WebViewStore()
@@ -133,11 +136,11 @@ final class WorkbenchModel: ObservableObject {
     }
 
     var visibleRuntimes: [RuntimeDefinition] {
-        RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
-    }
-
-    var creativeStudioURL: URL {
-        resolver.creativeStudioURL()
+        RuntimeDefinition
+            .visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
+            .filter { definition in
+                definition.key != .creativeStudio || featureFlags.isEnabled(.creativeStudio)
+            }
     }
 
     var loadedRuntimeKeys: [RuntimeKey] {
@@ -419,8 +422,8 @@ final class WorkbenchModel: ObservableObject {
         if featureFlags.isEnabled(.providersHub) {
             await refreshProviderProfiles()
         }
-        if featureFlags.isEnabled(.sharedBrowser2) {
-            await refreshSharedBrowserStatus()
+        if featureFlags.isEnabled(.sessionCenter) {
+            await refreshSessionCenterState()
         }
     }
 
@@ -534,6 +537,51 @@ final class WorkbenchModel: ObservableObject {
             sharedBrowserRoomText = "Status unavailable"
             sharedBrowserCurrentURLText = "Unavailable"
             sharedBrowserLastActivityText = error.localizedDescription
+        }
+    }
+
+    func refreshSessionCenterState() async {
+        guard isSignedIn else {
+            runtimeStatuses.removeAll()
+            sessionCenterStatusText = "Sign in first"
+            return
+        }
+        guard !isRefreshingSessionCenter else { return }
+        isRefreshingSessionCenter = true
+        sessionCenterStatusText = "Refreshing..."
+        defer { isRefreshingSessionCenter = false }
+
+        var nextStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
+        var failures = 0
+        for definition in visibleRuntimes where RuntimeDefinition.isBrokeredRuntime(definition.key) {
+            do {
+                let status = try await broker.runtimeStatus(
+                    customerId: sanitizedCustomerId,
+                    runtime: definition.key,
+                    desktopSession: session
+                )
+                nextStatuses[definition.key] = status
+                if definition.key == .liveBrowser {
+                    sharedBrowserStatusText = Self.shortRuntimeStatus(status.status)
+                    sharedBrowserRoomText = status.roomId ?? status.displayLabel
+                    sharedBrowserCurrentURLText = Self.safeURLSummary(status.currentUrl)
+                    sharedBrowserLastActivityText = Self.activitySummary(status.lastActivityAt ?? status.lastCheckedAt)
+                }
+            } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+                clearLocalSessionState(allowKeychainInteraction: false)
+                sessionCenterStatusText = "Session expired"
+                return
+            } catch {
+                failures += 1
+            }
+        }
+        runtimeStatuses = nextStatuses
+        if nextStatuses.isEmpty && failures > 0 {
+            sessionCenterStatusText = "Unavailable"
+        } else if failures > 0 {
+            sessionCenterStatusText = "\(nextStatuses.count) checked, \(failures) unavailable"
+        } else {
+            sessionCenterStatusText = "Ready"
         }
     }
 

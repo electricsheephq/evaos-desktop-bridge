@@ -78,6 +78,10 @@ public struct WorkbenchProviderProfileState: Codable, Equatable, Identifiable, S
 
     public var id: WorkbenchProviderKey { key }
 
+    public var hasConnectionProof: Bool {
+        status == .connected && !rawSecretsStoredInWorkbench && lastValidatedAt != nil
+    }
+
     public init(
         key: WorkbenchProviderKey,
         title: String,

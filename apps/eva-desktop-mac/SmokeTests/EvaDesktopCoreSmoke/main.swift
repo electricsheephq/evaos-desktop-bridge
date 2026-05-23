@@ -31,7 +31,6 @@ precondition(configuredFeatureFlags.isEnabled(.providersHub))
 precondition(!configuredFeatureFlags.isEnabled(.sharedBrowser2))
 precondition(!configuredFeatureFlags.isEnabled(.sessionCenter))
 precondition(configuredFeatureFlags.isEnabled(.creativeStudio))
-precondition(resolver.creativeStudioURL().absoluteString == "https://www.electricsheephq.com/creative-studio")
 precondition(WorkbenchProviderCatalog.profiles.map(\.key) == [.openAICodex, .openClaw, .hermes])
 precondition(WorkbenchProviderCatalog.profiles.allSatisfy { !$0.rawSecretsStoredInWorkbench })
 precondition(WorkbenchProviderCatalog.profiles.first?.readiness == .needsLogin)
@@ -46,12 +45,25 @@ precondition(resolver.sanitizedCustomerId("") == "golden")
 precondition(RuntimeDefinition.isBrokeredRuntime(.openclaw))
 precondition(RuntimeDefinition.isBrokeredRuntime(.terminal))
 precondition(RuntimeDefinition.isBrokeredRuntime(.openDesign))
+precondition(RuntimeDefinition.isBrokeredRuntime(.creativeStudio))
 precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: false).contains { $0.key == .terminal })
 precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: true).contains { $0.key == .terminal })
 precondition(RuntimeDefinition.definition(for: .openDesign).availability == .enabled)
+precondition(RuntimeDefinition.definition(for: .creativeStudio).availability == .enabled)
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 precondition(RuntimeDefinition.definition(for: .liveBrowser).title == "Shared Browser")
-precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal])
+precondition(RuntimeDefinition.definition(for: .creativeStudio).title == "Creative Studio")
+precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .creativeStudio])
+
+let contentViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/ContentView.swift", encoding: .utf8)
+precondition(!contentViewSource.contains("case .sharedBrowser2"))
+precondition(!contentViewSource.contains("CreativeStudioPlaceholderView"))
+let placeholderSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchPlaceholderViews.swift", encoding: .utf8)
+precondition(!placeholderSource.contains("struct SharedBrowser2View"))
+precondition(!placeholderSource.contains("struct CreativeStudioPlaceholderView"))
+precondition(placeholderSource.contains("model.runtimeStatuses"))
+precondition(!placeholderSource.contains("model.runtimeURLs[runtime.key] == nil ? \"Ready to open\" : \"Loaded\""))
+precondition(placeholderSource.contains("Needs verification"))
 
 let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.5.2/evaOS-Workbench-0.5.2.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
@@ -83,6 +95,10 @@ precondition(!launchJSON.contains("customerId"))
 let encodedOpenDesignLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .openDesign))
 let openDesignLaunchJSON = String(data: encodedOpenDesignLaunch, encoding: .utf8) ?? ""
 precondition(openDesignLaunchJSON.contains("\"runtime\":\"opendesign\""))
+
+let encodedCreativeStudioLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .creativeStudio))
+let creativeStudioLaunchJSON = String(data: encodedCreativeStudioLaunch, encoding: .utf8) ?? ""
+precondition(creativeStudioLaunchJSON.contains("\"runtime\":\"creative_studio\""))
 
 let encodedRuntimeStatus = try JSONEncoder().encode(RuntimeStatusRequest(customerId: "golden", runtime: .liveBrowser))
 let runtimeStatusJSON = String(data: encodedRuntimeStatus, encoding: .utf8) ?? ""
@@ -160,9 +176,16 @@ let providerProfilesResponse = """
 let decodedProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: providerProfilesResponse)
 precondition(decodedProviderProfiles.profiles.first?.key == .openAICodex)
 precondition(decodedProviderProfiles.profiles.first?.status == .connected)
+precondition(decodedProviderProfiles.profiles.first?.hasConnectionProof == true)
 precondition(decodedProviderProfiles.profiles.first?.rawSecretsStoredInWorkbench == false)
 precondition(decodedProviderProfiles.activeProviderKey == .openAICodex)
 precondition(decodedProviderProfiles.rawSecretsStoredInWorkbench == false)
+
+let unverifiedProviderProfilesResponse = """
+{"provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"connected","active":true,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":"Ready"}],"active_provider_key":"openai_codex","raw_secrets_stored_in_workbench":false}
+""".data(using: .utf8)!
+let decodedUnverifiedProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: unverifiedProviderProfilesResponse)
+precondition(decodedUnverifiedProviderProfiles.profiles.first?.hasConnectionProof == false)
 
 let runtimeStatusResponse = """
 {"runtime_key":"browser","display_label":"Shared Browser","status":"enabled","health_summary":"Ready","last_checked_at":"2026-05-23T10:00:00Z","room_id":"room-1","current_url":"https://example.com/path","owner":"golden","auth_needed":false,"captcha_needed":false,"last_activity_at":"2026-05-23T10:01:00Z"}

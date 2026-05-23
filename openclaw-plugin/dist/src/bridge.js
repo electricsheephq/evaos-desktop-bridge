@@ -383,10 +383,10 @@ function optionalStringArg(value, flag) {
 }
 export async function runBridge(command, params = {}) {
     if (command === "evaosProviderProfiles") {
-        return providerProfilesPayload();
+        return await providerProfilesPayload();
     }
     if (command === "evaosProviderActiveProfile") {
-        return providerActiveProfilePayload();
+        return await providerActiveProfilePayload();
     }
     if (command === "evaosSharedBrowserGuidance") {
         return sharedBrowserGuidancePayload();
@@ -430,7 +430,11 @@ export async function runBridge(command, params = {}) {
         };
     }
 }
-function providerProfilesPayload() {
+async function providerProfilesPayload() {
+    const brokerProfile = await providerAgentDiscoveryPayload("openclaw");
+    if (brokerProfile) {
+        return brokerProfile.profilesPayload;
+    }
     const profilesPayload = readJSONEnv("EVAOS_PROVIDER_PROFILES_JSON");
     const providerProfiles = Array.isArray(profilesPayload)
         ? profilesPayload
@@ -452,23 +456,133 @@ function providerProfilesPayload() {
         warnings: providerProfiles.length === 0 ? ["Provider profiles are not configured on this VM yet."] : [],
     });
 }
-function providerActiveProfilePayload() {
-    const profiles = providerProfilesPayload();
+async function providerActiveProfilePayload() {
+    const brokerProfile = await providerAgentDiscoveryPayload("openclaw");
+    if (brokerProfile) {
+        return brokerProfile.activePayload;
+    }
+    const profiles = await providerProfilesPayload();
     const data = isRecord(profiles.data) ? profiles.data : {};
     const providerProfiles = Array.isArray(data.provider_profiles) ? data.provider_profiles : [];
     const activeProviderKey = typeof data.active_provider_key === "string" ? data.active_provider_key : null;
     const activeProfile = providerProfiles.find((profile) => isRecord(profile) && profile.provider_key === activeProviderKey) ?? null;
+    const providerGrants = isRecord(data.provider_grants) ? data.provider_grants : {};
+    const openClawGrant = isRecord(providerGrants.openclaw) ? providerGrants.openclaw : null;
+    const hasConnectionProof = isRecord(activeProfile) &&
+        activeProfile.status === "connected" &&
+        typeof activeProfile.last_validated_at === "string" &&
+        Boolean(openClawGrant && typeof openClawGrant.grant_handle === "string");
     return redactConnectorSecrets({
         ok: true,
         data: {
             customer_id: process.env.EVAOS_CUSTOMER_ID || null,
             active_provider_key: activeProviderKey,
             active_profile: activeProfile,
-            needs_reauth: !activeProfile,
+            needs_reauth: !hasConnectionProof,
             raw_secrets_available: false,
         },
-        warnings: activeProfile ? [] : ["No active provider profile is available. Ask the customer to connect or select a provider in evaOS Workbench."],
+        warnings: hasConnectionProof ? [] : ["No verified active provider grant is available. Ask the customer to connect or re-auth the provider in evaOS Workbench."],
     });
+}
+async function providerAgentDiscoveryPayload(agentRuntime) {
+    const endpoint = providerDiscoveryEndpoint();
+    const customerID = process.env.EVAOS_CUSTOMER_ID?.trim();
+    const grantHandle = providerGrantHandleFor(agentRuntime);
+    if (!endpoint || !customerID || !grantHandle) {
+        return null;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                "X-Evaos-Provider-Grant": grantHandle,
+            },
+            body: JSON.stringify({
+                action: "provider_agent_discovery",
+                customer_id: customerID,
+                agent_runtime: agentRuntime,
+            }),
+            signal: controller.signal,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !isRecord(payload)) {
+            return null;
+        }
+        const activeProfile = isRecord(payload.provider_profile) ? payload.provider_profile : null;
+        const activeProviderKey = typeof payload.active_provider_key === "string" ? payload.active_provider_key : null;
+        const providerProfiles = activeProfile ? [activeProfile] : [];
+        const grantStatus = typeof payload.grant_status === "string" ? payload.grant_status : "unknown";
+        const grantExpiresAt = typeof payload.grant_expires_at === "string" ? payload.grant_expires_at : null;
+        return {
+            profilesPayload: redactConnectorSecrets({
+                ok: true,
+                data: {
+                    customer_id: customerID,
+                    provider_profiles: providerProfiles,
+                    provider_grants: {
+                        [agentRuntime]: {
+                            grant_handle: grantHandle,
+                            status: grantStatus,
+                            expires_at: grantExpiresAt,
+                        },
+                    },
+                    active_provider_key: activeProviderKey,
+                    raw_secrets_available: false,
+                    raw_secrets_stored_in_workbench: false,
+                    raw_provider_token_returned: false,
+                    source: "broker",
+                },
+                warnings: providerProfiles.length === 0 ? ["No active provider profile is available from the broker."] : [],
+            }),
+            activePayload: redactConnectorSecrets({
+                ok: true,
+                data: {
+                    customer_id: customerID,
+                    active_provider_key: activeProviderKey,
+                    active_profile: activeProfile,
+                    provider_identity: typeof payload.provider_identity === "string" ? payload.provider_identity : null,
+                    provider_scopes: Array.isArray(payload.provider_scopes) ? payload.provider_scopes.map(String) : [],
+                    grant_status: grantStatus,
+                    grant_expires_at: grantExpiresAt,
+                    needs_reauth: payload.reauth_needed === true || !activeProfile,
+                    raw_secrets_available: false,
+                    raw_provider_token_returned: false,
+                    source: "broker",
+                },
+                warnings: activeProfile ? [] : ["No verified active provider grant is available. Ask the customer to connect or re-auth the provider in evaOS Workbench."],
+            }),
+        };
+    }
+    catch {
+        return null;
+    }
+    finally {
+        clearTimeout(timeout);
+    }
+}
+function providerDiscoveryEndpoint() {
+    const explicit = process.env.EVAOS_PROVIDER_DISCOVERY_URL?.trim();
+    if (explicit)
+        return explicit;
+    const broker = process.env.EVAOS_DESKTOP_RUNTIME_SESSION_URL?.trim();
+    if (broker)
+        return broker;
+    return null;
+}
+function providerGrantHandleFor(agentRuntime) {
+    const direct = process.env.EVAOS_PROVIDER_GRANT_HANDLE?.trim();
+    if (direct)
+        return direct;
+    const grantsPayload = readJSONEnv("EVAOS_PROVIDER_GRANTS_JSON");
+    const runtimeGrant = isRecord(grantsPayload) ? grantsPayload[agentRuntime] : null;
+    if (isRecord(runtimeGrant) && typeof runtimeGrant.grant_handle === "string" && runtimeGrant.grant_handle.trim() !== "") {
+        return runtimeGrant.grant_handle.trim();
+    }
+    return null;
 }
 function sharedBrowserGuidancePayload() {
     const status = readJSONEnv("EVAOS_SHARED_BROWSER_STATUS_JSON");

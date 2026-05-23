@@ -7,6 +7,7 @@ public enum RuntimeKey: String, CaseIterable, Codable, Identifiable, Sendable {
     case openDesign = "opendesign"
     case liveBrowser = "browser"
     case terminal
+    case creativeStudio = "creative_studio"
 
     public var id: String { rawValue }
 }
@@ -80,6 +81,12 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
             title: "Terminal",
             subtitle: "Terminal access to your private evaOS server.",
             systemImage: "terminal"
+        ),
+        RuntimeDefinition(
+            key: .creativeStudio,
+            title: "Creative Studio",
+            subtitle: "ComfyUI creative workflows through your evaOS gateway.",
+            systemImage: "paintbrush.pointed"
         )
     ]
 
@@ -93,7 +100,7 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
 
     public static func isBrokeredRuntime(_ key: RuntimeKey) -> Bool {
         switch key {
-        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal:
+        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .creativeStudio:
             return true
         }
     }
