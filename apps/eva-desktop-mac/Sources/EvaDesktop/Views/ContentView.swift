@@ -15,23 +15,19 @@ struct ContentView: View {
             case .bridge:
                 BridgePanelView(model: model)
             case .providersHub:
-                WorkbenchPlaceholderView(
-                    title: "Providers & Auth Hub",
-                    systemImage: "person.badge.key",
-                    message: "Workbench can dark-launch provider and auth management here without storing raw provider tokens in the app."
-                )
+                ProvidersHubView(model: model)
             case .sharedBrowser2:
-                WorkbenchPlaceholderView(
-                    title: "Shared Browser 2.0",
-                    systemImage: "globe.badge.chevron.backward",
-                    message: "This preview stays separate from the existing Shared Browser gateway tab and does not replace its live runtime."
-                )
+                SharedBrowser2View(model: model) {
+                    sidebarSelection = .runtime(.liveBrowser)
+                    model.selectedRuntime = .liveBrowser
+                    model.loadSelectedRuntime()
+                }
             case .sessionCenter:
-                WorkbenchPlaceholderView(
-                    title: "Session Center",
-                    systemImage: "rectangle.3.group.bubble.left",
-                    message: "Future multi-session management can land here while the current gateway launch flow stays unchanged."
-                )
+                SessionCenterView(model: model) { runtime in
+                    sidebarSelection = .runtime(runtime)
+                    model.selectedRuntime = runtime
+                    model.loadSelectedRuntime()
+                }
             case .creativeStudio:
                 CreativeStudioPlaceholderView(model: model)
             case .none:
