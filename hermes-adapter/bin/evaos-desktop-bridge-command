@@ -7,6 +7,9 @@ if [[ $# -ge 2 ]]; then
 else
   params_json="{}"
 fi
+if [[ "${params_json}" == "-" ]]; then
+  params_json="$(cat)"
+fi
 
 if [[ -z "${command_name}" ]]; then
   echo "usage: evaos-desktop-bridge-command <connector-command> [params-json]" >&2
