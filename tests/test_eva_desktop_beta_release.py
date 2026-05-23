@@ -116,7 +116,7 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "/opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo" in script
     assert "/usr/local/bin/peekaboo peekaboo" not in script
     assert 'exec "$PYTHON_BIN" -m evaos_desktop_bridge.cli "$@"' in script
-    assert "https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v$VERSION/evaOS-Workbench-$VERSION.zip" in script
+    assert "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v$VERSION/evaOS-Workbench-$VERSION.zip" in script
     assert "customer-mac\", \"control\", \"status\", \"--json" in model
     assert "customer-mac\", \"control\", \"stop\", \"--json" in model
     assert "customer-mac\", \"control\", \"kill-switch\", \"--json" in model

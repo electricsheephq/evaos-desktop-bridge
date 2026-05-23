@@ -178,7 +178,7 @@ only the Sparkle appcast, legacy `updates.json`, and customer-facing install
 copy:
 
 ```text
-https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v<version>/evaOS-Workbench-<version>.zip
+https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v<version>/evaOS-Workbench-<version>.zip
 https://www.electricsheephq.com/evaos-workbench/updates.json
 https://www.electricsheephq.com/evaos-workbench/appcast.xml
 ```

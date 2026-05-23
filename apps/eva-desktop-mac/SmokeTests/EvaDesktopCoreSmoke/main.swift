@@ -22,7 +22,7 @@ precondition(RuntimeDefinition.definition(for: .openDesign).availability == .ena
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 precondition(RuntimeDefinition.definition(for: .liveBrowser).title == "Shared Browser")
 
-let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-desktop-bridge/releases/download/evaos-workbench-v0.5.0/evaOS-Workbench-0.5.0.zip")!
+let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.5.0/evaOS-Workbench-0.5.0.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
 let newerManifest = WorkbenchReleaseManifest(version: "0.5.1", build: "1", downloadURL: trustedDownload)
 let newerBuildManifest = WorkbenchReleaseManifest(version: "0.5.0", build: "31", downloadURL: trustedDownload)
