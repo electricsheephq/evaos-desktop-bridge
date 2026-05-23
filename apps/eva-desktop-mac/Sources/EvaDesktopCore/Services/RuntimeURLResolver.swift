@@ -23,4 +23,8 @@ public struct RuntimeURLResolver: Sendable {
             .joined(separator: "-")
         return filtered.isEmpty ? "golden" : filtered
     }
+
+    public func creativeStudioURL() -> URL {
+        dashboardBaseURL.appendingPathComponent("creative-studio")
+    }
 }

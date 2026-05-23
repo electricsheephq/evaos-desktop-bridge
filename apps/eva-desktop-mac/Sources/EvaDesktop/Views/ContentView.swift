@@ -14,6 +14,26 @@ struct ContentView: View {
                 RuntimeDetailView(model: model, runtime: runtime)
             case .bridge:
                 BridgePanelView(model: model)
+            case .providersHub:
+                WorkbenchPlaceholderView(
+                    title: "Providers & Auth Hub",
+                    systemImage: "person.badge.key",
+                    message: "Workbench can dark-launch provider and auth management here without storing raw provider tokens in the app."
+                )
+            case .sharedBrowser2:
+                WorkbenchPlaceholderView(
+                    title: "Shared Browser 2.0",
+                    systemImage: "globe.badge.chevron.backward",
+                    message: "This preview stays separate from the existing Shared Browser gateway tab and does not replace its live runtime."
+                )
+            case .sessionCenter:
+                WorkbenchPlaceholderView(
+                    title: "Session Center",
+                    systemImage: "rectangle.3.group.bubble.left",
+                    message: "Future multi-session management can land here while the current gateway launch flow stays unchanged."
+                )
+            case .creativeStudio:
+                CreativeStudioPlaceholderView(model: model)
             case .none:
                 Text("Choose a runtime")
                     .foregroundStyle(.secondary)
@@ -45,4 +65,8 @@ struct ContentView: View {
 enum SidebarSelection: Hashable {
     case runtime(RuntimeKey)
     case bridge
+    case providersHub
+    case sharedBrowser2
+    case sessionCenter
+    case creativeStudio
 }
