@@ -15,10 +15,12 @@ class FakeRunner:
     def __init__(self, outputs: dict[tuple[str, ...], RunnerResult] | None = None) -> None:
         self.outputs = outputs or {}
         self.commands: list[tuple[str, ...]] = []
+        self.timeouts: dict[tuple[str, ...], float] = {}
 
     def __call__(self, command: list[str], timeout: float = 5.0) -> RunnerResult:
         key = tuple(command)
         self.commands.append(key)
+        self.timeouts[key] = timeout
         if key in self.outputs:
             return self.outputs[key]
         for prefix, result in self.outputs.items():
@@ -258,7 +260,9 @@ def test_desktop_click_uses_peekaboo_snapshot_element_before_coordinate_fallback
 
     assert result.ok is True
     assert result.data["engine"] == "peekaboo"
-    assert ("/test/peekaboo", "click", "--snapshot", "PEEKABOO-SNAPSHOT", "--on", "B1", "--json", "--no-remote") in runner.commands
+    snapshot_click = ("/test/peekaboo", "click", "--snapshot", "PEEKABOO-SNAPSHOT", "--on", "B1", "--json", "--no-remote")
+    assert snapshot_click in runner.commands
+    assert runner.timeouts[snapshot_click] == 5.0
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 

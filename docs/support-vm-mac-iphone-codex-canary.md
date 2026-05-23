@@ -40,7 +40,7 @@ Validated support VM commands:
 
 Open release blocker found:
 
-- TCC identity is now a v0.5.0 certification gate. macOS should show evaOS
+- TCC identity is now a v0.5.1 certification gate. macOS should show evaOS
   Workbench, evaOS Connector, or the bundled Peekaboo helper for Accessibility
   and Screen Recording. If it asks for Python, stop the customer canary and fix
   the helper/launch path before calling the build certified.
@@ -97,7 +97,7 @@ evaos-desktop-bridge connector-service status --json
 ```
 
 Use the LaunchAgent path for service/restart testing. Use the Workbench-managed
-connector for v0.5.0 certification so the active control path uses the packaged
+connector for v0.5.1 certification so the active control path uses the packaged
 evaOS/Peekaboo helper instead of a raw Python permission owner.
 
 If the operator Mac is on a different tailnet than the support VM, keep the
@@ -142,19 +142,19 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 ```
 
 Run the kill-switch suite once at the end of the certification pass, after the
@@ -166,7 +166,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite kill_switch \
-  --version-under-test 0.5.0
+  --version-under-test 0.5.1
 ```
 
 See `docs/evaos-workbench-qa-canary.md` for optional real-world app scenarios

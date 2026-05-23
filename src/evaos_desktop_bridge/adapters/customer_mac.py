@@ -624,7 +624,7 @@ except Exception as exc:
                         "--json",
                         "--no-remote",
                     ],
-                    15.0,
+                    5.0,
                 )
                 if result.returncode == 0:
                     return CommandResult(

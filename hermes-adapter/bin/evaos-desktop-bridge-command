@@ -185,7 +185,7 @@ def timeout_for_command(command):
         "customerMacAxTree",
         "customer_mac_ax_tree",
     }:
-        return 30
+        return 60
     if command in {
         "desktopDrag",
         "desktop_drag",
@@ -218,12 +218,15 @@ def timeout_for_command(command):
     if command in {
         "desktopClick",
         "desktop_click",
+        "iphoneTap",
+        "iphone_tap",
+    }:
+        return 30
+    if command in {
         "desktopType",
         "desktop_type",
         "desktopHotkey",
         "desktop_hotkey",
-        "iphoneTap",
-        "iphone_tap",
         "iphoneType",
         "iphone_type",
         "customerMacIphoneMirroringTypeApprovedText",

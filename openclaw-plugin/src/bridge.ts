@@ -711,7 +711,7 @@ async function runRemoteBridge(remoteURL: string, command: BridgeCommandKey, par
 
 function timeoutForCommand(command: BridgeCommandKey): number {
   if (command === "desktopSee" || command === "iphoneSee" || command === "customerMacSnapshot" || command === "customerMacAxTree") {
-    return 30_000;
+    return 60_000;
   }
   if (
     command === "desktopDrag" ||
@@ -736,9 +736,13 @@ function timeoutForCommand(command: BridgeCommandKey): number {
   }
   if (
     command === "desktopClick" ||
+    command === "iphoneTap"
+  ) {
+    return 30_000;
+  }
+  if (
     command === "desktopType" ||
     command === "desktopHotkey" ||
-    command === "iphoneTap" ||
     command === "iphoneType" ||
     command === "customerMacIphoneMirroringTypeApprovedText" ||
     command === "customerMacIphoneMirroringSendApprovedMessage"
