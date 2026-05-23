@@ -135,6 +135,45 @@ export EVAOS_DESKTOP_BRIDGE_URL=http://<mac-headscale-ip>:8765
 export EVAOS_DESKTOP_BRIDGE_TOKEN=<connector-token>
 ```
 
+For release certification, prefer the repo-native QA harness instead of manual
+one-off curls. It stores pass/fail/skipped rows, audit ids, engine provenance,
+snapshot ids, and screenshot evidence under the Lexar QA run folder:
+
+```bash
+python3 -m evaos_desktop_bridge.qa_canary \
+  --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
+  --surface connector \
+  --suite all \
+  --version-under-test 0.4.11
+
+python3 -m evaos_desktop_bridge.qa_canary \
+  --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
+  --surface openclaw \
+  --suite all \
+  --version-under-test 0.4.11
+
+python3 -m evaos_desktop_bridge.qa_canary \
+  --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
+  --surface hermes \
+  --suite all \
+  --version-under-test 0.4.11
+```
+
+Run the kill-switch suite once at the end of the certification pass, after the
+connector/OpenClaw/Hermes `all` suites. It intentionally leaves remote control
+blocked until Workbench starts a new control session:
+
+```bash
+python3 -m evaos_desktop_bridge.qa_canary \
+  --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
+  --surface connector \
+  --suite kill_switch \
+  --version-under-test 0.4.11
+```
+
+See `docs/evaos-workbench-qa-canary.md` for optional real-world app scenarios
+and the release certification rule.
+
 The OpenClaw plugin reads those environment variables directly. The bridge CLI
 itself is local-first; when testing from a bare support shell, call the
 connector HTTP endpoint:

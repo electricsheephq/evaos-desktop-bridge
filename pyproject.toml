@@ -15,6 +15,7 @@ authors = [
 
 [project.scripts]
 evaos-desktop-bridge = "evaos_desktop_bridge.cli:entrypoint"
+evaos-desktop-bridge-qa-canary = "evaos_desktop_bridge.qa_canary:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
