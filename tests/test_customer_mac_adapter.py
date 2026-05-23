@@ -279,6 +279,39 @@ def test_desktop_click_uses_peekaboo_global_coordinates_before_quartz(monkeypatc
     assert ("/test/peekaboo", "click", "--coords", "10,20", "--global-coords", "--json", "--no-remote") in runner.commands
 
 
+def test_desktop_click_accepts_snapshot_coordinates_without_element(monkeypatch, tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    (tmp_path / "snapshots").mkdir()
+    (tmp_path / "snapshots" / f"{snapshot_id}.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": snapshot_id,
+                "target": "desktop",
+                "engine": "peekaboo",
+                "timestamp": "2999-01-01T00:00:00Z",
+                "coordinate_space": {"type": "global", "origin": {"x": 100, "y": 200}},
+                "elements": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("/test/peekaboo", "click", "--coords", "110,220", "--global-coords", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+        }
+    )
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, x=10, y=20)
+
+    assert result.ok is True
+    assert result.data["engine"] == "peekaboo"
+    assert result.data["point"] == {"x": 110, "y": 220}
+    assert ("/test/peekaboo", "click", "--coords", "110,220", "--global-coords", "--json", "--no-remote") in runner.commands
+
+
 def test_desktop_drag_uses_current_peekaboo_coordinate_shape(monkeypatch, tmp_path: Path) -> None:
     runner = FakeRunner(
         {

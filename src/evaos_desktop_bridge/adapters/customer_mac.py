@@ -573,19 +573,30 @@ except Exception as exc:
         element_id: str | None = None,
         dry_run: bool = False,
     ) -> CommandResult:
-        resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=target_label)
-        if not resolved.ok:
-            return resolved
         resolved_label = target_label
-        resolved_engine = resolved.data.get("engine")
-        resolved_peekaboo_snapshot_id = resolved.data.get("peekaboo_snapshot_id")
-        resolved_peekaboo_element_id = resolved.data.get("peekaboo_element_id")
-        if resolved.data.get("point"):
-            point = resolved.data["point"]
+        resolved_engine = None
+        resolved_peekaboo_snapshot_id = None
+        resolved_peekaboo_element_id = None
+        if snapshot_id and element_id is None and target_label is None and x is not None and y is not None:
+            resolved_point = self._resolve_snapshot_coordinates(snapshot_id=snapshot_id, x=x, y=y, expected_target="desktop")
+            if not resolved_point.ok:
+                return resolved_point
+            point = resolved_point.data["point"]
             x = int(point["x"])
             y = int(point["y"])
-            resolved_label = str(resolved.data.get("target_label") or target_label or element_id or "")
-            target_label = None
+        else:
+            resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=target_label)
+            if not resolved.ok:
+                return resolved
+            resolved_engine = resolved.data.get("engine")
+            resolved_peekaboo_snapshot_id = resolved.data.get("peekaboo_snapshot_id")
+            resolved_peekaboo_element_id = resolved.data.get("peekaboo_element_id")
+            if resolved.data.get("point"):
+                point = resolved.data["point"]
+                x = int(point["x"])
+                y = int(point["y"])
+                resolved_label = str(resolved.data.get("target_label") or target_label or element_id or "")
+                target_label = None
         if dry_run:
             return CommandResult(
                 ok=True,

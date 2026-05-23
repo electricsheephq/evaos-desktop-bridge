@@ -69,9 +69,10 @@ class SurfaceResponse:
             payload=payload,
             ok=payload.get("ok") is True,
             audit_id=payload.get("audit_id") if isinstance(payload.get("audit_id"), str) else None,
-            engine=_extract_string(data, ("engine", "screenshot.engine", "image.engine")),
-            snapshot_id=_extract_string(data, ("snapshot_id", "screenshot.snapshot_id", "image.snapshot_id", "screenshot.image.snapshot_id")),
-            artifact_path=artifact_path or _extract_string(data, ("vm_visual_artifact_path", "screenshot.vm_artifact_path", "image.vm_artifact_path")),
+            engine=_extract_string(data, ("engine", "screenshot.engine", "screenshot.screenshot.engine", "image.engine")),
+            snapshot_id=_extract_string(data, ("snapshot_id", "screenshot.snapshot_id", "screenshot.screenshot.snapshot_id", "image.snapshot_id", "screenshot.image.snapshot_id")),
+            artifact_path=artifact_path
+            or _extract_string(data, ("vm_visual_artifact_path", "screenshot.vm_artifact_path", "screenshot.screenshot.vm_artifact_path", "image.vm_artifact_path")),
             errors=[error for error in errors if isinstance(error, dict)],
             warnings=warnings,
         )
@@ -151,7 +152,7 @@ class ConnectorSurface:
 
     def _materialize_visual_artifact(self, payload: dict[str, Any]) -> str | None:
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        artifact_url = _extract_string(data, ("image.artifact_url", "screenshot.artifact_url", "screenshot.image.artifact_url"))
+        artifact_url = _extract_string(data, ("image.artifact_url", "screenshot.artifact_url", "screenshot.screenshot.artifact_url", "screenshot.image.artifact_url"))
         if not artifact_url:
             return None
         endpoint = urllib.parse.urljoin(self.connector_url + "/", artifact_url)
@@ -167,7 +168,7 @@ class ConnectorSurface:
         except Exception as exc:  # noqa: BLE001 - report evidence fetch failure without hiding command result.
             payload.setdefault("warnings", []).append(f"Unable to fetch connector artifact: {exc}")
             return None
-        snapshot_id = _extract_string(data, ("snapshot_id", "screenshot.snapshot_id", "image.artifact_id")) or Path(parsed_endpoint.path).stem
+        snapshot_id = _extract_string(data, ("snapshot_id", "screenshot.snapshot_id", "screenshot.screenshot.snapshot_id", "image.artifact_id")) or Path(parsed_endpoint.path).stem
         output_dir = self.artifact_dir / "evidence"
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{_safe_filename(snapshot_id)}.png"
@@ -424,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-real-world-actions", action="store_true")
     parser.add_argument("--allow-skips", action="store_true", help="Exit 0 when required suites contain skipped rows; release certification should not use this.")
     parser.add_argument("--repo-root", type=Path, help="Repository root containing openclaw-plugin/ and hermes-adapter/ for adapter surfaces.")
-    parser.add_argument("--version-under-test", default="0.4.11")
+    parser.add_argument("--version-under-test", default="0.4.12")
     args = parser.parse_args(argv)
 
     token = os.environ.get(args.token_env)

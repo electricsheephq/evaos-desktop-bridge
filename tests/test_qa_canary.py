@@ -108,8 +108,10 @@ def test_connector_surface_runs_fake_command_and_materializes_artifact(tmp_path:
                     "engine": "peekaboo",
                     "snapshot_id": "snap-test",
                     "screenshot": {
-                        "artifact_url": "/v1/artifacts/snap-test.png",
-                        "snapshot_id": "snap-test",
+                        "screenshot": {
+                            "artifact_url": "/v1/artifacts/snap-test.png",
+                            "snapshot_id": "snap-test",
+                        },
                     },
                 },
             )
@@ -192,7 +194,7 @@ def test_report_redacts_tokens_contacts_and_real_world_text(tmp_path: Path, monk
         artifact_dir=tmp_path,
         run_id="qa-test",
         started_at="2026-05-23T00:00:00Z",
-        version_under_test="0.4.11",
+        version_under_test="0.4.12",
         surface="connector",
         connector_url="http://100.64.10.12:8765",
         results=[],
@@ -337,7 +339,7 @@ def test_cli_runs_readiness_suite_and_writes_reports(tmp_path: Path, monkeypatch
                 "--artifact-dir",
                 str(tmp_path),
                 "--version-under-test",
-                "0.4.11",
+                "0.4.12",
             ]
         )
     finally:
