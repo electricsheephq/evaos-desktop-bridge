@@ -21,7 +21,7 @@ type HookDecision =
       };
     };
 
-const SAFE_TOOL_PREFIXES = ["desktop_bridge_", "customer_mac_", "desktop_", "iphone_"];
+const SAFE_TOOL_PREFIXES = ["desktop_bridge_", "customer_mac_", "desktop_", "iphone_", "evaos_"];
 const FULL_ACCESS_TOOL_PREFIXES = ["desktop_", "iphone_", "customer_mac_iphone_mirroring_"];
 const APPROVAL_GATED_TOOL_PREFIXES = [
   "desktop_bridge_codex_select_thread",

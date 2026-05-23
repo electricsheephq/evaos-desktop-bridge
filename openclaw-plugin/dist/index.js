@@ -110,6 +110,9 @@ function readOnlyTools() {
                 max_items: { type: "integer", minimum: 1, maximum: 200, default: 50 },
             },
         }),
+        tool("evaos_provider_profiles", "Read active evaOS provider profile metadata and brokered grant readiness without raw provider secrets.", "evaosProviderProfiles"),
+        tool("evaos_provider_active_profile", "Read the active provider profile and whether OpenClaw/Hermes should re-auth.", "evaosProviderActiveProfile"),
+        tool("evaos_shared_browser_guidance", "Read Shared Browser status/guidance so cloud agents default to the VM browser for web tasks.", "evaosSharedBrowserGuidance"),
         tool("customer_mac_status", "Read paired customer Mac connector, iPhone Mirroring, and Screen Sharing readiness.", "customerMacStatus"),
         tool("desktop_control_status", "Read the customer-granted Full Access / Ask Permission control session state.", "customerMacControlStatus"),
         tool("desktop_control_start", "Start a customer-granted agent control session. Full Access allows continuous desktop and iPhone actions without per-action prompts.", "customerMacControlStart", {

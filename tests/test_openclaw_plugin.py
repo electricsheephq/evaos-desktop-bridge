@@ -49,6 +49,9 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_app_server_status",
         "desktop_bridge_codex_app_server_remote_control_status",
         "desktop_bridge_codex_app_server_threads",
+        "evaos_provider_profiles",
+        "evaos_provider_active_profile",
+        "evaos_shared_browser_guidance",
         "customer_mac_status",
         "desktop_control_status",
         "desktop_control_start",
@@ -132,8 +135,62 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "customerMacControlStart" in source
     assert "customerMacIphoneMirroringOpenApp" in source
     assert "customerMacIphoneMirroringSendApprovedMessage" in source
+    assert "evaosProviderProfiles" in source
+    assert "evaosProviderActiveProfile" in source
+    assert "evaosSharedBrowserGuidance" in source
     assert "turn/start" not in source
     assert "session.db" not in source
+
+
+def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_tokens() -> None:
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        const profiles = await runBridge('evaosProviderProfiles', {});
+        const active = await runBridge('evaosProviderActiveProfile', {});
+        const browser = await runBridge('evaosSharedBrowserGuidance', {});
+        console.log(JSON.stringify({ profiles, active, browser }));
+    """
+    env = {
+        **os.environ,
+        "EVAOS_CUSTOMER_ID": "cust-1",
+        "EVAOS_ACTIVE_PROVIDER_KEY": "openai_codex",
+        "EVAOS_PROVIDER_PROFILES_JSON": json.dumps({
+            "provider_profiles": [
+                {
+                    "provider_key": "openai_codex",
+                    "status": "connected",
+                    "active": True,
+                    "grant_handle": "epg_fixture",
+                    "access_token": "should-redact",
+                }
+            ],
+            "active_provider_key": "openai_codex",
+        }),
+        "EVAOS_PROVIDER_GRANTS_JSON": json.dumps({"openclaw": {"grant_handle": "epg_fixture"}}),
+        "EVAOS_SHARED_BROWSER_STATUS_JSON": json.dumps({"status": "ready", "current_url": "https://example.com"}),
+    }
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["profiles"]["ok"] is True
+    assert payload["profiles"]["data"]["customer_id"] == "cust-1"
+    assert payload["profiles"]["data"]["active_provider_key"] == "openai_codex"
+    assert payload["profiles"]["data"]["raw_secrets_available"] is False
+    assert payload["profiles"]["data"]["raw_secrets_stored_in_workbench"] is False
+    assert payload["active"]["data"]["needs_reauth"] is False
+    assert payload["active"]["data"]["active_profile"]["provider_key"] == "openai_codex"
+    assert payload["browser"]["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
+    assert payload["browser"]["data"]["status"]["status"] == "ready"
+    assert "should-redact" not in json.dumps(payload)
+    assert "[redacted]" in json.dumps(payload)
 
 
 def test_customer_mac_complete_pairing_validates_connector_urls() -> None:
@@ -424,3 +481,51 @@ def test_hermes_adapter_supports_pre_token_complete_enrollment() -> None:
     assert "connector_token" not in adapter
     assert "completeEnrollment" in readme
     assert "/v1/enrollment/complete" in readme
+
+
+def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_connector_token() -> None:
+    adapter = ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command"
+    env = {
+        **os.environ,
+        "EVAOS_CUSTOMER_ID": "cust-1",
+        "EVAOS_ACTIVE_PROVIDER_KEY": "openai_codex",
+        "EVAOS_PROVIDER_PROFILES_JSON": json.dumps({
+            "provider_profiles": [
+                {
+                    "provider_key": "openai_codex",
+                    "status": "connected",
+                    "active": True,
+                    "access_token": "should-redact",
+                }
+            ],
+            "active_provider_key": "openai_codex",
+        }),
+        "EVAOS_SHARED_BROWSER_STATUS_JSON": json.dumps({"status": "ready"}),
+    }
+    completed = subprocess.run(
+        [str(adapter), "evaosProviderActiveProfile"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    active_payload = json.loads(completed.stdout)
+    browser_completed = subprocess.run(
+        [str(adapter), "evaosSharedBrowserGuidance"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    browser_payload = json.loads(browser_completed.stdout)
+
+    assert active_payload["ok"] is True
+    assert active_payload["data"]["active_provider_key"] == "openai_codex"
+    assert active_payload["data"]["needs_reauth"] is False
+    assert active_payload["data"]["active_profile"]["access_token"] == "[redacted]"
+    assert browser_payload["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
+    assert browser_payload["data"]["status"]["status"] == "ready"

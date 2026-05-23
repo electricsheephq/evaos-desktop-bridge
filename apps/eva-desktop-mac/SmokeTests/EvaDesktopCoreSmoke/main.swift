@@ -35,6 +35,9 @@ precondition(resolver.creativeStudioURL().absoluteString == "https://www.electri
 precondition(WorkbenchProviderCatalog.profiles.map(\.key) == [.openAICodex, .openClaw, .hermes])
 precondition(WorkbenchProviderCatalog.profiles.allSatisfy { !$0.rawSecretsStoredInWorkbench })
 precondition(WorkbenchProviderCatalog.profiles.first?.readiness == .needsLogin)
+precondition(WorkbenchProviderCatalog.defaultStates.map(\.key) == [.openAICodex, .openClaw, .hermes])
+precondition(WorkbenchProviderCatalog.defaultStates.allSatisfy { !$0.rawSecretsStoredInWorkbench })
+precondition(WorkbenchProviderCatalog.defaultStates.first?.status == .needsLogin)
 
 precondition(resolver.sanitizedCustomerId(" Jackie David ") == "jackie-david")
 precondition(resolver.sanitizedCustomerId("David_Poku!") == "david-poku")
@@ -80,6 +83,22 @@ precondition(!launchJSON.contains("customerId"))
 let encodedOpenDesignLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .openDesign))
 let openDesignLaunchJSON = String(data: encodedOpenDesignLaunch, encoding: .utf8) ?? ""
 precondition(openDesignLaunchJSON.contains("\"runtime\":\"opendesign\""))
+
+let encodedRuntimeStatus = try JSONEncoder().encode(RuntimeStatusRequest(customerId: "golden", runtime: .liveBrowser))
+let runtimeStatusJSON = String(data: encodedRuntimeStatus, encoding: .utf8) ?? ""
+precondition(runtimeStatusJSON.contains("\"action\":\"runtime_status\""))
+precondition(runtimeStatusJSON.contains("\"runtime\":\"browser\""))
+
+let encodedProviderProfiles = try JSONEncoder().encode(WorkbenchProviderProfilesRequest(customerId: "golden"))
+let providerProfilesRequestJSON = String(data: encodedProviderProfiles, encoding: .utf8) ?? ""
+precondition(providerProfilesRequestJSON.contains("\"action\":\"provider_profiles\""))
+precondition(providerProfilesRequestJSON.contains("\"customer_id\":\"golden\""))
+
+let encodedProviderSwitch = try JSONEncoder().encode(WorkbenchProviderActionRequest(action: "provider_switch", customerId: "golden", providerKey: .openAICodex))
+let providerSwitchJSON = String(data: encodedProviderSwitch, encoding: .utf8) ?? ""
+precondition(providerSwitchJSON.contains("\"action\":\"provider_switch\""))
+precondition(providerSwitchJSON.contains("\"provider_key\":\"openai_codex\""))
+precondition(!providerSwitchJSON.contains("access_token"))
 
 let encodedTargets = try JSONEncoder().encode(DesktopCustomerTargetsRequest())
 let targetsRequestJSON = String(data: encodedTargets, encoding: .utf8) ?? ""
@@ -134,6 +153,25 @@ let decodedTargets = try JSONDecoder().decode(DesktopCustomerTargetsResponse.sel
 precondition(decodedTargets.isOperator)
 precondition(decodedTargets.defaultCustomerId == "golden")
 precondition(decodedTargets.customers.first?.displayName == "Golden")
+
+let providerProfilesResponse = """
+{"provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"connected","active":true,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":"Ready","grant_handle":"evaos-grant-123","last_validated_at":"2026-05-23T10:00:00Z"}],"active_provider_key":"openai_codex","raw_secrets_stored_in_workbench":false}
+""".data(using: .utf8)!
+let decodedProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: providerProfilesResponse)
+precondition(decodedProviderProfiles.profiles.first?.key == .openAICodex)
+precondition(decodedProviderProfiles.profiles.first?.status == .connected)
+precondition(decodedProviderProfiles.profiles.first?.rawSecretsStoredInWorkbench == false)
+precondition(decodedProviderProfiles.activeProviderKey == .openAICodex)
+precondition(decodedProviderProfiles.rawSecretsStoredInWorkbench == false)
+
+let runtimeStatusResponse = """
+{"runtime_key":"browser","display_label":"Shared Browser","status":"enabled","health_summary":"Ready","last_checked_at":"2026-05-23T10:00:00Z","room_id":"room-1","current_url":"https://example.com/path","owner":"golden","auth_needed":false,"captcha_needed":false,"last_activity_at":"2026-05-23T10:01:00Z"}
+""".data(using: .utf8)!
+let decodedRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: runtimeStatusResponse)
+precondition(decodedRuntimeStatus.runtimeKey == .liveBrowser)
+precondition(decodedRuntimeStatus.displayLabel == "Shared Browser")
+precondition(decodedRuntimeStatus.roomId == "room-1")
+precondition(decodedRuntimeStatus.currentUrl == "https://example.com/path")
 
 let callbackURL = URL(string: "evaos://auth/callback?desktop_session=eds_test&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=admin%40100yen.org")!
 let callbackSession = try DesktopSessionCallbackParser.parse(callbackURL)

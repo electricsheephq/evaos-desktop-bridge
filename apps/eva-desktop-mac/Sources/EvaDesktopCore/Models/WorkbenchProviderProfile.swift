@@ -14,6 +14,29 @@ public enum WorkbenchProviderReadiness: String, Codable, Sendable {
     case planned
 }
 
+public enum WorkbenchProviderStatus: String, Codable, Sendable {
+    case connected
+    case needsLogin = "needs_login"
+    case planned
+    case revoked
+    case error
+
+    public var displayText: String {
+        switch self {
+        case .connected:
+            return "Connected"
+        case .needsLogin:
+            return "Needs login"
+        case .planned:
+            return "Planned"
+        case .revoked:
+            return "Revoked"
+        case .error:
+            return "Blocked"
+        }
+    }
+}
+
 public struct WorkbenchProviderProfile: Codable, Equatable, Identifiable, Sendable {
     public let key: WorkbenchProviderKey
     public let title: String
@@ -41,6 +64,70 @@ public struct WorkbenchProviderProfile: Codable, Equatable, Identifiable, Sendab
     }
 }
 
+public struct WorkbenchProviderProfileState: Codable, Equatable, Identifiable, Sendable {
+    public let key: WorkbenchProviderKey
+    public let title: String
+    public let subtitle: String
+    public let status: WorkbenchProviderStatus
+    public let active: Bool
+    public let rawSecretsStoredInWorkbench: Bool
+    public let capabilities: [String]
+    public let usageSummary: String?
+    public let grantHandle: String?
+    public let lastValidatedAt: Date?
+
+    public var id: WorkbenchProviderKey { key }
+
+    public init(
+        key: WorkbenchProviderKey,
+        title: String,
+        subtitle: String,
+        status: WorkbenchProviderStatus,
+        active: Bool = false,
+        rawSecretsStoredInWorkbench: Bool = false,
+        capabilities: [String],
+        usageSummary: String? = nil,
+        grantHandle: String? = nil,
+        lastValidatedAt: Date? = nil
+    ) {
+        self.key = key
+        self.title = title
+        self.subtitle = subtitle
+        self.status = status
+        self.active = active
+        self.rawSecretsStoredInWorkbench = rawSecretsStoredInWorkbench
+        self.capabilities = capabilities
+        self.usageSummary = usageSummary
+        self.grantHandle = grantHandle
+        self.lastValidatedAt = lastValidatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key = "provider_key"
+        case title
+        case subtitle
+        case status
+        case active
+        case rawSecretsStoredInWorkbench = "raw_secrets_stored_in_workbench"
+        case capabilities
+        case usageSummary = "usage_summary"
+        case grantHandle = "grant_handle"
+        case lastValidatedAt = "last_validated_at"
+    }
+}
+
+public struct WorkbenchProviderProfilesResponse: Codable, Equatable, Sendable {
+    public let profiles: [WorkbenchProviderProfileState]
+    public let activeProviderKey: WorkbenchProviderKey?
+    public let rawSecretsStoredInWorkbench: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case profiles = "provider_profiles"
+        case activeProviderKey = "active_provider_key"
+        case rawSecretsStoredInWorkbench = "raw_secrets_stored_in_workbench"
+    }
+}
+
 public enum WorkbenchProviderCatalog {
     public static let profiles: [WorkbenchProviderProfile] = [
         WorkbenchProviderProfile(
@@ -65,4 +152,23 @@ public enum WorkbenchProviderCatalog {
             capabilities: ["Provider discovery", "Adapter parity", "Session recovery"]
         )
     ]
+
+    public static let defaultStates: [WorkbenchProviderProfileState] = profiles.map { profile in
+        WorkbenchProviderProfileState(
+            key: profile.key,
+            title: profile.title,
+            subtitle: profile.subtitle,
+            status: {
+                switch profile.readiness {
+                case .ready:
+                    return .connected
+                case .needsLogin:
+                    return .needsLogin
+                case .planned:
+                    return .planned
+                }
+            }(),
+            capabilities: profile.capabilities
+        )
+    }
 }

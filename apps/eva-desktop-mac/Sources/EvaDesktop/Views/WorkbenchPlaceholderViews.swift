@@ -7,9 +7,31 @@ struct ProvidersHubView: View {
 
     var body: some View {
         WorkbenchSurface(title: "Providers & Auth Hub", subtitle: "Connect provider accounts once, then let evaOS broker safe availability to OpenClaw and Hermes.") {
+            HStack(spacing: 10) {
+                StatusPill(title: model.providerHubStatusText, systemImage: "key", tint: providerStatusTint)
+                Spacer()
+                Button {
+                    Task {
+                        await model.refreshProviderProfiles()
+                    }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.isSignedIn || model.providerActionInFlight != nil)
+            }
+
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], alignment: .leading, spacing: 14) {
-                ForEach(WorkbenchProviderCatalog.profiles) { profile in
-                    ProviderProfileCard(profile: profile, isSignedIn: model.isSignedIn)
+                ForEach(model.providerProfiles) { profile in
+                    ProviderProfileCard(
+                        profile: profile,
+                        isSignedIn: model.isSignedIn,
+                        isBusy: model.providerActionInFlight == profile.key,
+                        connect: { model.connectProvider(profile.key) },
+                        makeActive: { model.switchProvider(profile.key) },
+                        mintGrant: { model.mintOpenClawProviderGrant(profile.key) },
+                        revoke: { model.revokeProvider(profile.key) }
+                    )
                 }
             }
 
@@ -20,6 +42,16 @@ struct ProvidersHubView: View {
             )
         }
     }
+
+    private var providerStatusTint: Color {
+        if model.providerHubStatusText == "Ready" {
+            return .electricSheepSuccess
+        }
+        if model.providerHubStatusText.lowercased().contains("blocked") || model.providerHubStatusText.lowercased().contains("failed") {
+            return .electricSheepDanger
+        }
+        return .electricSheepGoldSoft
+    }
 }
 
 struct SharedBrowser2View: View {
@@ -27,18 +59,20 @@ struct SharedBrowser2View: View {
     let openSharedBrowser: () -> Void
 
     var body: some View {
-        WorkbenchSurface(title: "Shared Browser 2.0", subtitle: "A stronger shared browsing room for agent web tasks, authentication handoff, and human takeover.") {
+        WorkbenchSurface(title: "Shared Browser 2.0", subtitle: "A stronger shared browsing room for agent web tasks, auth handoff awareness, and default agent guidance.") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
+                MetricTile(title: "Status", value: model.sharedBrowserStatusText, systemImage: "waveform.path.ecg")
                 MetricTile(title: "Session", value: model.runtimeURLs[.liveBrowser] == nil ? "Not opened" : "Loaded", systemImage: "globe")
                 MetricTile(title: "Owner", value: model.sanitizedCustomerId, systemImage: "person.crop.circle")
-                MetricTile(title: "Human Takeover", value: "Planned", systemImage: "hand.raised")
-                MetricTile(title: "Controller", value: "Status ready", systemImage: "waveform.path.ecg")
+                MetricTile(title: "Room", value: model.sharedBrowserRoomText, systemImage: "rectangle.connected.to.line.below")
+                MetricTile(title: "Current URL", value: model.sharedBrowserCurrentURLText, systemImage: "link")
+                MetricTile(title: "Last Activity", value: model.sharedBrowserLastActivityText, systemImage: "clock")
             }
 
             WorkbenchInfoPanel(
-                title: "Runtime Contract",
+                title: "Agent Guidance",
                 systemImage: "network",
-                detail: "The customer-facing runtime stays Shared Browser. Infrastructure can still call it Live Browser while metadata flows through safe status/control endpoints."
+                detail: "OpenClaw and Hermes should prefer Shared Browser for cloud web tasks that need a persistent VM browser, CAPTCHA/auth handoff, or a human-visible page. This release reads status only and keeps the existing browser open/stop behavior intact."
             )
 
             HStack(spacing: 10) {
@@ -53,6 +87,16 @@ struct SharedBrowser2View: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(model.runtimeURLs[.liveBrowser] == nil)
+
+                Button {
+                    Task {
+                        await model.refreshSharedBrowserStatus()
+                    }
+                } label: {
+                    Label(model.isRefreshingSharedBrowserStatus ? "Refreshing" : "Refresh Status", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.isSignedIn || model.isRefreshingSharedBrowserStatus)
             }
         }
     }
@@ -182,8 +226,13 @@ private struct WorkbenchSurface<Content: View>: View {
 }
 
 private struct ProviderProfileCard: View {
-    let profile: WorkbenchProviderProfile
+    let profile: WorkbenchProviderProfileState
     let isSignedIn: Bool
+    let isBusy: Bool
+    let connect: () -> Void
+    let makeActive: () -> Void
+    let mintGrant: () -> Void
+    let revoke: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -212,6 +261,36 @@ private struct ProviderProfileCard: View {
                         .foregroundStyle(Color.electricSheepMutedText)
                 }
             }
+
+            if let usageSummary = profile.usageSummary, !usageSummary.isEmpty {
+                Text(usageSummary)
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepGoldSoft)
+            }
+
+            HStack(spacing: 8) {
+                Button(actionButtonTitle) {
+                    if profile.status == .connected {
+                        makeActive()
+                    } else {
+                        connect()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!isSignedIn || isBusy || profile.status == .planned || profile.active)
+
+                Button("Agent Grant") {
+                    mintGrant()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!isSignedIn || isBusy || profile.status != .connected)
+
+                Button("Revoke") {
+                    revoke()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!isSignedIn || isBusy || profile.status != .connected)
+            }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -223,14 +302,23 @@ private struct ProviderProfileCard: View {
     }
 
     private var statusText: String {
-        switch profile.readiness {
-        case .ready:
-            return "Ready"
-        case .needsLogin:
-            return isSignedIn ? "Needs provider connection" : "Sign in first"
-        case .planned:
-            return "Planned"
+        if profile.active {
+            return "Active"
         }
+        if !isSignedIn, profile.status != .planned {
+            return "Sign in first"
+        }
+        return profile.status.displayText
+    }
+
+    private var actionButtonTitle: String {
+        if profile.active {
+            return "Active"
+        }
+        if profile.status == .connected {
+            return "Make Active"
+        }
+        return "Connect"
     }
 
     private var iconName: String {
@@ -245,13 +333,20 @@ private struct ProviderProfileCard: View {
     }
 
     private var tint: Color {
-        switch profile.readiness {
-        case .ready:
+        if profile.active {
+            return .electricSheepSuccess
+        }
+        switch profile.status {
+        case .connected:
             return .electricSheepSuccess
         case .needsLogin:
             return .electricSheepCyan
         case .planned:
             return .electricSheepGoldSoft
+        case .revoked:
+            return .electricSheepMutedText
+        case .error:
+            return .electricSheepDanger
         }
     }
 }

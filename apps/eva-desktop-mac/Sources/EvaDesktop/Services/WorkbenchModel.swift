@@ -28,6 +28,9 @@ final class WorkbenchModel: ObservableObject {
             webViews.reset()
             runtimeURLs.removeAll()
             runtimeErrors.removeAll()
+            providerProfiles = WorkbenchProviderCatalog.defaultStates
+            providerHubStatusText = "Unchecked"
+            sharedBrowserStatusText = "Unchecked"
             webViewRefreshToken = UUID()
         }
     }
@@ -74,6 +77,14 @@ final class WorkbenchModel: ObservableObject {
     @Published var updateAvailable = false
     @Published var updateDownloadURL: URL?
     @Published var updateReleaseNotesURL: URL?
+    @Published var providerProfiles: [WorkbenchProviderProfileState] = WorkbenchProviderCatalog.defaultStates
+    @Published var providerHubStatusText = "Unchecked"
+    @Published var providerActionInFlight: WorkbenchProviderKey?
+    @Published var sharedBrowserStatusText = "Unchecked"
+    @Published var sharedBrowserRoomText = "Not opened"
+    @Published var sharedBrowserCurrentURLText = "Unavailable"
+    @Published var sharedBrowserLastActivityText = "Not checked"
+    @Published var isRefreshingSharedBrowserStatus = false
     let featureFlags: WorkbenchFeatureFlags
 
     let webViews = WebViewStore()
@@ -172,6 +183,7 @@ final class WorkbenchModel: ObservableObject {
     func bootstrap() async {
         await refreshConnectorServiceAfterAppUpdateIfNeeded()
         await refreshCustomerTargets()
+        await refreshFlaggedOSShellState()
         await loadRuntime(selectedRuntime)
         await checkForUpdates(silent: true)
     }
@@ -293,6 +305,7 @@ final class WorkbenchModel: ObservableObject {
                 let newSession = try await coordinator.signIn(fallbackCode: fallbackCode)
                 try saveAuthenticatedSession(newSession)
                 await refreshCustomerTargets()
+                await refreshFlaggedOSShellState()
                 await loadRuntime(selectedRuntime, force: true)
             } catch {
                 deviceCodeStatusText = "Login did not complete. If the browser is still open, wait a few seconds and press Use Code."
@@ -322,6 +335,7 @@ final class WorkbenchModel: ObservableObject {
                 deviceCodeInput = ""
                 deviceCodeStatusText = "Signed in."
                 await refreshCustomerTargets()
+                await refreshFlaggedOSShellState()
                 await loadRuntime(selectedRuntime, force: true)
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 deviceCodeStatusText = "That code expired or was already used. Generate a new Backup code from the login page."
@@ -352,6 +366,7 @@ final class WorkbenchModel: ObservableObject {
             try saveAuthenticatedSession(newSession)
             Task {
                 await refreshCustomerTargets()
+                await refreshFlaggedOSShellState()
                 await loadRuntime(selectedRuntime, force: true)
             }
         } catch {
@@ -395,6 +410,131 @@ final class WorkbenchModel: ObservableObject {
         guard nextCustomerId != sanitizedCustomerId else { return }
         customerId = nextCustomerId
         loadSelectedRuntime(force: true)
+        Task {
+            await refreshFlaggedOSShellState()
+        }
+    }
+
+    func refreshFlaggedOSShellState() async {
+        if featureFlags.isEnabled(.providersHub) {
+            await refreshProviderProfiles()
+        }
+        if featureFlags.isEnabled(.sharedBrowser2) {
+            await refreshSharedBrowserStatus()
+        }
+    }
+
+    func refreshProviderProfiles() async {
+        guard isSignedIn else {
+            providerProfiles = WorkbenchProviderCatalog.defaultStates
+            providerHubStatusText = "Sign in to connect providers."
+            return
+        }
+        providerHubStatusText = "Refreshing..."
+        do {
+            let response = try await broker.providerProfiles(customerId: sanitizedCustomerId, desktopSession: session)
+            providerProfiles = response.profiles
+            providerHubStatusText = response.rawSecretsStoredInWorkbench
+                ? "Blocked. Workbench should not store raw provider secrets."
+                : "Ready"
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+            clearLocalSessionState(allowKeychainInteraction: false)
+            providerHubStatusText = "Session expired. Sign in again."
+        } catch {
+            providerProfiles = WorkbenchProviderCatalog.defaultStates
+            providerHubStatusText = "Unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    func connectProvider(_ providerKey: WorkbenchProviderKey) {
+        runProviderAction(providerKey, statusPrefix: "Connecting") {
+            try await self.broker.connectProvider(providerKey, customerId: self.sanitizedCustomerId, desktopSession: self.session)
+        }
+    }
+
+    func switchProvider(_ providerKey: WorkbenchProviderKey) {
+        runProviderAction(providerKey, statusPrefix: "Switching") {
+            try await self.broker.switchProvider(providerKey, customerId: self.sanitizedCustomerId, desktopSession: self.session)
+        }
+    }
+
+    func revokeProvider(_ providerKey: WorkbenchProviderKey) {
+        runProviderAction(providerKey, statusPrefix: "Revoking") {
+            try await self.broker.revokeProvider(providerKey, customerId: self.sanitizedCustomerId, desktopSession: self.session)
+        }
+    }
+
+    func mintOpenClawProviderGrant(_ providerKey: WorkbenchProviderKey) {
+        runProviderAction(providerKey, statusPrefix: "Preparing OpenClaw grant") {
+            try await self.broker.mintProviderGrant(
+                providerKey,
+                agentRuntime: "openclaw",
+                customerId: self.sanitizedCustomerId,
+                desktopSession: self.session
+            )
+        }
+    }
+
+    private func runProviderAction(
+        _ providerKey: WorkbenchProviderKey,
+        statusPrefix: String,
+        action: @escaping () async throws -> WorkbenchProviderProfilesResponse
+    ) {
+        guard isSignedIn else {
+            providerHubStatusText = "Sign in before changing provider access."
+            return
+        }
+        guard providerActionInFlight == nil else { return }
+        providerActionInFlight = providerKey
+        providerHubStatusText = "\(statusPrefix)..."
+
+        Task { @MainActor in
+            defer { providerActionInFlight = nil }
+            do {
+                let response = try await action()
+                providerProfiles = response.profiles
+                providerHubStatusText = response.rawSecretsStoredInWorkbench
+                    ? "Blocked. Workbench should not store raw provider secrets."
+                    : "Ready"
+            } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+                clearLocalSessionState(allowKeychainInteraction: false)
+                providerHubStatusText = "Session expired. Sign in again."
+            } catch {
+                providerHubStatusText = "Provider update failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func refreshSharedBrowserStatus() async {
+        guard isSignedIn else {
+            sharedBrowserStatusText = "Sign in first"
+            sharedBrowserRoomText = "Unavailable"
+            sharedBrowserCurrentURLText = "Unavailable"
+            sharedBrowserLastActivityText = "Not checked"
+            return
+        }
+        guard !isRefreshingSharedBrowserStatus else { return }
+        isRefreshingSharedBrowserStatus = true
+        defer { isRefreshingSharedBrowserStatus = false }
+        do {
+            let status = try await broker.runtimeStatus(
+                customerId: sanitizedCustomerId,
+                runtime: .liveBrowser,
+                desktopSession: session
+            )
+            sharedBrowserStatusText = Self.shortRuntimeStatus(status.status)
+            sharedBrowserRoomText = status.roomId ?? status.displayLabel
+            sharedBrowserCurrentURLText = Self.safeURLSummary(status.currentUrl)
+            sharedBrowserLastActivityText = Self.activitySummary(status.lastActivityAt ?? status.lastCheckedAt)
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+            clearLocalSessionState(allowKeychainInteraction: false)
+            sharedBrowserStatusText = "Session expired"
+        } catch {
+            sharedBrowserStatusText = "Unavailable"
+            sharedBrowserRoomText = "Status unavailable"
+            sharedBrowserCurrentURLText = "Unavailable"
+            sharedBrowserLastActivityText = error.localizedDescription
+        }
     }
 
     func refreshBridgeStatus() {
@@ -892,6 +1032,36 @@ final class WorkbenchModel: ObservableObject {
         return formatter
     }()
 
+    private static func shortRuntimeStatus(_ value: String) -> String {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "enabled":
+            return "Ready"
+        case "degraded":
+            return "Degraded"
+        case "disabled":
+            return "Blocked"
+        case "coming_soon":
+            return "Not configured"
+        default:
+            return value.isEmpty ? "Unchecked" : value
+        }
+    }
+
+    private static func safeURLSummary(_ value: String?) -> String {
+        guard let value, let url = URL(string: value) else {
+            return "Unavailable"
+        }
+        if let host = url.host, !host.isEmpty {
+            return host + String(url.path.prefix(80))
+        }
+        return url.path.prefix(80).isEmpty ? "Unavailable" : String(url.path.prefix(80))
+    }
+
+    private static func activitySummary(_ date: Date?) -> String {
+        guard let date else { return "Not checked" }
+        return shortDateFormatter.string(from: date)
+    }
+
     private func resetRuntime(_ runtime: RuntimeKey) {
         runtimeURLs[runtime] = nil
         runtimeErrors[runtime] = nil
@@ -928,6 +1098,14 @@ final class WorkbenchModel: ObservableObject {
         pairedDevices = []
         enrollmentCode = nil
         enrollmentExpiresAt = nil
+        providerProfiles = WorkbenchProviderCatalog.defaultStates
+        providerHubStatusText = "Sign in to connect providers."
+        providerActionInFlight = nil
+        sharedBrowserStatusText = "Unchecked"
+        sharedBrowserRoomText = "Unavailable"
+        sharedBrowserCurrentURLText = "Unavailable"
+        sharedBrowserLastActivityText = "Not checked"
+        isRefreshingSharedBrowserStatus = false
         pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
         deviceCodeInput = ""
         deviceCodeStatusText = "If the browser keeps spinning, press Sign In again, wait a few seconds, then press Use Code with the prefilled fallback code."
@@ -952,6 +1130,14 @@ final class WorkbenchModel: ObservableObject {
         deviceCodeInput = ""
         deviceCodeStatusText = "Signed in."
         isClaimingDeviceCode = false
+        providerProfiles = WorkbenchProviderCatalog.defaultStates
+        providerHubStatusText = "Unchecked"
+        providerActionInFlight = nil
+        sharedBrowserStatusText = "Unchecked"
+        sharedBrowserRoomText = "Not opened"
+        sharedBrowserCurrentURLText = "Unavailable"
+        sharedBrowserLastActivityText = "Not checked"
+        isRefreshingSharedBrowserStatus = false
         webViews.reset()
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()
