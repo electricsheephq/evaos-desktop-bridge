@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.0"
-BUILD_NUMBER="40"
+VERSION="0.6.1"
+BUILD_NUMBER="41"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -413,9 +413,9 @@ write_release_install_notes() {
   cat > "$RELEASE_INSTALL_NOTES" <<EOF
 # evaOS Workbench $VERSION
 
-This build is signed with the ElectricSheep Developer ID Application
-certificate. Customer-hosted release builds should be notarized; if macOS blocks
-a non-notarized internal canary, right-click the app and choose Open.
+This release is Developer ID signed, notarized, and stapled. If macOS still
+shows a first-launch confirmation, choose Open to confirm you trust evaOS
+Workbench from ElectricSheep.
 
 ## Install
 

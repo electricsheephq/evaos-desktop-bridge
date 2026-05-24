@@ -55,27 +55,37 @@ precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionCo
 let contentViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/ContentView.swift", encoding: .utf8)
 precondition(!contentViewSource.contains("case .sharedBrowser2"))
 precondition(!contentViewSource.contains("CreativeStudioPlaceholderView"))
-let placeholderSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchPlaceholderViews.swift", encoding: .utf8)
-precondition(!placeholderSource.contains("struct SharedBrowser2View"))
-precondition(!placeholderSource.contains("struct CreativeStudioPlaceholderView"))
-precondition(placeholderSource.contains("model.runtimeStatuses"))
-precondition(!placeholderSource.contains("model.runtimeURLs[runtime.key] == nil ? \"Ready to open\" : \"Loaded\""))
-precondition(placeholderSource.contains("Needs verification"))
+let osViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
+precondition(!osViewsSource.contains("struct SharedBrowser2View"))
+precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
+precondition(osViewsSource.contains("model.runtimeStatuses"))
+precondition(!osViewsSource.contains("model.runtimeURLs[runtime.key] == nil ? \"Ready to open\" : \"Loaded\""))
+precondition(osViewsSource.contains("Needs verification"))
+precondition(!osViewsSource.contains("OpenClaw and Hermes"))
+precondition(!osViewsSource.contains("Agent Grant"))
+precondition(osViewsSource.contains("OpenClaw Grant"))
 let sidebarSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/SidebarView.swift", encoding: .utf8)
 precondition(!sidebarSource.contains("Preview"))
 precondition(!sidebarSource.contains("Shared Browser 2.0"))
+let bridgePanelSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/BridgePanelView.swift", encoding: .utf8)
+precondition(!bridgePanelSource.contains("Your agent can control this Mac and iPhone until you stop it."))
+precondition(bridgePanelSource.contains("Start a visible Agent Control session"))
+let releaseScriptSource = try String(contentsOfFile: "script/build_and_run.sh", encoding: .utf8)
+precondition(!releaseScriptSource.contains("internal canary"))
+precondition(!releaseScriptSource.contains("non-notarized"))
+precondition(releaseScriptSource.contains("Developer ID signed, notarized, and stapled"))
 
-let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.6.0/evaOS-Workbench-0.6.0.zip")!
+let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.6.1/evaOS-Workbench-0.6.1.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
-let newerManifest = WorkbenchReleaseManifest(version: "0.6.1", build: "1", downloadURL: trustedDownload)
-let newerBuildManifest = WorkbenchReleaseManifest(version: "0.6.0", build: "41", downloadURL: trustedDownload)
+let newerManifest = WorkbenchReleaseManifest(version: "0.6.2", build: "1", downloadURL: trustedDownload)
+let newerBuildManifest = WorkbenchReleaseManifest(version: "0.6.1", build: "42", downloadURL: trustedDownload)
 precondition(!olderManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerBuildManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: AppBrand.defaultUpdateManifestURL)!))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(trustedDownload))
 precondition(!WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: "https://example.com/evaOS-Workbench-0.1.1.zip")!))
-try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.6.0", build: "40", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
+try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.6.1", build: "41", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
@@ -202,6 +212,25 @@ let unverifiedProviderProfilesResponse = """
 """.data(using: .utf8)!
 let decodedUnverifiedProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: unverifiedProviderProfilesResponse)
 precondition(decodedUnverifiedProviderProfiles.profiles.first?.hasConnectionProof == false)
+precondition(WorkbenchProviderHubSummary.statusText(for: decodedUnverifiedProviderProfiles) == "Needs verification")
+
+let needsLoginProviderProfilesResponse = """
+{"provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"needs_login","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":null,"raw_secrets_stored_in_workbench":false}
+""".data(using: .utf8)!
+let decodedNeedsLoginProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: needsLoginProviderProfilesResponse)
+precondition(WorkbenchProviderHubSummary.statusText(for: decodedNeedsLoginProviderProfiles) == "Needs login")
+precondition(WorkbenchProviderHubSummary.statusText(for: decodedProviderProfiles) == "Ready")
+
+let blockedProviderProfilesResponse = """
+{"provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"connected","active":true,"raw_secrets_stored_in_workbench":true,"capabilities":["codex"],"usage_summary":"Ready","grant_handle":"evaos-grant-123","last_validated_at":"2026-05-23T10:00:00Z"}],"active_provider_key":"openai_codex","raw_secrets_stored_in_workbench":true}
+""".data(using: .utf8)!
+let decodedBlockedProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: blockedProviderProfilesResponse)
+precondition(WorkbenchProviderHubSummary.statusText(for: decodedBlockedProviderProfiles) == "Blocked")
+
+precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: true, macReady: true, iPhoneReady: true) == "Ready. Mac Access and iPhone Mirroring passed the local check.")
+precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: true, macReady: true, iPhoneReady: false) == "Ready. Mac Access passed. Connect iPhone Mirroring when you want phone actions.")
+precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: true, macReady: false, iPhoneReady: true) == "Blocked. Turn on Mac Access and approve Accessibility and Screen Recording.")
+precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: false, macReady: true, iPhoneReady: false) == "Blocked. Turn on Mac Access and approve Accessibility and Screen Recording.")
 
 let runtimeStatusResponse = """
 {"runtime_key":"browser","display_label":"Shared Browser","status":"enabled","health_summary":"Ready","last_checked_at":"2026-05-23T10:00:00Z","room_id":"room-1","current_url":"https://example.com/path","owner":"golden","auth_needed":false,"captcha_needed":false,"last_activity_at":"2026-05-23T10:01:00Z"}

@@ -17,8 +17,9 @@ update, or recover evaOS Workbench.
    `https://www.electricsheephq.com/evaos-workbench`
 2. Have them download the current ZIP shown on the page.
 3. Have them unzip it and drag `evaOS.app` to Applications.
-4. If macOS blocks a non-notarized friendly beta, right-click `evaOS.app` and
-   choose Open. Do not disable Gatekeeper globally.
+4. If macOS shows a first-launch confirmation, right-click `evaOS.app` and
+   choose Open to confirm you trust evaOS Workbench from ElectricSheep. Do not
+   disable Gatekeeper globally.
 5. Confirm the version shown near Sign In/Sign Out matches the install page.
 
 ## Sign-In Recovery
