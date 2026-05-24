@@ -85,7 +85,7 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
         RuntimeDefinition(
             key: .creativeStudio,
             title: "Creative Studio",
-            subtitle: "ComfyUI creative workflows through your evaOS gateway.",
+            subtitle: "Hosted ComfyUI creative workflows in Workbench.",
             systemImage: "paintbrush.pointed"
         )
     ]
@@ -100,8 +100,19 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
 
     public static func isBrokeredRuntime(_ key: RuntimeKey) -> Bool {
         switch key {
-        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .creativeStudio:
+        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal:
             return true
+        case .creativeStudio:
+            return false
+        }
+    }
+
+    public static func externalURL(for key: RuntimeKey) -> URL? {
+        switch key {
+        case .creativeStudio:
+            return URL(string: "https://www.comfy.org/cloud")
+        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal:
+            return nil
         }
     }
 
