@@ -18,19 +18,17 @@ struct SidebarView: View {
             Section(AppBrand.bridgeSectionTitle) {
                 Label(AppBrand.macAndIPhoneTitle, systemImage: "macbook.and.iphone")
                     .tag(SidebarSelection.bridge)
+
+                if model.featureFlags.isEnabled(.providersHub) {
+                    FeatureSidebarRow(title: "Providers", systemImage: "person.badge.key")
+                        .tag(SidebarSelection.providersHub)
+                }
             }
 
-            if model.featureFlags.isEnabled(.providersHub) || model.featureFlags.isEnabled(.sessionCenter) {
+            if model.featureFlags.isEnabled(.sessionCenter) {
                 Section("Workspace") {
-                    if model.featureFlags.isEnabled(.providersHub) {
-                        FeatureSidebarRow(title: "Providers & Auth Hub", systemImage: "person.badge.key")
-                            .tag(SidebarSelection.providersHub)
-                    }
-
-                    if model.featureFlags.isEnabled(.sessionCenter) {
-                        FeatureSidebarRow(title: "Session Center", systemImage: "rectangle.3.group.bubble.left")
-                            .tag(SidebarSelection.sessionCenter)
-                    }
+                    FeatureSidebarRow(title: "Session Center", systemImage: "rectangle.3.group.bubble.left")
+                        .tag(SidebarSelection.sessionCenter)
                 }
             }
         }

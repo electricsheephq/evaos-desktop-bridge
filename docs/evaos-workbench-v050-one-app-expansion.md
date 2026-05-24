@@ -8,7 +8,7 @@ All flags default to `false` and are read from `UserDefaults` on app launch.
 
 | Flag | UserDefaults key | Primary issue | Surface |
 | --- | --- | --- | --- |
-| `providers_hub` | `EvaDesktop.feature.providers_hub` | `#96` | Native Providers & Auth Hub metadata surface |
+| `providers_hub` | `EvaDesktop.feature.providers_hub` | `#96` | Native Providers settings surface |
 | `shared_browser_2` | `EvaDesktop.feature.shared_browser_2` | `#97` | Enhanced metadata on the existing Shared Browser gateway |
 | `session_center` | `EvaDesktop.feature.session_center` | `#100` | Native Session Center registry surface |
 | `creative_studio` | `EvaDesktop.feature.creative_studio` | `#102` | Hosted Creative Studio gateway surface |
@@ -40,7 +40,7 @@ When these are absent, the dashboard routes/sidebar entries remain dark even tho
 - Existing gateway runtime order and persistent WebViews are unchanged.
 - Shared Browser remains the existing brokered `browser` runtime; customer-facing copy stays `Shared Browser`, while infrastructure may still use `Live Browser`.
 - Creative Studio is a first-class brokered `creative_studio` runtime. Enabled customers land in the hosted ComfyUI gateway; ComfyUI is not bundled in the macOS app.
-- Provider/Auth Hub stores no raw provider secrets in this slice. Connected state requires server-side proof metadata; stale metadata is shown as needing login rather than connected.
+- Providers stores no raw provider secrets in this slice. Connected state requires server-side proof metadata; stale metadata is shown as needing login rather than connected.
 - Session Center is a native dark-launch registry for real gateway state and attention summaries.
 - No `cmux`, `cc-switch`, or ComfyUI dependency is embedded in the macOS app.
 

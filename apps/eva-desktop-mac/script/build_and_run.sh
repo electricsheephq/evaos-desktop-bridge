@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.3"
-BUILD_NUMBER="43"
+VERSION="0.6.4"
+BUILD_NUMBER="44"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -464,7 +464,7 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Promotes Creative Studio, Providers &amp; Auth Hub, and Session Center into the main Workbench navigation.</li>
+  <li>Moves Providers into Settings and opens provider sign-in through the Shared Browser runtime.</li>
   <li>Keeps a single Shared Browser entry with the upgraded shared runtime path and customer-facing naming.</li>
   <li>Preserves the signed Sparkle updater, Mac &amp; iPhone settings, private pairing, audited controls, and Workbench kill switch.</li>
 </ul>
