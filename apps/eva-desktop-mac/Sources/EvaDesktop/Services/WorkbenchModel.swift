@@ -40,6 +40,7 @@ final class WorkbenchModel: ObservableObject {
         }
     }
     @Published var selectedRuntime: RuntimeKey = .openclaw
+    @Published var runtimeNavigationRequest: RuntimeNavigationRequest?
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
     @Published var deviceCodeInput = ""
@@ -473,7 +474,7 @@ final class WorkbenchModel: ObservableObject {
         }
         guard providerActionInFlight == nil else { return }
         providerActionInFlight = providerKey
-        providerHubStatusText = "Opening Codex auth..."
+        providerHubStatusText = "Opening provider login in Workbench..."
 
         Task { @MainActor in
             defer { providerActionInFlight = nil }
@@ -484,8 +485,14 @@ final class WorkbenchModel: ObservableObject {
                     desktopSession: session
                 )
                 providerProfiles = visibleProviderProfiles(response.profiles)
-                NSWorkspace.shared.open(response.connectURL)
-                providerHubStatusText = response.instructions ?? "OpenClaw auth handoff started. Refresh Providers after Codex sign-in completes."
+                let runtime = openProviderAuthHandoff(response.connectURL)
+                let runtimeTitle = RuntimeDefinition.definition(for: runtime).title
+                let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Complete the Codex sign-in there, then return to Providers and refresh."
+                providerHubStatusText = providerAuthInstruction(
+                    response.instructions,
+                    runtimeTitle: runtimeTitle,
+                    fallback: fallbackInstruction
+                )
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 clearLocalSessionState(allowKeychainInteraction: false)
                 providerHubStatusText = "Session expired. Sign in again."
@@ -493,6 +500,27 @@ final class WorkbenchModel: ObservableObject {
                 providerHubStatusText = "Provider auth failed to start: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func openProviderAuthHandoff(_ url: URL) -> RuntimeKey {
+        let runtime = RuntimeDefinition.providerAuthRuntime(for: url)
+        let targetCustomerId = resolver.sanitizedCustomerId(customerId)
+        selectedRuntime = runtime
+        runtimeNavigationRequest = RuntimeNavigationRequest(runtime: runtime)
+        runtimeErrors[runtime] = nil
+        runtimeURLs[runtime] = url
+        webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: url))
+        return runtime
+    }
+
+    private func providerAuthInstruction(_ instructions: String?, runtimeTitle: String, fallback: String) -> String {
+        guard var copy = instructions, !copy.isEmpty else {
+            return fallback
+        }
+        copy = copy.replacingOccurrences(of: "OpenClaw will open.", with: "\(runtimeTitle) opened inside Workbench.")
+        copy = copy.replacingOccurrences(of: "OpenClaw will open", with: "\(runtimeTitle) opened inside Workbench")
+        copy = copy.replacingOccurrences(of: "OpenClaw auth handoff started.", with: "\(runtimeTitle) auth handoff opened inside Workbench.")
+        return copy
     }
 
     func switchProvider(_ providerKey: WorkbenchProviderKey) {
@@ -1305,6 +1333,11 @@ final class WorkbenchModel: ObservableObject {
             }
         }
     }
+}
+
+struct RuntimeNavigationRequest: Equatable {
+    let id = UUID()
+    let runtime: RuntimeKey
 }
 
 enum RuntimeNavigationEvent {
