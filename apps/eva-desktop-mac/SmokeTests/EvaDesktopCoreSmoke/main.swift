@@ -11,30 +11,27 @@ precondition(AppBrand.defaultUpdateManifestURL == "https://www.electricsheephq.c
 
 precondition(WorkbenchFeatureFlagKey.allCases.map(\.rawValue) == [
     "providers_hub",
-    "shared_browser_2",
     "session_center",
     "creative_studio"
 ])
 let featureFlags = WorkbenchFeatureFlags()
-precondition(!featureFlags.isEnabled(.providersHub))
-precondition(!featureFlags.isEnabled(.sharedBrowser2))
-precondition(!featureFlags.isEnabled(.sessionCenter))
-precondition(!featureFlags.isEnabled(.creativeStudio))
-precondition(featureFlags.enabledKeys.isEmpty)
-precondition(featureFlags.storedValue(for: .creativeStudio) == false)
+precondition(featureFlags.isEnabled(.providersHub))
+precondition(featureFlags.isEnabled(.sessionCenter))
+precondition(featureFlags.isEnabled(.creativeStudio))
+precondition(featureFlags.enabledKeys == [.providersHub, .sessionCenter, .creativeStudio])
+precondition(featureFlags.storedValue(for: .creativeStudio) == true)
 
 let featureFlagDefaults = UserDefaults(suiteName: "EvaDesktopCoreSmoke.feature-flags.\(UUID().uuidString)")!
-featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.providersHub.userDefaultsKey)
-featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.creativeStudio.userDefaultsKey)
+featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.providersHub.userDefaultsKey)
+featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.creativeStudio.userDefaultsKey)
 let configuredFeatureFlags = WorkbenchFeatureFlags(userDefaults: featureFlagDefaults)
-precondition(configuredFeatureFlags.isEnabled(.providersHub))
-precondition(!configuredFeatureFlags.isEnabled(.sharedBrowser2))
-precondition(!configuredFeatureFlags.isEnabled(.sessionCenter))
-precondition(configuredFeatureFlags.isEnabled(.creativeStudio))
-precondition(WorkbenchProviderCatalog.profiles.map(\.key) == [.openAICodex, .openClaw, .hermes])
+precondition(!configuredFeatureFlags.isEnabled(.providersHub))
+precondition(configuredFeatureFlags.isEnabled(.sessionCenter))
+precondition(!configuredFeatureFlags.isEnabled(.creativeStudio))
+precondition(WorkbenchProviderCatalog.profiles.map(\.key) == [.openAICodex])
 precondition(WorkbenchProviderCatalog.profiles.allSatisfy { !$0.rawSecretsStoredInWorkbench })
 precondition(WorkbenchProviderCatalog.profiles.first?.readiness == .needsLogin)
-precondition(WorkbenchProviderCatalog.defaultStates.map(\.key) == [.openAICodex, .openClaw, .hermes])
+precondition(WorkbenchProviderCatalog.defaultStates.map(\.key) == [.openAICodex])
 precondition(WorkbenchProviderCatalog.defaultStates.allSatisfy { !$0.rawSecretsStoredInWorkbench })
 precondition(WorkbenchProviderCatalog.defaultStates.first?.status == .needsLogin)
 
@@ -64,18 +61,21 @@ precondition(!placeholderSource.contains("struct CreativeStudioPlaceholderView")
 precondition(placeholderSource.contains("model.runtimeStatuses"))
 precondition(!placeholderSource.contains("model.runtimeURLs[runtime.key] == nil ? \"Ready to open\" : \"Loaded\""))
 precondition(placeholderSource.contains("Needs verification"))
+let sidebarSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/SidebarView.swift", encoding: .utf8)
+precondition(!sidebarSource.contains("Preview"))
+precondition(!sidebarSource.contains("Shared Browser 2.0"))
 
-let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.5.2/evaOS-Workbench-0.5.2.zip")!
+let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.6.0/evaOS-Workbench-0.6.0.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)
-let newerManifest = WorkbenchReleaseManifest(version: "0.5.3", build: "1", downloadURL: trustedDownload)
-let newerBuildManifest = WorkbenchReleaseManifest(version: "0.5.2", build: "33", downloadURL: trustedDownload)
+let newerManifest = WorkbenchReleaseManifest(version: "0.6.1", build: "1", downloadURL: trustedDownload)
+let newerBuildManifest = WorkbenchReleaseManifest(version: "0.6.0", build: "41", downloadURL: trustedDownload)
 precondition(!olderManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerBuildManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: AppBrand.defaultUpdateManifestURL)!))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(trustedDownload))
 precondition(!WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: "https://example.com/evaOS-Workbench-0.1.1.zip")!))
-try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.5.2", build: "32", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
+try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.6.0", build: "40", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
@@ -115,6 +115,12 @@ let providerSwitchJSON = String(data: encodedProviderSwitch, encoding: .utf8) ??
 precondition(providerSwitchJSON.contains("\"action\":\"provider_switch\""))
 precondition(providerSwitchJSON.contains("\"provider_key\":\"openai_codex\""))
 precondition(!providerSwitchJSON.contains("access_token"))
+
+let encodedProviderAuthStart = try JSONEncoder().encode(WorkbenchProviderActionRequest(action: "provider_auth_start", customerId: "golden", providerKey: .openAICodex))
+let providerAuthStartJSON = String(data: encodedProviderAuthStart, encoding: .utf8) ?? ""
+precondition(providerAuthStartJSON.contains("\"action\":\"provider_auth_start\""))
+precondition(providerAuthStartJSON.contains("\"provider_key\":\"openai_codex\""))
+precondition(!providerAuthStartJSON.contains("access_token"))
 
 let encodedTargets = try JSONEncoder().encode(DesktopCustomerTargetsRequest())
 let targetsRequestJSON = String(data: encodedTargets, encoding: .utf8) ?? ""
@@ -180,6 +186,16 @@ precondition(decodedProviderProfiles.profiles.first?.hasConnectionProof == true)
 precondition(decodedProviderProfiles.profiles.first?.rawSecretsStoredInWorkbench == false)
 precondition(decodedProviderProfiles.activeProviderKey == .openAICodex)
 precondition(decodedProviderProfiles.rawSecretsStoredInWorkbench == false)
+
+let providerAuthStartResponse = """
+{"provider_key":"openai_codex","status":"pending","connect_url":"https://openclaw-golden.ecs.electricsheephq.com/auth/callback?session=test","expires_at":"2026-05-23T10:30:00Z","instructions":"Complete `/auth openai-codex`.","provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"needs_login","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":null,"raw_secrets_stored_in_workbench":false}
+""".data(using: .utf8)!
+let decodedProviderAuthStart = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderAuthStartResponse.self, from: providerAuthStartResponse)
+precondition(decodedProviderAuthStart.providerKey == .openAICodex)
+precondition(decodedProviderAuthStart.status == "pending")
+precondition(decodedProviderAuthStart.connectURL.absoluteString.contains("openclaw-golden"))
+precondition(decodedProviderAuthStart.instructions?.contains("/auth openai-codex") == true)
+precondition(decodedProviderAuthStart.rawSecretsStoredInWorkbench == false)
 
 let unverifiedProviderProfilesResponse = """
 {"provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"connected","active":true,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":"Ready"}],"active_provider_key":"openai_codex","raw_secrets_stored_in_workbench":false}

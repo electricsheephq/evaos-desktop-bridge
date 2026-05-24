@@ -84,8 +84,16 @@ public struct RuntimeSessionBrokerClient: Sendable {
         _ providerKey: WorkbenchProviderKey,
         customerId: String,
         desktopSession: DesktopSession?
-    ) async throws -> WorkbenchProviderProfilesResponse {
-        try await providerAction("provider_connect", providerKey: providerKey, customerId: customerId, desktopSession: desktopSession)
+    ) async throws -> WorkbenchProviderAuthStartResponse {
+        try await post(
+            WorkbenchProviderActionRequest(
+                action: "provider_auth_start",
+                customerId: customerId,
+                providerKey: providerKey
+            ),
+            desktopSession: desktopSession,
+            decoder: EvaDesktopISO8601.decoder()
+        )
     }
 
     public func switchProvider(

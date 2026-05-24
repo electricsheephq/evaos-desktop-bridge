@@ -436,7 +436,7 @@ final class WorkbenchModel: ObservableObject {
         providerHubStatusText = "Refreshing..."
         do {
             let response = try await broker.providerProfiles(customerId: sanitizedCustomerId, desktopSession: session)
-            providerProfiles = response.profiles
+            providerProfiles = visibleProviderProfiles(response.profiles)
             providerHubStatusText = response.rawSecretsStoredInWorkbench
                 ? "Blocked. Workbench should not store raw provider secrets."
                 : "Ready"
@@ -450,8 +450,31 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func connectProvider(_ providerKey: WorkbenchProviderKey) {
-        runProviderAction(providerKey, statusPrefix: "Connecting") {
-            try await self.broker.connectProvider(providerKey, customerId: self.sanitizedCustomerId, desktopSession: self.session)
+        guard isSignedIn else {
+            providerHubStatusText = "Sign in before connecting provider access."
+            return
+        }
+        guard providerActionInFlight == nil else { return }
+        providerActionInFlight = providerKey
+        providerHubStatusText = "Opening Codex auth..."
+
+        Task { @MainActor in
+            defer { providerActionInFlight = nil }
+            do {
+                let response = try await broker.connectProvider(
+                    providerKey,
+                    customerId: sanitizedCustomerId,
+                    desktopSession: session
+                )
+                providerProfiles = visibleProviderProfiles(response.profiles)
+                NSWorkspace.shared.open(response.connectURL)
+                providerHubStatusText = response.instructions ?? "OpenClaw auth handoff started. Refresh Providers after Codex sign-in completes."
+            } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+                clearLocalSessionState(allowKeychainInteraction: false)
+                providerHubStatusText = "Session expired. Sign in again."
+            } catch {
+                providerHubStatusText = "Provider auth failed to start: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -495,7 +518,7 @@ final class WorkbenchModel: ObservableObject {
             defer { providerActionInFlight = nil }
             do {
                 let response = try await action()
-                providerProfiles = response.profiles
+                providerProfiles = visibleProviderProfiles(response.profiles)
                 providerHubStatusText = response.rawSecretsStoredInWorkbench
                     ? "Blocked. Workbench should not store raw provider secrets."
                     : "Ready"
@@ -506,6 +529,11 @@ final class WorkbenchModel: ObservableObject {
                 providerHubStatusText = "Provider update failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func visibleProviderProfiles(_ profiles: [WorkbenchProviderProfileState]) -> [WorkbenchProviderProfileState] {
+        let visible = profiles.filter { $0.key == .openAICodex }
+        return visible.isEmpty ? WorkbenchProviderCatalog.defaultStates : visible
     }
 
     func refreshSharedBrowserStatus() async {
@@ -1734,7 +1762,7 @@ final class WorkbenchConnectorProcessManager {
             try next.run()
             process = next
             logHandle = handle
-            return "Starting connector on \(host):8765. Keep Workbench open during the beta."
+            return "Starting connector on \(host):8765. Keep Workbench open while the connector is running."
         } catch {
             return "Connector failed to start: \(error.localizedDescription)"
         }

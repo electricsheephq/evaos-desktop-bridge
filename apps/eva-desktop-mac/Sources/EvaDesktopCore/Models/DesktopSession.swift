@@ -200,6 +200,28 @@ public struct WorkbenchProviderActionRequest: Codable, Equatable, Sendable {
     }
 }
 
+public struct WorkbenchProviderAuthStartResponse: Codable, Equatable, Sendable {
+    public let providerKey: WorkbenchProviderKey
+    public let status: String
+    public let connectURL: URL
+    public let expiresAt: Date?
+    public let instructions: String?
+    public let profiles: [WorkbenchProviderProfileState]
+    public let activeProviderKey: WorkbenchProviderKey?
+    public let rawSecretsStoredInWorkbench: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case providerKey = "provider_key"
+        case status
+        case connectURL = "connect_url"
+        case expiresAt = "expires_at"
+        case instructions
+        case profiles = "provider_profiles"
+        case activeProviderKey = "active_provider_key"
+        case rawSecretsStoredInWorkbench = "raw_secrets_stored_in_workbench"
+    }
+}
+
 public struct DesktopCustomerTargetsRequest: Codable, Equatable, Sendable {
     public let action: String
 
