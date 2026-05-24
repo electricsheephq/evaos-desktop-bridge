@@ -92,6 +92,8 @@ precondition(customerTargetMenuSource.contains("Reset to Golden"))
 let workbenchModelSource = try String(contentsOfFile: "Sources/EvaDesktop/Services/WorkbenchModel.swift", encoding: .utf8)
 precondition(!workbenchModelSource.contains("NSWorkspace.shared.open(response.connectURL)"))
 precondition(workbenchModelSource.contains("openProviderAuthHandoff(response.connectURL)"))
+precondition(workbenchModelSource.contains("broker.openSharedBrowserURL("))
+precondition(workbenchModelSource.contains("response.targetURL"))
 precondition(workbenchModelSource.contains("runtime: runtime"))
 precondition(workbenchModelSource.contains("broker.launchURL("))
 precondition(workbenchModelSource.contains("Opening Shared Browser for provider sign-in"))
@@ -165,6 +167,14 @@ precondition(providerAuthStartJSON.contains("\"action\":\"provider_auth_start\""
 precondition(providerAuthStartJSON.contains("\"provider_key\":\"openai_codex\""))
 precondition(!providerAuthStartJSON.contains("access_token"))
 
+let encodedSharedBrowserOpen = try JSONEncoder().encode(SharedBrowserOpenURLRequest(customerId: "golden", url: URL(string: "https://chatgpt.com/codex?token=hidden#secret")!))
+let sharedBrowserOpenJSON = String(data: encodedSharedBrowserOpen, encoding: .utf8) ?? ""
+precondition(sharedBrowserOpenJSON.contains("\"action\":\"browser_open_url\""))
+precondition(sharedBrowserOpenJSON.contains("\"customer_id\":\"golden\""))
+precondition(sharedBrowserOpenJSON.contains("\"url\":\"https:\\/\\/chatgpt.com\\/codex\""))
+precondition(!sharedBrowserOpenJSON.contains("hidden"))
+precondition(!sharedBrowserOpenJSON.contains("secret"))
+
 let encodedTargets = try JSONEncoder().encode(DesktopCustomerTargetsRequest())
 let targetsRequestJSON = String(data: encodedTargets, encoding: .utf8) ?? ""
 precondition(targetsRequestJSON.contains("\"action\":\"list_customer_targets\""))
@@ -231,17 +241,18 @@ precondition(decodedProviderProfiles.activeProviderKey == .openAICodex)
 precondition(decodedProviderProfiles.rawSecretsStoredInWorkbench == false)
 
 let providerAuthStartResponse = """
-{"provider_key":"openai_codex","status":"pending","connect_url":"https://openclaw-golden.ecs.electricsheephq.com/auth/callback?session=test","expires_at":"2026-05-23T10:30:00Z","instructions":"Complete `/auth openai-codex`.","provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"needs_login","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":null,"raw_secrets_stored_in_workbench":false}
+{"provider_key":"openai_codex","status":"pending","connect_url":"https://browser-golden.ecs.electricsheephq.com/auth/callback?session=test","target_url":"https://chatgpt.com/codex","expires_at":"2026-05-23T10:30:00Z","instructions":"Complete Codex sign-in in Shared Browser.","provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"needs_login","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":null,"raw_secrets_stored_in_workbench":false}
 """.data(using: .utf8)!
 let decodedProviderAuthStart = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderAuthStartResponse.self, from: providerAuthStartResponse)
 precondition(decodedProviderAuthStart.providerKey == .openAICodex)
 precondition(decodedProviderAuthStart.status == "pending")
-precondition(decodedProviderAuthStart.connectURL.absoluteString.contains("openclaw-golden"))
+precondition(decodedProviderAuthStart.connectURL.absoluteString.contains("browser-golden"))
+precondition(decodedProviderAuthStart.targetURL?.absoluteString == "https://chatgpt.com/codex")
 precondition(RuntimeDefinition.providerAuthRuntime(for: decodedProviderAuthStart.connectURL) == .liveBrowser)
 precondition(RuntimeDefinition.providerAuthRuntime(for: URL(string: "https://browser-golden.ecs.electricsheephq.com/")!) == .liveBrowser)
 precondition(RuntimeDefinition.providerAuthRuntime(for: URL(string: "https://shared-browser-golden.ecs.electricsheephq.com/")!) == .liveBrowser)
 precondition(RuntimeDefinition.providerAuthRuntime(for: URL(string: "https://hermes-golden.ecs.electricsheephq.com/")!) == .liveBrowser)
-precondition(decodedProviderAuthStart.instructions?.contains("/auth openai-codex") == true)
+precondition(decodedProviderAuthStart.instructions?.contains("Shared Browser") == true)
 precondition(decodedProviderAuthStart.rawSecretsStoredInWorkbench == false)
 
 let unverifiedProviderProfilesResponse = """

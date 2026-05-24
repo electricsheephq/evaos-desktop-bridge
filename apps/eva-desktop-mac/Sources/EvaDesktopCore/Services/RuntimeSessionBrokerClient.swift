@@ -96,6 +96,18 @@ public struct RuntimeSessionBrokerClient: Sendable {
         )
     }
 
+    public func openSharedBrowserURL(
+        _ url: URL,
+        customerId: String,
+        desktopSession: DesktopSession?
+    ) async throws {
+        let _: SharedBrowserOpenURLResponse = try await post(
+            SharedBrowserOpenURLRequest(customerId: customerId, url: url),
+            desktopSession: desktopSession,
+            decoder: JSONDecoder()
+        )
+    }
+
     public func switchProvider(
         _ providerKey: WorkbenchProviderKey,
         customerId: String,
