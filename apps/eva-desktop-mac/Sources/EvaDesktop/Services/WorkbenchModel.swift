@@ -126,9 +126,9 @@ final class WorkbenchModel: ObservableObject {
     }
 
     var canAccessAdminRuntimes: Bool {
-        guard isSignedIn, isOperatorSession else { return false }
+        guard isSignedIn else { return false }
         let normalizedRoles = Set(sessionRoles.map { $0.lowercased() })
-        if normalizedRoles.contains("admin") || normalizedRoles.contains("customer_service") || normalizedRoles.contains("support") {
+        if isOperatorSession && (normalizedRoles.contains("admin") || normalizedRoles.contains("customer_service") || normalizedRoles.contains("support")) {
             return true
         }
         let email = session?.userEmail?.lowercased() ?? ""
@@ -157,7 +157,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     var canSwitchCustomers: Bool {
-        isSignedIn && isOperatorSession && !customerTargets.isEmpty
+        canAccessAdminRuntimes && !customerTargets.isEmpty
     }
 
     var currentCustomerTarget: DesktopCustomerTarget? {
@@ -412,6 +412,21 @@ final class WorkbenchModel: ObservableObject {
         let nextCustomerId = resolver.sanitizedCustomerId(target.customerId)
         guard nextCustomerId != sanitizedCustomerId else { return }
         customerId = nextCustomerId
+        loadSelectedRuntime(force: true)
+        Task {
+            await refreshFlaggedOSShellState()
+        }
+    }
+
+    func resetCustomerTargetToDefault() {
+        if let defaultTarget = customerTargets.first(where: { $0.isDefault })
+            ?? customerTargets.first(where: { resolver.sanitizedCustomerId($0.customerId) == "golden" }) {
+            switchCustomer(to: defaultTarget)
+            return
+        }
+
+        guard canAccessAdminRuntimes, sanitizedCustomerId != "golden" else { return }
+        customerId = "golden"
         loadSelectedRuntime(force: true)
         Task {
             await refreshFlaggedOSShellState()
