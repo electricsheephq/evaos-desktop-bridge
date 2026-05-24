@@ -74,7 +74,6 @@ struct RuntimeDetailView: View {
 private struct RuntimeToolbar: View {
     @ObservedObject var model: WorkbenchModel
     let definition: RuntimeDefinition
-    @State private var pendingCustomerTarget: DesktopCustomerTarget?
 
     var body: some View {
         HStack(spacing: 14) {
@@ -84,10 +83,6 @@ private struct RuntimeToolbar: View {
                 .font(.headline)
 
             Spacer()
-
-            if model.canSwitchCustomers {
-                CustomerTargetMenu(model: model, pendingTarget: $pendingCustomerTarget)
-            }
 
             Button {
                 model.reconnectSelectedRuntime()
@@ -109,32 +104,6 @@ private struct RuntimeToolbar: View {
                 Label("Open", systemImage: "safari")
             }
             .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key) || model.runtimeURLs[definition.key] == nil)
-        }
-        .confirmationDialog(
-            "Switch customer?",
-            isPresented: Binding(
-                get: { pendingCustomerTarget != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        pendingCustomerTarget = nil
-                    }
-                }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let target = pendingCustomerTarget {
-                Button("Switch to \(target.displayName)") {
-                    model.switchCustomer(to: target)
-                    pendingCustomerTarget = nil
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingCustomerTarget = nil
-            }
-        } message: {
-            if let target = pendingCustomerTarget {
-                Text("Loaded gateways for \(model.sanitizedCustomerId) will be replaced with \(target.customerId).")
-            }
         }
     }
 

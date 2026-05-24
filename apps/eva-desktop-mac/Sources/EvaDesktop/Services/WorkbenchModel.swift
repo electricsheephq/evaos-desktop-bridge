@@ -200,6 +200,13 @@ final class WorkbenchModel: ObservableObject {
     func loadRuntime(_ runtime: RuntimeKey, force: Bool = false) async {
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
 
+        if let externalURL = RuntimeDefinition.externalURL(for: runtime) {
+            runtimeURLs[runtime] = externalURL
+            runtimeErrors[runtime] = nil
+            webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: externalURL))
+            return
+        }
+
         guard isSignedIn else {
             runtimeURLs[runtime] = nil
             runtimeErrors[runtime] = nil
@@ -264,6 +271,11 @@ final class WorkbenchModel: ObservableObject {
     func openSelectedRuntimeExternally() {
         let runtime = selectedRuntime
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
+
+        if let externalURL = RuntimeDefinition.externalURL(for: runtime) {
+            NSWorkspace.shared.open(externalURL)
+            return
+        }
 
         guard RuntimeDefinition.isBrokeredRuntime(runtime), isSignedIn else { return }
         guard canAccess(runtime) else {
