@@ -28,7 +28,7 @@ public enum WorkbenchProviderStatus: String, Codable, Sendable {
         case .needsLogin:
             return "Needs login"
         case .planned:
-            return "Planned"
+            return "Unavailable"
         case .revoked:
             return "Revoked"
         case .error:
@@ -140,20 +140,6 @@ public enum WorkbenchProviderCatalog {
             subtitle: "Connect once, then broker account availability to evaOS agents without storing raw provider secrets in Workbench.",
             readiness: .needsLogin,
             capabilities: ["Codex remote control readiness", "OpenAI profile status", "VM grant metadata"]
-        ),
-        WorkbenchProviderProfile(
-            key: .openClaw,
-            title: "OpenClaw",
-            subtitle: "Uses the evaOS VM session and provider grants exposed by the control plane.",
-            readiness: .planned,
-            capabilities: ["Provider discovery", "Agent skill defaults", "Shared Browser preference"]
-        ),
-        WorkbenchProviderProfile(
-            key: .hermes,
-            title: "Hermes",
-            subtitle: "Uses the same provider grant contract as OpenClaw; no separate credential backend.",
-            readiness: .planned,
-            capabilities: ["Provider discovery", "Adapter parity", "Session recovery"]
         )
     ]
 

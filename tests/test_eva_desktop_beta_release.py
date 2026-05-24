@@ -12,11 +12,11 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.5.2"' in script
-    assert 'BUILD_NUMBER="32"' in script
-    assert 'version = "0.5.2"' in app_brand
-    assert 'buildNumber = "32"' in app_brand
-    assert 'REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2}"' in script
+    assert 'VERSION="0.6.0"' in script
+    assert 'BUILD_NUMBER="40"' in script
+    assert 'version = "0.6.0"' in app_brand
+    assert 'buildNumber = "40"' in app_brand
+    assert 'REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-0}"' in script
     assert "REQUIRED_PEEKABOO_VERSION_RE" in script
