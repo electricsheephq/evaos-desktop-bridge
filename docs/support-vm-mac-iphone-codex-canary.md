@@ -143,21 +143,21 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --surface connector \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 ```
 
 Run the kill-switch suite once at the end of the certification pass, after the
@@ -170,7 +170,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --surface connector \
   --suite kill_switch \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 ```
 
 See `docs/evaos-workbench-qa-canary.md` for optional real-world app scenarios

@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarView: View {
     @Binding var selection: SidebarSelection?
     @ObservedObject var model: WorkbenchModel
+    @State private var pendingCustomerTarget: DesktopCustomerTarget?
 
     var body: some View {
         List(selection: $selection) {
@@ -44,6 +45,24 @@ struct SidebarView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
+                if model.canAccessAdminRuntimes {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Viewing")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+
+                        CustomerTargetMenu(model: model, pendingTarget: $pendingCustomerTarget)
+
+                        if let error = model.customerTargetError {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                    .padding(.bottom, 4)
+                }
+
                 Text("v\(AppBrand.version)")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -68,6 +87,32 @@ struct SidebarView: View {
                 .buttonStyle(.bordered)
             }
             .padding()
+        }
+        .confirmationDialog(
+            "Switch customer?",
+            isPresented: Binding(
+                get: { pendingCustomerTarget != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingCustomerTarget = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let target = pendingCustomerTarget {
+                Button("Switch to \(target.displayName)") {
+                    model.switchCustomer(to: target)
+                    pendingCustomerTarget = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingCustomerTarget = nil
+            }
+        } message: {
+            if let target = pendingCustomerTarget {
+                Text("Loaded gateways for \(model.sanitizedCustomerId) will be replaced with \(target.customerId).")
+            }
         }
     }
 }

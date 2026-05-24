@@ -28,7 +28,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --surface connector \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 ```
 
 When running from an uninstalled checkout, prefix commands with
@@ -63,21 +63,21 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --surface connector \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 ```
 
 Then run the destructive kill-switch proof once, after the other surfaces are
@@ -90,7 +90,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --surface connector \
   --suite kill_switch \
   --operator-ack-live-control \
-  --version-under-test 0.6.1
+  --version-under-test 0.6.2
 ```
 
 The OpenClaw path shells through `openclaw-plugin/scripts/qa-run-bridge.mjs`,
