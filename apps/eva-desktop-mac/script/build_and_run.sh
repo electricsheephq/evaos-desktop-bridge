@@ -464,7 +464,7 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Moves Providers into Settings and opens provider sign-in through the Shared Browser runtime.</li>
+  <li>Keeps Providers, Session Center, and Creative Studio dark-launched until the cc-switch/cmux/ComfyUI-backed behavior passes canary.</li>
   <li>Keeps a single Shared Browser entry with the upgraded shared runtime path and customer-facing naming.</li>
   <li>Preserves the signed Sparkle updater, Mac &amp; iPhone settings, private pairing, audited controls, and Workbench kill switch.</li>
 </ul>
