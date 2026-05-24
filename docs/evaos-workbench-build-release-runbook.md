@@ -20,7 +20,7 @@ For release execution, use the shorter gate checklist in
 
 Workbench `0.4.10` / build `20` is the current Peekaboo optimization release
 candidate. It keeps the `0.4.9` tailnet bind fix, upgrades the bundled Peekaboo
-helper to `3.2.2`, and makes native Peekaboo routes the first attempt for
+helper to Peekaboo `3.2.2` or newer, and makes native Peekaboo routes the first attempt for
 snapshot element clicks, global coordinate clicks, coordinate drags/swipes, menu
 paths, window actions, and browser URL opens before falling back to built-in
 Accessibility, Quartz, or System Events.
@@ -33,7 +33,7 @@ stale build. Before giving the link to a tester, verify the packaged app
 contains `Contents/Resources/Bridge/evaos-desktop-bridge`,
 `Contents/Resources/Bridge/src/evaos_desktop_bridge`, and a
 `Contents/Resources/Bridge/bin/peekaboo` binary whose `--version` output
-contains `3.2.2`.
+contains `3.2.2` or newer.
 
 ## Edit Map
 
