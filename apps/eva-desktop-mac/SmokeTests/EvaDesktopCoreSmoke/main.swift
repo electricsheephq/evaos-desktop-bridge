@@ -15,11 +15,12 @@ precondition(WorkbenchFeatureFlagKey.allCases.map(\.rawValue) == [
     "creative_studio"
 ])
 let featureFlags = WorkbenchFeatureFlags()
-precondition(featureFlags.isEnabled(.providersHub))
+precondition(!featureFlags.isEnabled(.providersHub))
 precondition(!featureFlags.isEnabled(.sessionCenter))
-precondition(featureFlags.isEnabled(.creativeStudio))
-precondition(featureFlags.enabledKeys == [.providersHub, .creativeStudio])
-precondition(featureFlags.storedValue(for: .creativeStudio) == true)
+precondition(!featureFlags.isEnabled(.creativeStudio))
+precondition(featureFlags.enabledKeys == [])
+precondition(featureFlags.storedValue(for: .creativeStudio) == false)
+precondition(featureFlags.storedValue(for: .providersHub) == false)
 precondition(featureFlags.storedValue(for: .sessionCenter) == false)
 
 let featureFlagDefaults = UserDefaults(suiteName: "EvaDesktopCoreSmoke.feature-flags.\(UUID().uuidString)")!
@@ -52,6 +53,7 @@ precondition(RuntimeDefinition.definition(for: .creativeStudio).availability == 
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenClaw)")
 precondition(RuntimeDefinition.definition(for: .liveBrowser).title == "Shared Browser")
 precondition(RuntimeDefinition.definition(for: .creativeStudio).title == "Creative Studio")
+precondition(RuntimeDefinition.definition(for: .creativeStudio).subtitle.contains("ComfyUI Cloud"))
 precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .creativeStudio])
 
 let contentViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/ContentView.swift", encoding: .utf8)
@@ -96,6 +98,7 @@ precondition(workbenchModelSource.contains("Opening Shared Browser for provider 
 precondition(workbenchModelSource.contains("shared VM browser"))
 precondition(workbenchModelSource.contains("opened inside Workbench"))
 precondition(workbenchModelSource.contains("runtimeNavigationRequest = RuntimeNavigationRequest(runtime: runtime)"))
+precondition(workbenchModelSource.contains("runtimeURLs[runtime] = url"))
 precondition(!workbenchModelSource.contains("Complete `/auth openai-codex`"))
 let bridgePanelSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/BridgePanelView.swift", encoding: .utf8)
 precondition(!bridgePanelSource.contains("Your agent can control this Mac and iPhone until you stop it."))

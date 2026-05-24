@@ -11,9 +11,7 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
 
     public var defaultValue: Bool {
         switch self {
-        case .providersHub, .creativeStudio:
-            return true
-        case .sessionCenter:
+        case .providersHub, .sessionCenter, .creativeStudio:
             return false
         }
     }

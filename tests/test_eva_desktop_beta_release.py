@@ -111,7 +111,7 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "Moves Providers into Settings and opens provider sign-in through the Shared Browser runtime" in script
+    assert "Keeps Providers, Session Center, and Creative Studio dark-launched" in script
     assert "single Shared Browser entry" in script
     assert "verification skipped for local mode" in script
     assert 'export PATH="$BRIDGE_DIR/bin:$PATH"' in script

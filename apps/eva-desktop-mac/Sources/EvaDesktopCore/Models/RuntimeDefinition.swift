@@ -85,7 +85,7 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
         RuntimeDefinition(
             key: .creativeStudio,
             title: "Creative Studio",
-            subtitle: "Hosted ComfyUI creative workflows in Workbench.",
+            subtitle: "Open ComfyUI Cloud in Workbench; Comfy handles login, GPUs, workflows, and queue state.",
             systemImage: "paintbrush.pointed"
         )
     ]

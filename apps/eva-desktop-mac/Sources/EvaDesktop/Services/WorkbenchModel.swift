@@ -517,16 +517,11 @@ final class WorkbenchModel: ObservableObject {
     private func openProviderAuthHandoff(_ url: URL) async throws -> RuntimeKey {
         let runtime = RuntimeDefinition.providerAuthRuntime(for: url)
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
-        let launchURL = try await broker.launchURL(
-            customerId: targetCustomerId,
-            runtime: runtime,
-            desktopSession: session
-        ).launchUrl
         selectedRuntime = runtime
         runtimeNavigationRequest = RuntimeNavigationRequest(runtime: runtime)
         runtimeErrors[runtime] = nil
-        runtimeURLs[runtime] = launchURL
-        webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: launchURL))
+        runtimeURLs[runtime] = url
+        webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: url))
         return runtime
     }
 
