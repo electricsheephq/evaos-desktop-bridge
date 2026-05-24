@@ -40,6 +40,7 @@ hermes-adapter/bin/evaos-desktop-bridge-command desktopClick '{"target_label":"C
 hermes-adapter/bin/evaos-desktop-bridge-command customerMacIphoneMirroringStatus '{}'
 hermes-adapter/bin/evaos-desktop-bridge-command iphoneSwipe '{"direction":"up","dry_run":false}'
 hermes-adapter/bin/evaos-desktop-bridge-command evaosProviderProfiles '{}'
+hermes-adapter/bin/evaos-desktop-bridge-command evaosProviderCompleteAuth '{"identity":"admin@100yen.org"}'
 hermes-adapter/bin/evaos-desktop-bridge-command evaosSharedBrowserGuidance '{}'
 ```
 
@@ -48,6 +49,14 @@ Provider/Auth Hub and Shared Browser guidance commands read optional
 `EVAOS_ACTIVE_PROVIDER_KEY`, `EVAOS_SHARED_BROWSER_STATUS_JSON`, and
 `EVAOS_CUSTOMER_ID` environment values. They return metadata and opaque grant
 handles only, never raw provider credentials.
+
+Provider auth completion uses the dashboard broker endpoint from
+`EVAOS_PROVIDER_DISCOVERY_URL` or `EVAOS_DESKTOP_RUNTIME_SESSION_URL`, signs
+metadata proof with `EVAOS_PROVIDER_AUTH_PROOF_SECRET`, and sends only identity,
+scopes, expiry, and `EVAOS_PROVIDER_SERVER_SECRET_REF`. When the broker mints a
+Hermes grant, the wrapper caches that opaque handle in
+`EVAOS_PROVIDER_GRANT_CACHE_FILE` or `~/.openclaw/evaos-provider-grants.json`
+so later provider discovery works without pasting raw provider secrets.
 
 Full Access mode allows live desktop/iPhone commands without per-action
 approval. Ask Permission mode gates risky clicks, taps, hotkeys, typing,

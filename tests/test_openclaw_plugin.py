@@ -5,6 +5,8 @@ import os
 import plistlib
 import subprocess
 import threading
+import hmac
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -53,6 +55,7 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_app_server_threads",
         "evaos_provider_profiles",
         "evaos_provider_active_profile",
+        "evaos_provider_complete_auth",
         "evaos_shared_browser_guidance",
         "customer_mac_status",
         "desktop_control_status",
@@ -200,6 +203,200 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
     assert "should-redact" not in serialized
     assert "nested-should-redact" not in serialized
     assert "[redacted]" in json.dumps(payload)
+
+
+def test_openclaw_plugin_completes_provider_auth_with_signed_metadata_proof() -> None:
+    secret = "proof-secret-for-test"
+    captured: dict[str, object] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            parsed = json.loads(body or b"{}")
+            captured["body"] = parsed
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "connected": True,
+                "provider_key": parsed["provider_key"],
+                "status": "connected",
+                "provider_profiles": [{
+                    "provider_key": parsed["provider_key"],
+                    "status": "connected",
+                    "active": True,
+                    "last_validated_at": "2026-05-24T12:00:00Z",
+                }],
+            }).encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        script = """
+            import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+            const result = await runBridge('evaosProviderCompleteAuth', {
+              identity: 'admin@100yen.org',
+              scopes: ['codex', 'offline_access'],
+            });
+            console.log(JSON.stringify(result));
+        """
+        env = {
+            **os.environ,
+            "EVAOS_CUSTOMER_ID": "cust-1",
+            "EVAOS_PROVIDER_DISCOVERY_URL": f"http://127.0.0.1:{server.server_port}/functions/v1/desktop-runtime-session",
+            "EVAOS_PROVIDER_AUTH_PROOF_SECRET": secret,
+            "EVAOS_PROVIDER_SERVER_SECRET_REF": "provider://openai_codex/cust-1/openclaw",
+        }
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    payload = json.loads(completed.stdout)
+    body = captured["body"]
+    proof = body["provider_auth_proof"]
+    signed_payload = json.dumps({
+        "customer_id": "cust-1",
+        "provider_key": "openai_codex",
+        "purpose": "provider_auth_complete",
+        "agent_runtime": "openclaw",
+        "proof_id": proof["proof_id"],
+        "identity": "admin@100yen.org",
+        "scopes": ["codex", "offline_access"],
+        "expires_at": proof["expires_at"],
+        "server_secret_ref": "provider://openai_codex/cust-1/openclaw",
+    }, separators=(",", ":"))
+    expected_signature = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha256).hexdigest()
+
+    assert body["action"] == "provider_auth_complete"
+    assert body["customer_id"] == "cust-1"
+    assert body["provider_key"] == "openai_codex"
+    assert body["agent_runtime"] == "openclaw"
+    assert proof["purpose"] == "provider_auth_complete"
+    assert proof["agent_runtime"] == "openclaw"
+    assert proof["proof_id"].startswith("eap_")
+    assert proof["identity"] == "admin@100yen.org"
+    assert proof["scopes"] == ["codex", "offline_access"]
+    assert proof["server_secret_ref"] == "provider://openai_codex/cust-1/openclaw"
+    assert proof["signature"] == expected_signature
+    assert payload["ok"] is True
+    assert payload["data"]["connected"] is True
+    serialized = json.dumps({"request": body, "response": payload})
+    assert "access_token" not in serialized
+    assert "refresh_token" not in serialized
+    assert "api_key" not in serialized
+
+
+def test_openclaw_plugin_caches_minted_provider_grant_after_signed_auth(tmp_path: Path) -> None:
+    secret = "proof-secret-for-cache-test"
+    captured: list[dict[str, object]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            parsed = json.loads(body or b"{}")
+            captured.append({"body": parsed, "grant": self.headers.get("X-Evaos-Provider-Grant")})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if parsed.get("action") == "provider_auth_complete":
+                self.wfile.write(json.dumps({
+                    "connected": True,
+                    "provider_key": parsed["provider_key"],
+                    "status": "connected",
+                    "agent_grant": {
+                        "provider_key": parsed["provider_key"],
+                        "agent_runtime": "openclaw",
+                        "grant_handle": "epg_cached_openclaw_12345678901234567890",
+                        "expires_at": "2026-05-25T12:00:00Z",
+                    },
+                    "provider_profiles": [{
+                        "provider_key": parsed["provider_key"],
+                        "status": "connected",
+                        "active": True,
+                        "last_validated_at": "2026-05-24T12:00:00Z",
+                    }],
+                }).encode("utf-8"))
+                return
+            self.wfile.write(json.dumps({
+                "customer_id": parsed["customer_id"],
+                "agent_runtime": parsed["agent_runtime"],
+                "active_provider_key": "openai_codex",
+                "provider_profile": {
+                    "provider_key": "openai_codex",
+                    "status": "connected",
+                    "active": True,
+                    "last_validated_at": "2026-05-24T12:00:00Z",
+                },
+                "provider_identity": "admin@100yen.org",
+                "provider_scopes": ["codex", "offline_access"],
+                "grant_status": "active",
+                "grant_expires_at": "2026-05-25T12:00:00Z",
+                "raw_provider_token_returned": False,
+            }).encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    cache_file = tmp_path / "provider-grants.json"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        script = """
+            import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+            const complete = await runBridge('evaosProviderCompleteAuth', {
+              identity: 'admin@100yen.org',
+              scopes: ['codex', 'offline_access'],
+            });
+            delete process.env.EVAOS_PROVIDER_GRANT_HANDLE;
+            delete process.env.EVAOS_PROVIDER_GRANTS_JSON;
+            const profiles = await runBridge('evaosProviderProfiles', {});
+            console.log(JSON.stringify({ complete, profiles }));
+        """
+        env = {
+            **os.environ,
+            "EVAOS_CUSTOMER_ID": "cust-1",
+            "EVAOS_PROVIDER_DISCOVERY_URL": f"http://127.0.0.1:{server.server_port}/functions/v1/desktop-runtime-session",
+            "EVAOS_PROVIDER_AUTH_PROOF_SECRET": secret,
+            "EVAOS_PROVIDER_SERVER_SECRET_REF": "provider://openai_codex/cust-1/openclaw",
+            "EVAOS_PROVIDER_GRANT_CACHE_FILE": str(cache_file),
+        }
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    payload = json.loads(completed.stdout)
+    cache = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert captured[0]["body"]["action"] == "provider_auth_complete"
+    assert captured[0]["body"]["agent_runtime"] == "openclaw"
+    assert captured[1]["body"]["action"] == "provider_agent_discovery"
+    assert captured[1]["grant"] == "epg_cached_openclaw_12345678901234567890"
+    assert cache["openclaw"]["grant_handle"] == "epg_cached_openclaw_12345678901234567890"
+    assert payload["complete"]["data"]["grant_cached"] is True
+    assert payload["profiles"]["data"]["source"] == "broker"
+    assert payload["profiles"]["data"]["active_provider_key"] == "openai_codex"
 
 
 def test_openclaw_plugin_discovers_provider_profile_from_broker_grant() -> None:
@@ -367,6 +564,172 @@ def test_hermes_adapter_discovers_provider_profile_from_broker_grant() -> None:
     serialized = json.dumps(payload)
     assert "should-redact" not in serialized
     assert "[redacted]" in serialized
+
+
+def test_hermes_adapter_completes_provider_auth_with_signed_metadata_proof() -> None:
+    adapter = ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command"
+    secret = "hermes-proof-secret-for-test"
+    captured: dict[str, object] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            parsed = json.loads(body or b"{}")
+            captured["body"] = parsed
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "connected": True,
+                "provider_key": parsed["provider_key"],
+                "status": "connected",
+            }).encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        params = json.dumps({"identity": "admin@100yen.org", "scopes": ["codex", "offline_access"]})
+        env = {
+            **os.environ,
+            "EVAOS_CUSTOMER_ID": "cust-1",
+            "EVAOS_PROVIDER_DISCOVERY_URL": f"http://127.0.0.1:{server.server_port}/functions/v1/desktop-runtime-session",
+            "EVAOS_PROVIDER_AUTH_PROOF_SECRET": secret,
+            "EVAOS_PROVIDER_SERVER_SECRET_REF": "provider://openai_codex/cust-1/hermes",
+        }
+        completed = subprocess.run(
+            [str(adapter), "evaosProviderCompleteAuth", params],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    payload = json.loads(completed.stdout)
+    body = captured["body"]
+    proof = body["provider_auth_proof"]
+    signed_payload = json.dumps({
+        "customer_id": "cust-1",
+        "provider_key": "openai_codex",
+        "purpose": "provider_auth_complete",
+        "agent_runtime": "hermes",
+        "proof_id": proof["proof_id"],
+        "identity": "admin@100yen.org",
+        "scopes": ["codex", "offline_access"],
+        "expires_at": proof["expires_at"],
+        "server_secret_ref": "provider://openai_codex/cust-1/hermes",
+    }, separators=(",", ":"))
+    expected_signature = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha256).hexdigest()
+
+    assert body["action"] == "provider_auth_complete"
+    assert body["agent_runtime"] == "hermes"
+    assert proof["purpose"] == "provider_auth_complete"
+    assert proof["agent_runtime"] == "hermes"
+    assert proof["proof_id"].startswith("eap_")
+    assert proof["signature"] == expected_signature
+    assert payload["ok"] is True
+    assert payload["data"]["connected"] is True
+
+
+def test_hermes_adapter_caches_minted_provider_grant_after_signed_auth(tmp_path: Path) -> None:
+    adapter = ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command"
+    secret = "hermes-proof-secret-for-cache-test"
+    captured: list[dict[str, object]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            parsed = json.loads(body or b"{}")
+            captured.append({"body": parsed, "grant": self.headers.get("X-Evaos-Provider-Grant")})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if parsed.get("action") == "provider_auth_complete":
+                self.wfile.write(json.dumps({
+                    "connected": True,
+                    "provider_key": parsed["provider_key"],
+                    "status": "connected",
+                    "agent_grant": {
+                        "provider_key": parsed["provider_key"],
+                        "agent_runtime": "hermes",
+                        "grant_handle": "epg_cached_hermes_12345678901234567890",
+                        "expires_at": "2026-05-25T12:00:00Z",
+                    },
+                }).encode("utf-8"))
+                return
+            self.wfile.write(json.dumps({
+                "customer_id": parsed["customer_id"],
+                "agent_runtime": parsed["agent_runtime"],
+                "active_provider_key": "openai_codex",
+                "provider_profile": {
+                    "provider_key": "openai_codex",
+                    "status": "connected",
+                    "active": True,
+                    "last_validated_at": "2026-05-24T12:00:00Z",
+                },
+                "provider_identity": "admin@100yen.org",
+                "provider_scopes": ["codex", "offline_access"],
+                "grant_status": "active",
+                "grant_expires_at": "2026-05-25T12:00:00Z",
+                "raw_provider_token_returned": False,
+            }).encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    cache_file = tmp_path / "provider-grants.json"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        env = {
+            **os.environ,
+            "EVAOS_CUSTOMER_ID": "cust-1",
+            "EVAOS_PROVIDER_DISCOVERY_URL": f"http://127.0.0.1:{server.server_port}/functions/v1/desktop-runtime-session",
+            "EVAOS_PROVIDER_AUTH_PROOF_SECRET": secret,
+            "EVAOS_PROVIDER_SERVER_SECRET_REF": "provider://openai_codex/cust-1/hermes",
+            "EVAOS_PROVIDER_GRANT_CACHE_FILE": str(cache_file),
+        }
+        complete = subprocess.run(
+            [str(adapter), "evaosProviderCompleteAuth", json.dumps({"identity": "admin@100yen.org"})],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        profiles = subprocess.run(
+            [str(adapter), "evaosProviderProfiles", "{}"],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    complete_payload = json.loads(complete.stdout)
+    profiles_payload = json.loads(profiles.stdout)
+    cache = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert captured[0]["body"]["action"] == "provider_auth_complete"
+    assert captured[0]["body"]["agent_runtime"] == "hermes"
+    assert captured[1]["body"]["action"] == "provider_agent_discovery"
+    assert captured[1]["grant"] == "epg_cached_hermes_12345678901234567890"
+    assert cache["hermes"]["grant_handle"] == "epg_cached_hermes_12345678901234567890"
+    assert complete_payload["data"]["grant_cached"] is True
+    assert profiles_payload["data"]["source"] == "broker"
 
 
 def test_customer_mac_complete_pairing_validates_connector_urls() -> None:

@@ -28,12 +28,16 @@ fi
 
 python3 - "$command_name" "$params_json" <<'PY'
 import base64
+import datetime
+import hashlib
+import hmac
 import json
 import os
 import pathlib
 import sys
 import urllib.parse
 import urllib.request
+import uuid
 
 command = sys.argv[1]
 try:
@@ -290,7 +294,68 @@ def provider_grant_handle_for(agent_runtime):
     runtime_grant = grants_payload.get(agent_runtime) if isinstance(grants_payload, dict) else None
     if isinstance(runtime_grant, dict) and isinstance(runtime_grant.get("grant_handle"), str):
         return runtime_grant["grant_handle"].strip() or None
+    cache_payload = read_provider_grant_cache()
+    cached_runtime_grant = cache_payload.get(agent_runtime) if isinstance(cache_payload, dict) else None
+    if isinstance(cached_runtime_grant, dict) and isinstance(cached_runtime_grant.get("grant_handle"), str):
+        return cached_runtime_grant["grant_handle"].strip() or None
     return None
+
+
+def provider_grant_cache_path():
+    explicit = os.environ.get("EVAOS_PROVIDER_GRANT_CACHE_FILE", "").strip()
+    if explicit:
+        return pathlib.Path(explicit)
+    home = os.environ.get("HOME", "").strip()
+    if not home:
+        return None
+    return pathlib.Path(home) / ".openclaw" / "evaos-provider-grants.json"
+
+
+def read_provider_grant_cache():
+    cache_path = provider_grant_cache_path()
+    if not cache_path:
+        return None
+    try:
+        return json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def cache_provider_grant_from_broker(agent_runtime, provider_key, payload):
+    if not isinstance(payload, dict) or not isinstance(payload.get("agent_grant"), dict):
+        return False
+    grant = payload["agent_grant"]
+    grant_handle = grant.get("grant_handle")
+    if (
+        grant.get("provider_key") != provider_key
+        or grant.get("agent_runtime") != agent_runtime
+        or not isinstance(grant_handle, str)
+        or not grant_handle.strip()
+    ):
+        return False
+    cache_path = provider_grant_cache_path()
+    if not cache_path:
+        return False
+    existing = read_provider_grant_cache()
+    if not isinstance(existing, dict):
+        existing = {}
+    existing[agent_runtime] = {
+        "provider_key": provider_key,
+        "agent_runtime": agent_runtime,
+        "grant_handle": grant_handle.strip(),
+        "expires_at": grant.get("expires_at") if isinstance(grant.get("expires_at"), str) else None,
+        "cached_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+        try:
+            cache_path.chmod(0o600)
+        except OSError:
+            pass
+        return True
+    except Exception:
+        return False
 
 
 def provider_agent_discovery_payload(agent_runtime):
@@ -445,11 +510,108 @@ def shared_browser_guidance_payload():
     })
 
 
+def provider_complete_auth_payload():
+    endpoint = provider_discovery_endpoint()
+    customer_id = os.environ.get("EVAOS_CUSTOMER_ID", "").strip()
+    proof_secret = (os.environ.get("EVAOS_PROVIDER_AUTH_PROOF_SECRET", "").strip()
+                    or os.environ.get("EVAOS_PROVIDER_PROOF_SECRET", "").strip())
+    identity = str(params.get("identity") or os.environ.get("EVAOS_PROVIDER_AUTH_IDENTITY") or os.environ.get("EVAOS_PROVIDER_IDENTITY") or "").strip()
+    scopes_param = params.get("scopes")
+    if isinstance(scopes_param, list):
+        scopes = [str(scope).strip() for scope in scopes_param if str(scope).strip()]
+    else:
+        scopes = [scope.strip() for scope in os.environ.get("EVAOS_PROVIDER_AUTH_SCOPES", "").split(",") if scope.strip()]
+    if not scopes:
+        scopes = ["codex", "offline_access"]
+    server_secret_ref = str(params.get("server_secret_ref") or os.environ.get("EVAOS_PROVIDER_SERVER_SECRET_REF") or "").strip()
+    if not server_secret_ref and customer_id:
+        server_secret_ref = "provider://openai_codex/" + urllib.parse.quote(customer_id, safe="") + "/hermes"
+    expires_at = str(params.get("expires_at") or os.environ.get("EVAOS_PROVIDER_AUTH_EXPIRES_AT") or "").strip()
+    if not expires_at:
+        expires_at = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)).isoformat().replace("+00:00", "Z")
+
+    if not endpoint or not customer_id or not proof_secret or not identity or not server_secret_ref.startswith("provider://"):
+        return {
+            "ok": False,
+            "errors": [{
+                "code": "provider_auth_proof_not_configured",
+                "message": "Provider auth proof completion requires broker endpoint, customer id, proof secret, identity, and server secret reference.",
+                "guidance": "Set EVAOS_PROVIDER_DISCOVERY_URL, EVAOS_CUSTOMER_ID, EVAOS_PROVIDER_AUTH_PROOF_SECRET, EVAOS_PROVIDER_AUTH_IDENTITY, and EVAOS_PROVIDER_SERVER_SECRET_REF on the VM.",
+            }],
+        }
+
+    provider_key = "openai_codex"
+    proof_id = "eap_" + uuid.uuid4().hex
+    signed_payload = json.dumps({
+        "customer_id": customer_id,
+        "provider_key": provider_key,
+        "purpose": "provider_auth_complete",
+        "agent_runtime": "hermes",
+        "proof_id": proof_id,
+        "identity": identity,
+        "scopes": scopes,
+        "expires_at": expires_at,
+        "server_secret_ref": server_secret_ref,
+    }, separators=(",", ":"))
+    signature = hmac.new(proof_secret.encode("utf-8"), signed_payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    request_body = {
+        "action": "provider_auth_complete",
+        "customer_id": customer_id,
+        "provider_key": provider_key,
+        "agent_runtime": "hermes",
+        "provider_auth_proof": {
+            "purpose": "provider_auth_complete",
+            "agent_runtime": "hermes",
+            "proof_id": proof_id,
+            "identity": identity,
+            "scopes": scopes,
+            "expires_at": expires_at,
+            "server_secret_ref": server_secret_ref,
+            "signature": signature,
+        },
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body, separators=(",", ":")).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Evaos-Provider-Proof": "signed-v1",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        return {
+            "ok": False,
+            "errors": [{
+                "code": "provider_auth_complete_failed",
+                "message": str(exc),
+            }],
+        }
+    grant_cached = cache_provider_grant_from_broker("hermes", provider_key, response_payload)
+    return scrub_secrets({
+        "ok": True,
+        "data": {
+            "connected": bool(response_payload.get("connected")) or response_payload.get("status") == "connected",
+            "provider_key": provider_key,
+            "grant_cached": grant_cached,
+            "response": response_payload,
+            "raw_provider_token_returned": False,
+        },
+    })
+
+
 if command in {"evaosProviderProfiles", "providerProfiles"}:
     sys.stdout.write(json.dumps(provider_profiles_payload(), separators=(",", ":")) + "\n")
     raise SystemExit(0)
 if command in {"evaosProviderActiveProfile", "providerActiveProfile"}:
     sys.stdout.write(json.dumps(provider_active_profile_payload(), separators=(",", ":")) + "\n")
+    raise SystemExit(0)
+if command in {"evaosProviderCompleteAuth", "providerCompleteAuth"}:
+    sys.stdout.write(json.dumps(provider_complete_auth_payload(), separators=(",", ":")) + "\n")
     raise SystemExit(0)
 if command in {"evaosSharedBrowserGuidance", "sharedBrowserGuidance"}:
     sys.stdout.write(json.dumps(shared_browser_guidance_payload(), separators=(",", ":")) + "\n")

@@ -112,6 +112,20 @@ function readOnlyTools() {
         }),
         tool("evaos_provider_profiles", "Read active evaOS provider profile metadata and brokered grant readiness without raw provider secrets.", "evaosProviderProfiles"),
         tool("evaos_provider_active_profile", "Read the active provider profile and whether OpenClaw/Hermes should re-auth.", "evaosProviderActiveProfile"),
+        tool("evaos_provider_complete_auth", "Complete OpenAI / Codex provider auth by sending signed metadata proof to the evaOS broker. Does not expose raw provider credentials.", "evaosProviderCompleteAuth", {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                identity: { type: "string", minLength: 3, maxLength: 240 },
+                scopes: {
+                    type: "array",
+                    maxItems: 12,
+                    items: { type: "string", minLength: 1, maxLength: 80 },
+                },
+                expires_at: { type: "string", minLength: 10, maxLength: 80 },
+                server_secret_ref: { type: "string", minLength: 16, maxLength: 240 },
+            },
+        }),
         tool("evaos_shared_browser_guidance", "Read Shared Browser status/guidance so cloud agents default to the VM browser for web tasks.", "evaosSharedBrowserGuidance"),
         tool("customer_mac_status", "Read paired customer Mac connector, iPhone Mirroring, and Screen Sharing readiness.", "customerMacStatus"),
         tool("desktop_control_status", "Read the customer-granted Full Access / Ask Permission control session state.", "customerMacControlStatus"),
