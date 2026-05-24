@@ -18,22 +18,19 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.4.10` / build `20` is the current Peekaboo optimization release
-candidate. It keeps the `0.4.9` tailnet bind fix, upgrades the bundled Peekaboo
-helper to Peekaboo `3.2.2` or newer, and makes native Peekaboo routes the first attempt for
-snapshot element clicks, global coordinate clicks, coordinate drags/swipes, menu
-paths, window actions, and browser URL opens before falling back to built-in
-Accessibility, Quartz, or System Events.
+Workbench `0.6.0` / build `40` is the current GA-candidate release lane. It
+promotes the one-app Workbench surfaces, keeps customer-granted Full Access and
+Ask Permission control sessions, and ships Provider/Auth Hub, Session Center,
+Creative Studio, and the single upgraded Shared Browser lane as real product
+surfaces rather than Preview entries.
 
-The release keeps the `0.2.3` self-serve pairing and stuck-login recovery, then
-adds customer-granted Full Access and Ask Permission control sessions for paired
-Mac and iPhone Mirroring workflows. When publishing it, keep older ZIP paths
-aliased to the fixed current ZIP so stale links cannot reinstall a broken or
-stale build. Before giving the link to a tester, verify the packaged app
-contains `Contents/Resources/Bridge/evaos-desktop-bridge`,
+Before giving the link to a tester, verify the packaged app contains
+`Contents/Resources/Bridge/evaos-desktop-bridge`,
 `Contents/Resources/Bridge/src/evaos_desktop_bridge`, and a
 `Contents/Resources/Bridge/bin/peekaboo` binary whose `--version` output
-contains `3.2.2` or newer.
+contains `3.2.2` or newer. Also verify the stapled app passes
+`stapler validate`, `codesign --verify --deep --strict`, and
+`spctl --assess --type execute`.
 
 ## Edit Map
 
@@ -131,7 +128,11 @@ identity names in the login keychain do not hang `codesign`:
 cd apps/eva-desktop-mac
 export EVA_DESKTOP_CODESIGN_IDENTITY="B605F28E822AB594CEC82D98BD11F5A02B42BB40"
 export EVA_DESKTOP_CODESIGN_KEYCHAIN="/Volumes/LEXAR/Codex/apple-developer-certs/evaos-release-signing.keychain-db"
-security unlock-keychain -p "$(cat /Volumes/LEXAR/Codex/apple-developer-certs/.evaos-release-signing-keychain-pass)" \
+export EVAOS_RELEASE_KEYCHAIN_PASS_FILE="/Volumes/LEXAR/Codex/apple-developer-certs/.evaos-release-signing-keychain-pass"
+security unlock-keychain -p "$(cat "$EVAOS_RELEASE_KEYCHAIN_PASS_FILE")" \
+  "$EVA_DESKTOP_CODESIGN_KEYCHAIN"
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+  -k "$(cat "$EVAOS_RELEASE_KEYCHAIN_PASS_FILE")" \
   "$EVA_DESKTOP_CODESIGN_KEYCHAIN"
 swift build
 swift run EvaDesktopCoreSmoke
@@ -140,6 +141,14 @@ codesign --verify --deep --strict dist/evaOS.app
 codesign -dvvv --entitlements :- dist/evaOS.app
 spctl --assess --type execute dist/evaOS.app
 ```
+
+If macOS opens a dialog saying `codesign wants to use the
+"evaos-release-signing" keychain`, stop and fix the release keychain ACL rather
+than asking the user to guess a password. That prompt means `codesign` can see
+the Developer ID identity but cannot use the private key non-interactively. Run
+the `unlock-keychain` and `set-key-partition-list` commands above, then rerun
+the package command with `EVA_DESKTOP_CODESIGN_KEYCHAIN` and
+`EVA_DESKTOP_NOTARY_KEYCHAIN` pointing at the same release keychain.
 
 `--package-release` requires a Developer ID Application identity, signs with
 hardened runtime, writes `evaOS-Workbench-<version>.zip`, writes
