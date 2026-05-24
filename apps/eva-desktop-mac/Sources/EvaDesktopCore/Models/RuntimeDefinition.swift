@@ -104,4 +104,20 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
             return true
         }
     }
+
+    public static func providerAuthRuntime(for url: URL) -> RuntimeKey {
+        let host = (url.host ?? "").lowercased()
+        let path = url.path.lowercased()
+        let urlText = url.absoluteString.lowercased()
+
+        if host.hasPrefix("browser-") || host.hasPrefix("shared-browser-") || path.contains("browser") || urlText.contains("novnc") {
+            return .liveBrowser
+        }
+
+        if host.hasPrefix("hermes-") || path.contains("hermes") {
+            return .hermes
+        }
+
+        return .openclaw
+    }
 }

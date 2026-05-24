@@ -38,6 +38,11 @@ struct ContentView: View {
                 sidebarSelection = .runtime(runtime)
             }
         }
+        .onChange(of: model.runtimeNavigationRequest) { _, request in
+            guard let request else { return }
+            sidebarSelection = .runtime(request.runtime)
+            model.selectedRuntime = request.runtime
+        }
         .task {
             await model.bootstrap()
         }
