@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.6.3"' in script
-    assert 'BUILD_NUMBER="43"' in script
-    assert 'version = "0.6.3"' in app_brand
-    assert 'buildNumber = "43"' in app_brand
+    assert 'VERSION="0.6.4"' in script
+    assert 'BUILD_NUMBER="44"' in script
+    assert 'version = "0.6.4"' in app_brand
+    assert 'buildNumber = "44"' in app_brand
     assert 'REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-0}"' in script
@@ -111,7 +111,7 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "Promotes Creative Studio, Providers &amp; Auth Hub, and Session Center" in script
+    assert "Moves Providers into Settings and opens provider sign-in through the Shared Browser runtime" in script
     assert "single Shared Browser entry" in script
     assert "verification skipped for local mode" in script
     assert 'export PATH="$BRIDGE_DIR/bin:$PATH"' in script

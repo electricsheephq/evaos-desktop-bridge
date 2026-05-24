@@ -20,7 +20,7 @@ For release execution, use the shorter gate checklist in
 
 Workbench `0.6.2` / build `42` is the current GA-candidate release lane. It
 promotes the one-app Workbench surfaces, keeps customer-granted Full Access and
-Ask Permission control sessions, and ships Provider/Auth Hub, Session Center,
+Ask Permission control sessions, and ships Providers, Session Center,
 Creative Studio, and the single upgraded Shared Browser lane as real product
 surfaces rather than Preview entries.
 

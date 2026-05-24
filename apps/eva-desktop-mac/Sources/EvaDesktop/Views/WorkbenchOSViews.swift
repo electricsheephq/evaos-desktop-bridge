@@ -5,7 +5,7 @@ struct ProvidersHubView: View {
     @ObservedObject var model: WorkbenchModel
 
     var body: some View {
-        WorkbenchSurface(title: "Providers & Auth Hub", subtitle: "Connect OpenAI / Codex once, then let evaOS broker verified availability to supported agent runtimes.") {
+        WorkbenchSurface(title: "Providers", subtitle: "Connect provider accounts in the Shared Browser on your evaOS server so agents can reuse the VM browser session.") {
             HStack(spacing: 10) {
                 StatusPill(title: model.providerHubStatusText, systemImage: "key", tint: providerStatusTint)
                 Spacer()
@@ -37,7 +37,7 @@ struct ProvidersHubView: View {
             WorkbenchInfoPanel(
                 title: "Credential Boundary",
                 systemImage: "key.slash",
-                detail: "Workbench stores metadata and readiness only. Raw provider tokens stay out of the app model; VM agents receive brokered grant state when the control plane supports it."
+                detail: "Workbench stores metadata and readiness only. Provider sign-in happens in the shared VM browser; raw provider tokens stay out of the Mac app model."
             )
         }
     }

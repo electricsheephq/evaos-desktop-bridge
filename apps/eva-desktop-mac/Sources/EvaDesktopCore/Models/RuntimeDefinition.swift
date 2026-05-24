@@ -114,10 +114,6 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
             return .liveBrowser
         }
 
-        if host.hasPrefix("hermes-") || path.contains("hermes") {
-            return .hermes
-        }
-
-        return .openclaw
+        return .liveBrowser
     }
 }

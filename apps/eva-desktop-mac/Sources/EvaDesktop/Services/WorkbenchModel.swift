@@ -474,7 +474,7 @@ final class WorkbenchModel: ObservableObject {
         }
         guard providerActionInFlight == nil else { return }
         providerActionInFlight = providerKey
-        providerHubStatusText = "Opening provider login in Workbench..."
+        providerHubStatusText = "Opening Shared Browser for provider sign-in..."
 
         Task { @MainActor in
             defer { providerActionInFlight = nil }
@@ -485,9 +485,9 @@ final class WorkbenchModel: ObservableObject {
                     desktopSession: session
                 )
                 providerProfiles = visibleProviderProfiles(response.profiles)
-                let runtime = openProviderAuthHandoff(response.connectURL)
+                let runtime = try await openProviderAuthHandoff(response.connectURL)
                 let runtimeTitle = RuntimeDefinition.definition(for: runtime).title
-                let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Complete the Codex sign-in there, then return to Providers and refresh."
+                let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Sign in to OpenAI / Codex in the shared VM browser so agents can reuse that browser session, then return to Providers and refresh."
                 providerHubStatusText = providerAuthInstruction(
                     response.instructions,
                     runtimeTitle: runtimeTitle,
@@ -502,19 +502,28 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    private func openProviderAuthHandoff(_ url: URL) -> RuntimeKey {
+    private func openProviderAuthHandoff(_ url: URL) async throws -> RuntimeKey {
         let runtime = RuntimeDefinition.providerAuthRuntime(for: url)
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
+        let launchURL = try await broker.launchURL(
+            customerId: targetCustomerId,
+            runtime: runtime,
+            desktopSession: session
+        ).launchUrl
         selectedRuntime = runtime
         runtimeNavigationRequest = RuntimeNavigationRequest(runtime: runtime)
         runtimeErrors[runtime] = nil
-        runtimeURLs[runtime] = url
-        webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: url))
+        runtimeURLs[runtime] = launchURL
+        webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: launchURL))
         return runtime
     }
 
     private func providerAuthInstruction(_ instructions: String?, runtimeTitle: String, fallback: String) -> String {
         guard var copy = instructions, !copy.isEmpty else {
+            return fallback
+        }
+        let lowercasedCopy = copy.lowercased()
+        if lowercasedCopy.contains("/auth") || lowercasedCopy.contains("openclaw") {
             return fallback
         }
         copy = copy.replacingOccurrences(of: "OpenClaw will open.", with: "\(runtimeTitle) opened inside Workbench.")
