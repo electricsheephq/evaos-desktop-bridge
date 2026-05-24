@@ -491,6 +491,10 @@ path = Path(sys.argv[1])
 text = path.read_text()
 text = text.replace("<title>EvaDesktop</title>", "<title>evaOS Workbench</title>", 1)
 text = text.replace("<title>evaOS</title>", "<title>evaOS Workbench</title>", 1)
+# Sparkle's generated hardware requirement can incorrectly filter out the
+# update on supported Apple Silicon Macs. Keep the update universal/eligibility
+# decision on the signed bundle and minimum macOS version instead.
+text = text.replace("            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>\n", "")
 path.write_text(text)
 PY
   echo "Created Sparkle appcast: $APPCAST_OUTPUT"
