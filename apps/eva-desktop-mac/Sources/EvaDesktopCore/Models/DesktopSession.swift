@@ -204,6 +204,7 @@ public struct WorkbenchProviderAuthStartResponse: Codable, Equatable, Sendable {
     public let providerKey: WorkbenchProviderKey
     public let status: String
     public let connectURL: URL
+    public let targetURL: URL?
     public let expiresAt: Date?
     public let instructions: String?
     public let profiles: [WorkbenchProviderProfileState]
@@ -214,12 +215,52 @@ public struct WorkbenchProviderAuthStartResponse: Codable, Equatable, Sendable {
         case providerKey = "provider_key"
         case status
         case connectURL = "connect_url"
+        case targetURL = "target_url"
         case expiresAt = "expires_at"
         case instructions
         case profiles = "provider_profiles"
         case activeProviderKey = "active_provider_key"
         case rawSecretsStoredInWorkbench = "raw_secrets_stored_in_workbench"
     }
+}
+
+public struct SharedBrowserOpenURLRequest: Encodable, Equatable, Sendable {
+    public let action: String
+    public let customerId: String
+    public let url: URL
+
+    public init(customerId: String, url: URL) {
+        self.action = "browser_open_url"
+        self.customerId = customerId
+        self.url = SharedBrowserOpenURLRequest.sanitizedURL(url)
+    }
+
+    private static func sanitizedURL(_ url: URL) -> URL {
+        guard
+            let scheme = url.scheme?.lowercased(),
+            scheme == "https" || scheme == "http",
+            let host = url.host,
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else {
+            return url
+        }
+        components.scheme = scheme
+        components.host = host
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? url
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case customerId = "customer_id"
+        case url
+    }
+}
+
+public struct SharedBrowserOpenURLResponse: Decodable, Equatable, Sendable {
+    public let ok: Bool?
+    public let status: String?
 }
 
 public struct DesktopCustomerTargetsRequest: Codable, Equatable, Sendable {

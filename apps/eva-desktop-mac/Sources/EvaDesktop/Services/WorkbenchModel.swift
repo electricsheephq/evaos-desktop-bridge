@@ -498,6 +498,13 @@ final class WorkbenchModel: ObservableObject {
                 )
                 providerProfiles = visibleProviderProfiles(response.profiles)
                 let runtime = try await openProviderAuthHandoff(response.connectURL)
+                if let targetURL = response.targetURL {
+                    try await broker.openSharedBrowserURL(
+                        targetURL,
+                        customerId: sanitizedCustomerId,
+                        desktopSession: session
+                    )
+                }
                 let runtimeTitle = RuntimeDefinition.definition(for: runtime).title
                 let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Sign in to OpenAI / Codex in the shared VM browser so agents can reuse that browser session, then return to Providers and refresh."
                 providerHubStatusText = providerAuthInstruction(
