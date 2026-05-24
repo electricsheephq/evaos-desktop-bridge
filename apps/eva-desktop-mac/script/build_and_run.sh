@@ -464,9 +464,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Upgrades the bundled Peekaboo helper to $REQUIRED_PEEKABOO_VERSION.</li>
-  <li>Uses native Peekaboo click, drag, swipe, menu, window, and browser-open paths before fallback.</li>
-  <li>Keeps the tailnet connector bind fix, private VM-to-Mac pairing, audit logs, and the Workbench kill switch.</li>
+  <li>Promotes Creative Studio, Providers &amp; Auth Hub, and Session Center into the main Workbench navigation.</li>
+  <li>Keeps a single Shared Browser entry with the upgraded shared runtime path and customer-facing naming.</li>
+  <li>Preserves the signed Sparkle updater, Mac &amp; iPhone settings, private pairing, audited controls, and Workbench kill switch.</li>
 </ul>
 EOF
 
