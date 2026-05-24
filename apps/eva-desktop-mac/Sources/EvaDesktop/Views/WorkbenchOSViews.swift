@@ -5,7 +5,7 @@ struct ProvidersHubView: View {
     @ObservedObject var model: WorkbenchModel
 
     var body: some View {
-        WorkbenchSurface(title: "Providers & Auth Hub", subtitle: "Connect provider accounts once, then let evaOS broker safe availability to OpenClaw and Hermes.") {
+        WorkbenchSurface(title: "Providers & Auth Hub", subtitle: "Connect OpenAI / Codex once, then let evaOS broker verified availability to supported agent runtimes.") {
             HStack(spacing: 10) {
                 StatusPill(title: model.providerHubStatusText, systemImage: "key", tint: providerStatusTint)
                 Spacer()
@@ -241,7 +241,7 @@ private struct ProviderProfileCard: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!isSignedIn || isBusy || profile.status == .planned || profile.active)
 
-                Button("Agent Grant") {
+                Button("OpenClaw Grant") {
                     mintGrant()
                 }
                 .buttonStyle(.bordered)

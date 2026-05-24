@@ -103,8 +103,8 @@ require manual reinstall.
 
 1. Unzip the beta artifact.
 2. Drag `evaOS.app` to Applications or run it from the unzipped folder.
-3. If macOS blocks a non-notarized internal canary, right-click the app and
-   choose Open. Notarized release builds should not need this fallback.
+3. If macOS shows a first-launch confirmation, right-click the app and choose
+   Open to confirm you trust evaOS Workbench from ElectricSheep.
 4. Do not globally disable Gatekeeper.
 
 ## Keychain

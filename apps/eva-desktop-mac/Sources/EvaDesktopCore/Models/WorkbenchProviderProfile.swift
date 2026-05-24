@@ -132,6 +132,43 @@ public struct WorkbenchProviderProfilesResponse: Codable, Equatable, Sendable {
     }
 }
 
+public enum WorkbenchProviderHubSummary {
+    public static func statusText(for response: WorkbenchProviderProfilesResponse) -> String {
+        statusText(
+            rawSecretsStoredInWorkbench: response.rawSecretsStoredInWorkbench,
+            profiles: response.profiles
+        )
+    }
+
+    public static func statusText(
+        rawSecretsStoredInWorkbench: Bool,
+        profiles: [WorkbenchProviderProfileState]
+    ) -> String {
+        if rawSecretsStoredInWorkbench || profiles.contains(where: \.rawSecretsStoredInWorkbench) {
+            return "Blocked"
+        }
+        if profiles.contains(where: \.hasConnectionProof) {
+            return "Ready"
+        }
+        if profiles.contains(where: { $0.status == .connected }) {
+            return "Needs verification"
+        }
+        if profiles.contains(where: { $0.status == .needsLogin }) {
+            return "Needs login"
+        }
+        if profiles.contains(where: { $0.status == .revoked }) {
+            return "Revoked"
+        }
+        if profiles.contains(where: { $0.status == .planned }) {
+            return "Unavailable"
+        }
+        if profiles.contains(where: { $0.status == .error }) {
+            return "Blocked"
+        }
+        return "Unchecked"
+    }
+}
+
 public enum WorkbenchProviderCatalog {
     public static let profiles: [WorkbenchProviderProfile] = [
         WorkbenchProviderProfile(
@@ -139,7 +176,7 @@ public enum WorkbenchProviderCatalog {
             title: "OpenAI / Codex",
             subtitle: "Connect once, then broker account availability to evaOS agents without storing raw provider secrets in Workbench.",
             readiness: .needsLogin,
-            capabilities: ["Codex remote control readiness", "OpenAI profile status", "VM grant metadata"]
+            capabilities: ["Codex remote control readiness", "OpenAI profile status", "OpenClaw VM grant metadata"]
         )
     ]
 

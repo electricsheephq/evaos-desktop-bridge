@@ -18,7 +18,7 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.6.0` / build `40` is the current GA-candidate release lane. It
+Workbench `0.6.1` / build `41` is the current GA-candidate release lane. It
 promotes the one-app Workbench surfaces, keeps customer-granted Full Access and
 Ask Permission control sessions, and ships Provider/Auth Hub, Session Center,
 Creative Studio, and the single upgraded Shared Browser lane as real product

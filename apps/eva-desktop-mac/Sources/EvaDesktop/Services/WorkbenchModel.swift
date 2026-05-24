@@ -436,10 +436,12 @@ final class WorkbenchModel: ObservableObject {
         providerHubStatusText = "Refreshing..."
         do {
             let response = try await broker.providerProfiles(customerId: sanitizedCustomerId, desktopSession: session)
-            providerProfiles = visibleProviderProfiles(response.profiles)
-            providerHubStatusText = response.rawSecretsStoredInWorkbench
-                ? "Blocked. Workbench should not store raw provider secrets."
-                : "Ready"
+            let visibleProfiles = visibleProviderProfiles(response.profiles)
+            providerProfiles = visibleProfiles
+            providerHubStatusText = WorkbenchProviderHubSummary.statusText(
+                rawSecretsStoredInWorkbench: response.rawSecretsStoredInWorkbench,
+                profiles: visibleProfiles
+            )
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
             providerHubStatusText = "Session expired. Sign in again."
@@ -518,10 +520,12 @@ final class WorkbenchModel: ObservableObject {
             defer { providerActionInFlight = nil }
             do {
                 let response = try await action()
-                providerProfiles = visibleProviderProfiles(response.profiles)
-                providerHubStatusText = response.rawSecretsStoredInWorkbench
-                    ? "Blocked. Workbench should not store raw provider secrets."
-                    : "Ready"
+                let visibleProfiles = visibleProviderProfiles(response.profiles)
+                providerProfiles = visibleProfiles
+                providerHubStatusText = WorkbenchProviderHubSummary.statusText(
+                    rawSecretsStoredInWorkbench: response.rawSecretsStoredInWorkbench,
+                    profiles: visibleProfiles
+                )
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 clearLocalSessionState(allowKeychainInteraction: false)
                 providerHubStatusText = "Session expired. Sign in again."
@@ -908,9 +912,11 @@ final class WorkbenchModel: ObservableObject {
             let connectorReady = BridgeStatusFormatter.connectorReady(raw: service)
             let macReady = BridgeStatusFormatter.customerMacReady(raw: localStatus)
             let iphoneReady = BridgeStatusFormatter.iPhoneReady(raw: iphone)
-            agentAccessTestText = connectorReady && macReady && iphoneReady
-                ? "Ready. Mac Access, permissions, and iPhone Mirroring passed the local check."
-                : "Blocked. Turn on Mac Access, approve permissions, then connect iPhone if you want phone actions."
+            agentAccessTestText = WorkbenchSetupCheckSummary.agentAccessText(
+                connectorReady: connectorReady,
+                macReady: macReady,
+                iPhoneReady: iphoneReady
+            )
         }
     }
 
