@@ -32,6 +32,7 @@ use the Workbench connector's customer-granted control session:
 - `desktop_bridge_codex_continue_thread`
 - `evaos_provider_profiles`
 - `evaos_provider_active_profile`
+- `evaos_provider_complete_auth`
 - `evaos_shared_browser_guidance`
 - `customer_mac_status`
 - `desktop_control_status`
@@ -114,10 +115,23 @@ optional VM environment snapshots. It never exposes raw provider credentials:
 export EVAOS_CUSTOMER_ID="<customer-id>"
 export EVAOS_PROVIDER_DISCOVERY_URL="https://<supabase-project>.supabase.co/functions/v1/desktop-runtime-session"
 export EVAOS_PROVIDER_GRANT_HANDLE="epg_..."
+export EVAOS_PROVIDER_AUTH_PROOF_SECRET="<control-plane-proof-secret>"
+export EVAOS_PROVIDER_SERVER_SECRET_REF="provider://openai_codex/<customer-id>/openclaw"
+export EVAOS_PROVIDER_AUTH_IDENTITY="user@example.com"
+export EVAOS_PROVIDER_GRANT_CACHE_FILE="$HOME/.openclaw/evaos-provider-grants.json"
 export EVAOS_PROVIDER_PROFILES_JSON='{"provider_profiles":[]}'
 export EVAOS_PROVIDER_GRANTS_JSON='[]'
 export EVAOS_SHARED_BROWSER_STATUS_JSON='{"status":"ready"}'
 ```
+
+`evaos_provider_complete_auth` posts signed metadata proof for the VM-side
+Codex/OpenAI readiness check. The proof includes identity, scopes, expiry, and a
+server-side secret reference only; raw OpenAI/Codex cookies, access tokens,
+refresh tokens, API keys, and authorization headers are never returned through
+the plugin. When the broker returns an OpenClaw grant, the plugin stores only
+that opaque grant handle in `EVAOS_PROVIDER_GRANT_CACHE_FILE` or
+`~/.openclaw/evaos-provider-grants.json` so later discovery works without a
+human manually injecting environment variables.
 
 Before a VM has a connector token, `customer_mac_complete_pairing` posts the
 one-time enrollment code directly to the Mac connector's

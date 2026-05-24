@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { createHmac, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -388,6 +390,9 @@ export async function runBridge(command, params = {}) {
     if (command === "evaosProviderActiveProfile") {
         return await providerActiveProfilePayload();
     }
+    if (command === "evaosProviderCompleteAuth") {
+        return await providerCompleteAuthPayload(params);
+    }
     if (command === "evaosSharedBrowserGuidance") {
         return sharedBrowserGuidancePayload();
     }
@@ -456,6 +461,110 @@ async function providerProfilesPayload() {
         warnings: providerProfiles.length === 0 ? ["Provider profiles are not configured on this VM yet."] : [],
     });
 }
+async function providerCompleteAuthPayload(params) {
+    const endpoint = providerDiscoveryEndpoint();
+    const customerID = process.env.EVAOS_CUSTOMER_ID?.trim();
+    const proofSecret = process.env.EVAOS_PROVIDER_AUTH_PROOF_SECRET?.trim() || process.env.EVAOS_PROVIDER_PROOF_SECRET?.trim();
+    const identity = requiredProviderIdentity(params.identity);
+    const scopes = normalizeProviderScopes(params.scopes);
+    const expiresAt = normalizeProviderProofExpiry(params.expires_at);
+    const serverSecretRef = normalizeServerSecretRef(params.server_secret_ref, customerID);
+    if (!endpoint || !customerID || !proofSecret || !identity || !serverSecretRef) {
+        return {
+            ok: false,
+            errors: [
+                {
+                    code: "provider_auth_proof_not_configured",
+                    message: "Provider auth proof completion requires broker endpoint, customer id, proof secret, identity, and server secret reference.",
+                    guidance: "Set EVAOS_PROVIDER_DISCOVERY_URL, EVAOS_CUSTOMER_ID, EVAOS_PROVIDER_AUTH_PROOF_SECRET, EVAOS_PROVIDER_AUTH_IDENTITY, and EVAOS_PROVIDER_SERVER_SECRET_REF on the VM.",
+                },
+            ],
+        };
+    }
+    const providerKey = "openai_codex";
+    const proofID = providerProofID();
+    const proofPayload = {
+        customer_id: customerID,
+        provider_key: providerKey,
+        purpose: "provider_auth_complete",
+        agent_runtime: "openclaw",
+        proof_id: proofID,
+        identity,
+        scopes,
+        expires_at: expiresAt,
+        server_secret_ref: serverSecretRef,
+    };
+    const signature = createHmac("sha256", proofSecret)
+        .update(JSON.stringify(proofPayload))
+        .digest("hex");
+    const requestBody = {
+        action: "provider_auth_complete",
+        customer_id: customerID,
+        provider_key: providerKey,
+        agent_runtime: "openclaw",
+        provider_auth_proof: {
+            purpose: "provider_auth_complete",
+            agent_runtime: "openclaw",
+            proof_id: proofID,
+            identity,
+            scopes,
+            expires_at: expiresAt,
+            server_secret_ref: serverSecretRef,
+            signature,
+        },
+    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                "X-Evaos-Provider-Proof": "signed-v1",
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+            return {
+                ok: false,
+                errors: [
+                    {
+                        code: "provider_auth_complete_failed",
+                        message: isRecord(payload) && typeof payload.error === "string" ? payload.error : `Provider auth completion failed with HTTP ${response.status}.`,
+                    },
+                ],
+            };
+        }
+        const cachedGrant = await cacheProviderGrantFromBroker("openclaw", providerKey, payload);
+        return redactConnectorSecrets({
+            ok: true,
+            data: {
+                connected: isRecord(payload) ? payload.connected === true || payload.status === "connected" : true,
+                provider_key: providerKey,
+                grant_cached: cachedGrant,
+                response: payload,
+                raw_provider_token_returned: false,
+            },
+        });
+    }
+    catch (error) {
+        return {
+            ok: false,
+            errors: [
+                {
+                    code: "provider_auth_complete_unreachable",
+                    message: error instanceof Error ? error.message : "Provider auth completion broker was unreachable.",
+                },
+            ],
+        };
+    }
+    finally {
+        clearTimeout(timeout);
+    }
+}
 async function providerActiveProfilePayload() {
     const brokerProfile = await providerAgentDiscoveryPayload("openclaw");
     if (brokerProfile) {
@@ -483,6 +592,40 @@ async function providerActiveProfilePayload() {
         },
         warnings: hasConnectionProof ? [] : ["No verified active provider grant is available. Ask the customer to connect or re-auth the provider in evaOS Workbench."],
     });
+}
+function requiredProviderIdentity(value) {
+    const fromParam = typeof value === "string" ? value.trim() : "";
+    if (fromParam)
+        return fromParam;
+    const fromEnv = process.env.EVAOS_PROVIDER_AUTH_IDENTITY?.trim() || process.env.EVAOS_PROVIDER_IDENTITY?.trim() || "";
+    return fromEnv || null;
+}
+function normalizeProviderScopes(value) {
+    const scopes = Array.isArray(value)
+        ? value.map((scope) => String(scope).trim()).filter(Boolean)
+        : [];
+    if (scopes.length > 0)
+        return [...new Set(scopes)];
+    const fromEnv = process.env.EVAOS_PROVIDER_AUTH_SCOPES?.split(",").map((scope) => scope.trim()).filter(Boolean) ?? [];
+    return fromEnv.length > 0 ? [...new Set(fromEnv)] : ["codex", "offline_access"];
+}
+function normalizeProviderProofExpiry(value) {
+    const candidate = typeof value === "string" ? value.trim() : process.env.EVAOS_PROVIDER_AUTH_EXPIRES_AT?.trim() || "";
+    if (candidate && Number.isFinite(Date.parse(candidate)) && Date.parse(candidate) > Date.now()) {
+        return new Date(candidate).toISOString();
+    }
+    return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+}
+function normalizeServerSecretRef(value, customerID) {
+    const candidate = typeof value === "string" ? value.trim() : process.env.EVAOS_PROVIDER_SERVER_SECRET_REF?.trim() || "";
+    if (candidate.startsWith("provider://"))
+        return candidate;
+    if (!customerID)
+        return null;
+    return `provider://openai_codex/${encodeURIComponent(customerID)}/openclaw`;
+}
+function providerProofID() {
+    return `eap_${randomUUID().replace(/-/g, "")}`;
 }
 async function providerAgentDiscoveryPayload(agentRuntime) {
     const endpoint = providerDiscoveryEndpoint();
@@ -582,7 +725,62 @@ function providerGrantHandleFor(agentRuntime) {
     if (isRecord(runtimeGrant) && typeof runtimeGrant.grant_handle === "string" && runtimeGrant.grant_handle.trim() !== "") {
         return runtimeGrant.grant_handle.trim();
     }
+    const cachePayload = readProviderGrantCache();
+    const cachedRuntimeGrant = isRecord(cachePayload) ? cachePayload[agentRuntime] : null;
+    if (isRecord(cachedRuntimeGrant) && typeof cachedRuntimeGrant.grant_handle === "string" && cachedRuntimeGrant.grant_handle.trim() !== "") {
+        return cachedRuntimeGrant.grant_handle.trim();
+    }
     return null;
+}
+async function cacheProviderGrantFromBroker(agentRuntime, providerKey, payload) {
+    if (!isRecord(payload) || !isRecord(payload.agent_grant))
+        return false;
+    const grant = payload.agent_grant;
+    if (grant.provider_key !== providerKey || grant.agent_runtime !== agentRuntime || typeof grant.grant_handle !== "string" || !grant.grant_handle.trim()) {
+        return false;
+    }
+    const cachePath = providerGrantCachePath();
+    if (!cachePath)
+        return false;
+    const existing = isRecord(readProviderGrantCache()) ? readProviderGrantCache() : {};
+    const next = {
+        ...existing,
+        [agentRuntime]: {
+            provider_key: providerKey,
+            agent_runtime: agentRuntime,
+            grant_handle: grant.grant_handle.trim(),
+            expires_at: typeof grant.expires_at === "string" ? grant.expires_at : null,
+            cached_at: new Date().toISOString(),
+        },
+    };
+    try {
+        await mkdir(path.dirname(cachePath), { recursive: true });
+        await writeFile(cachePath, JSON.stringify(next, null, 2), { encoding: "utf8", mode: 0o600 });
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+function readProviderGrantCache() {
+    const cachePath = providerGrantCachePath();
+    if (!cachePath)
+        return null;
+    try {
+        return JSON.parse(readFileSync(cachePath, "utf8"));
+    }
+    catch {
+        return null;
+    }
+}
+function providerGrantCachePath() {
+    const explicit = process.env.EVAOS_PROVIDER_GRANT_CACHE_FILE?.trim();
+    if (explicit)
+        return explicit;
+    const home = process.env.HOME?.trim();
+    if (!home)
+        return null;
+    return path.join(home, ".openclaw", "evaos-provider-grants.json");
 }
 function sharedBrowserGuidancePayload() {
     const status = readJSONEnv("EVAOS_SHARED_BROWSER_STATUS_JSON");

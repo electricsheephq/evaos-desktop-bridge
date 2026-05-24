@@ -42,6 +42,7 @@
         "desktop_bridge_codex_app_server_threads",
         "evaos_provider_profiles",
         "evaos_provider_active_profile",
+        "evaos_provider_complete_auth",
         "evaos_shared_browser_guidance",
         "customer_mac_status",
         "desktop_control_status",
