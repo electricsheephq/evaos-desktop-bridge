@@ -570,9 +570,9 @@ class CodexAppServerObserver:
             "preferred_path": "codex_native_remote_control",
             **connections.data,
             "remote_control_status_read": {
-                "ok": connections.data.get("app_server", {}).get("available") is True,
+                "ok": connections.data.get("remote_control", {}).get("available") is True,
                 "data": connections.data.get("remote_control", {}).get("status"),
-                "errors": [],
+                "errors": connections.data.get("remote_control", {}).get("errors", []),
             },
             "safety": {
                 **connections.data.get("safety", {}),

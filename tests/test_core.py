@@ -553,6 +553,27 @@ def test_app_server_remote_control_status_is_read_only_probe() -> None:
     assert result.data["safety"]["generic_app_server_mutations_exposed"] is False
 
 
+def test_remote_control_status_reports_remote_read_errors() -> None:
+    def rpc(method: str, params: dict[str, object]) -> JsonRpcResponse:
+        if method == "initialize":
+            return JsonRpcResponse(ok=True, payload={"protocolVersion": "0.1"})
+        if method == "remoteControl/status/read":
+            return JsonRpcResponse(ok=False, error="remote control disabled")
+        raise AssertionError(f"unexpected method {method}")
+
+    observer = CodexAppServerObserver(
+        runner=lambda command, timeout=5.0: RunnerResult(returncode=0, stdout="ok", stderr=""),
+        rpc_client=rpc,
+    )
+
+    result = observer.remote_control_status()
+
+    assert result.ok is True
+    assert result.data["app_server"]["available"] is True
+    assert result.data["remote_control_status_read"]["ok"] is False
+    assert result.data["remote_control_status_read"]["errors"][0]["message"] == "remote control disabled"
+
+
 def test_connector_service_status_is_structured(tmp_path: Path) -> None:
     result = _run_connector_service("status", state_dir=tmp_path)
 
