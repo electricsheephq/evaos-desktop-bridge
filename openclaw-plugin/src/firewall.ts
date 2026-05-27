@@ -30,6 +30,12 @@ const APPROVAL_GATED_TOOL_PREFIXES = [
   "customer_mac_local_site_",
 ];
 
+const CODEX_REMOTE_CONTROL_TOOL_NAMES = new Set([
+  "desktop_bridge_codex_remote_start_turn",
+  "desktop_bridge_codex_remote_steer_turn",
+  "desktop_bridge_codex_remote_interrupt_turn",
+]);
+
 const IPHONE_GESTURE_TOOL_NAMES = new Set([
   "customer_mac_iphone_mirroring_swipe_left",
   "customer_mac_iphone_mirroring_swipe_right",
@@ -96,6 +102,10 @@ const FORBIDDEN_ARGUMENT_PATTERNS = [
   "config/batchWrite",
   "plugin/install",
   "plugin/uninstall",
+  "remoteControl/enable",
+  "remoteControl/disable",
+  "remoteControl/approve",
+  "remoteControl/deny",
   "session.db",
   "state.db",
   "sqlite",
@@ -147,6 +157,22 @@ export function desktopBridgeFirewall(event: HookEvent): HookDecision {
         block: true,
         blockReason:
           `desktop-bridge firewall blocked ${toolName}: ${matchedPattern} must go through the connector's audited control contract.`,
+      };
+    }
+    if (CODEX_REMOTE_CONTROL_TOOL_NAMES.has(toolName)) {
+      const params = ((event.args || event.input || event.params || event.parameters || {}) as Record<string, unknown>);
+      if (params.dry_run !== false) {
+        return undefined;
+      }
+      return {
+        requireApproval: {
+          title: "Approve Codex Desktop remote control",
+          description:
+            `${toolName} is a live Codex Desktop remote-control action. Approval is required and the bridge will audit the command.`,
+          severity: "warning",
+          timeoutBehavior: "deny",
+          allowedDecisions: ["allow-once", "deny"],
+        },
       };
     }
     if (APPROVAL_GATED_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {

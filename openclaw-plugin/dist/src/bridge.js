@@ -11,6 +11,7 @@ const FIXED_COMMANDS = {
     latest: ["latest", "--json"],
     codexFrontmost: ["codex", "frontmost", "--json"],
     codexWindows: ["codex", "windows", "--json"],
+    codexConnectionsStatus: ["codex", "connections", "status", "--json"],
     codexAppServerStatus: ["codex", "app-server", "status", "--json"],
     codexAppServerRemoteControlStatus: ["codex", "app-server", "remote-control-status", "--json"],
     customerMacStatus: ["customer-mac", "status", "--json"],
@@ -81,6 +82,62 @@ export function buildBridgeArgv(command, params = {}) {
     }
     if (command === "codexAppServerThreads") {
         return ["codex", "app-server", "threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
+    }
+    if (command === "codexAppServerLoadedThreads") {
+        return ["codex", "app-server", "loaded-threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
+    }
+    if (command === "codexLiveStatus") {
+        return [
+            "codex",
+            "app-server",
+            "subscribe",
+            "--json",
+            "--thread-id",
+            requiredString(params.thread_id, "thread_id"),
+            "--duration-ms",
+            String(clampInt(params.duration_ms, 1000, 1, 30000)),
+        ];
+    }
+    if (command === "codexRemoteStartTurn") {
+        return [
+            "codex",
+            "app-server",
+            "start-turn",
+            "--json",
+            "--thread-id",
+            requiredString(params.thread_id, "thread_id"),
+            "--message",
+            requiredString(params.message, "message"),
+            ...codexRemoteControlArgs(params),
+        ];
+    }
+    if (command === "codexRemoteSteerTurn") {
+        return [
+            "codex",
+            "app-server",
+            "steer-turn",
+            "--json",
+            "--thread-id",
+            requiredString(params.thread_id, "thread_id"),
+            "--turn-id",
+            requiredString(params.turn_id, "turn_id"),
+            "--message",
+            requiredString(params.message, "message"),
+            ...codexRemoteControlArgs(params),
+        ];
+    }
+    if (command === "codexRemoteInterruptTurn") {
+        return [
+            "codex",
+            "app-server",
+            "interrupt-turn",
+            "--json",
+            "--thread-id",
+            requiredString(params.thread_id, "thread_id"),
+            "--turn-id",
+            requiredString(params.turn_id, "turn_id"),
+            ...codexRemoteControlArgs(params),
+        ];
     }
     if (command === "customerMacSnapshot") {
         return ["customer-mac", "snapshot", "--json", "--max-chars", String(clampInt(params.max_chars, 4000, 1, 20000))];
@@ -358,6 +415,19 @@ function guardedApprovalArg(params) {
         return [];
     }
     return approvalArg(params);
+}
+function codexRemoteControlArgs(params) {
+    if (params.dry_run !== false) {
+        return ["--dry-run"];
+    }
+    const argv = ["--live"];
+    if (params.confirm === true) {
+        argv.push("--confirm");
+    }
+    if (typeof params.source_audit_id === "string" && params.source_audit_id.trim() !== "") {
+        argv.push("--source-audit-id", params.source_audit_id.trim());
+    }
+    return argv;
 }
 function requiredString(value, name) {
     if (typeof value !== "string" || value.trim() === "") {

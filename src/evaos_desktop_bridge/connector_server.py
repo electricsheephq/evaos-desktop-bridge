@@ -25,6 +25,9 @@ GUARDED_REMOTE_COMMANDS = frozenset(
     {
         "codexSelectThread",
         "codexContinueThread",
+        "codexRemoteStartTurn",
+        "codexRemoteSteerTurn",
+        "codexRemoteInterruptTurn",
         "customerMacAppFocus",
         "customerMacLocalSiteOpen",
         "customerMacLocalSiteAction",
@@ -42,6 +45,14 @@ GUARDED_REMOTE_COMMANDS = frozenset(
         "customerMacIphoneMirroringSwipeDown",
         "customerMacIphoneMirroringTypeApprovedText",
         "customerMacIphoneMirroringSendApprovedMessage",
+    }
+)
+
+CODEX_REMOTE_CONTROL_COMMANDS = frozenset(
+    {
+        "codexRemoteStartTurn",
+        "codexRemoteSteerTurn",
+        "codexRemoteInterruptTurn",
     }
 )
 
@@ -149,6 +160,12 @@ CONNECTOR_COMMAND_ALIASES = {
     "desktop_bridge_codex_app_server_status": "codexAppServerStatus",
     "desktop_bridge_codex_app_server_remote_control_status": "codexAppServerRemoteControlStatus",
     "desktop_bridge_codex_app_server_threads": "codexAppServerThreads",
+    "desktop_bridge_codex_connections_status": "codexConnectionsStatus",
+    "desktop_bridge_codex_app_server_loaded_threads": "codexAppServerLoadedThreads",
+    "desktop_bridge_codex_live_status": "codexLiveStatus",
+    "desktop_bridge_codex_remote_start_turn": "codexRemoteStartTurn",
+    "desktop_bridge_codex_remote_steer_turn": "codexRemoteSteerTurn",
+    "desktop_bridge_codex_remote_interrupt_turn": "codexRemoteInterruptTurn",
     "customer_mac_status": "customerMacStatus",
     "customer_mac_capabilities": "customerMacCapabilities",
     "customer_mac_snapshot": "customerMacSnapshot",
@@ -241,6 +258,7 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         "latest": ["latest", "--json"],
         "codexFrontmost": ["codex", "frontmost", "--json"],
         "codexWindows": ["codex", "windows", "--json"],
+        "codexConnectionsStatus": ["codex", "connections", "status", "--json"],
         "codexAppServerStatus": ["codex", "app-server", "status", "--json"],
         "codexAppServerRemoteControlStatus": ["codex", "app-server", "remote-control-status", "--json"],
         "customerMacStatus": ["customer-mac", "status", "--json"],
@@ -302,6 +320,57 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         return ["codex", "ax-tree", "--json", "--max-nodes", str(_clamp_int(params.get("max_nodes"), 200, 1, 1000))]
     if command == "codexAppServerThreads":
         return ["codex", "app-server", "threads", "--json", "--max-items", str(_clamp_int(params.get("max_items"), 50, 1, 200))]
+    if command == "codexAppServerLoadedThreads":
+        return ["codex", "app-server", "loaded-threads", "--json", "--max-items", str(_clamp_int(params.get("max_items"), 50, 1, 200))]
+    if command == "codexLiveStatus":
+        return [
+            "codex",
+            "app-server",
+            "subscribe",
+            "--json",
+            "--thread-id",
+            _required_string(params, "thread_id"),
+            "--duration-ms",
+            str(_clamp_int(params.get("duration_ms"), 1000, 1, 30000)),
+        ]
+    if command == "codexRemoteStartTurn":
+        return [
+            "codex",
+            "app-server",
+            "start-turn",
+            "--json",
+            "--thread-id",
+            _required_string(params, "thread_id"),
+            "--message",
+            _required_string(params, "message"),
+            *_codex_remote_control_args(params),
+        ]
+    if command == "codexRemoteSteerTurn":
+        return [
+            "codex",
+            "app-server",
+            "steer-turn",
+            "--json",
+            "--thread-id",
+            _required_string(params, "thread_id"),
+            "--turn-id",
+            _required_string(params, "turn_id"),
+            "--message",
+            _required_string(params, "message"),
+            *_codex_remote_control_args(params),
+        ]
+    if command == "codexRemoteInterruptTurn":
+        return [
+            "codex",
+            "app-server",
+            "interrupt-turn",
+            "--json",
+            "--thread-id",
+            _required_string(params, "thread_id"),
+            "--turn-id",
+            _required_string(params, "turn_id"),
+            *_codex_remote_control_args(params),
+        ]
     if command == "customerMacSnapshot":
         return ["customer-mac", "snapshot", "--json", "--max-chars", str(_clamp_int(params.get("max_chars"), 4000, 1, 20000))]
     if command == "customerMacAxTree":
@@ -680,6 +749,9 @@ def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool
         return False
     if params.get("dry_run") is not False:
         return False
+    if command in CODEX_REMOTE_CONTROL_COMMANDS:
+        source = params.get("source_audit_id")
+        return params.get("confirm") is not True or not isinstance(source, str) or not source.strip().startswith("audit-")
     approval = params.get("approval_audit_id")
     return not isinstance(approval, str) or not approval.strip()
 
@@ -699,6 +771,13 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
     if command not in GUARDED_REMOTE_COMMANDS:
         return None
     if params.get("dry_run") is not False:
+        return None
+    if command in CODEX_REMOTE_CONTROL_COMMANDS:
+        source = params.get("source_audit_id")
+        if params.get("confirm") is not True:
+            return "Live Codex remote-control actions require confirm=true."
+        if not isinstance(source, str) or not source.strip().startswith("audit-"):
+            return "Live Codex remote-control actions require source_audit_id from a dry-run or evidence command."
         return None
     approval = params.get("approval_audit_id")
     if not isinstance(approval, str) or not approval.strip():
@@ -805,6 +884,18 @@ def _approval_arg(params: dict[str, Any]) -> list[str]:
     if not isinstance(approval, str) or not approval.strip():
         return []
     return ["--approval-audit-id", approval.strip()]
+
+
+def _codex_remote_control_args(params: dict[str, Any]) -> list[str]:
+    if params.get("dry_run") is not False:
+        return ["--dry-run"]
+    argv = ["--live"]
+    if params.get("confirm") is True:
+        argv.append("--confirm")
+    source = params.get("source_audit_id")
+    if isinstance(source, str) and source.strip():
+        argv.extend(["--source-audit-id", source.strip()])
+    return argv
 
 
 def _clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:

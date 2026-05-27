@@ -21,6 +21,9 @@ Read-only tools:
 - `desktop_bridge_codex_app_server_status`: Codex app-server availability and read allowlist.
 - `desktop_bridge_codex_app_server_remote_control_status`: Codex native remote-control readiness probe; no enabling or mutation.
 - `desktop_bridge_codex_app_server_threads`: capped app-server thread summaries through the read allowlist.
+- `desktop_bridge_codex_connections_status`: Codex Desktop, app-server, daemon, websocket, remote-control, and notification readiness.
+- `desktop_bridge_codex_app_server_loaded_threads`: loaded Codex Desktop thread ids eligible for controller actions.
+- `desktop_bridge_codex_live_status`: short live-notification read for one loaded thread.
 - `customer_mac_status`: paired Mac, permission, iPhone Mirroring, and Screen Sharing readiness.
 - `customer_mac_capabilities`: supported customer Mac targets and forbidden actions.
 - `desktop_control_status`: current Full Access / Ask Permission session state.
@@ -35,6 +38,9 @@ Guarded visible action:
 
 - `desktop_bridge_codex_select_thread`: select an already-visible thread by `visible_id`; `dry_run` defaults to true.
 - `desktop_bridge_codex_continue_thread`: support-only fallback; select a visible thread by title and submit exact `continue` after dry-run approval.
+- `desktop_bridge_codex_remote_start_turn`: guarded native app-server controller action for `turn/start`.
+- `desktop_bridge_codex_remote_steer_turn`: guarded native app-server controller action for `turn/steer`.
+- `desktop_bridge_codex_remote_interrupt_turn`: guarded native app-server controller action for `turn/interrupt`.
 - `customer_mac_app_focus`: focus a non-sensitive Mac app by name.
 - `customer_mac_local_site_open`: open a localhost, loopback, or `.local` website.
 - `customer_mac_local_site_action`: reload/back/forward in a supported browser.
@@ -75,6 +81,12 @@ shell commands. The only Codex prompt-like fallback is
 `desktop_bridge_codex_continue_thread`, which is support-only, fixed to exact
 `continue`, dry-run/approval-gated, and should be used only when native Codex
 remote-control is unavailable.
+
+Native Codex controller tools are separate from read-only tools. They default to
+dry-run, require a loaded thread id, and live mode requires `dry_run:false`,
+`confirm:true`, and `source_audit_id:"audit-..."`. The bridge verifies the
+target thread is still loaded before calling `turn/start`, `turn/steer`, or
+`turn/interrupt`.
 
 ## Runtime Contract
 

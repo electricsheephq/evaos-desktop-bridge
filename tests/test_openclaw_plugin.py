@@ -53,6 +53,12 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_app_server_status",
         "desktop_bridge_codex_app_server_remote_control_status",
         "desktop_bridge_codex_app_server_threads",
+        "desktop_bridge_codex_connections_status",
+        "desktop_bridge_codex_app_server_loaded_threads",
+        "desktop_bridge_codex_live_status",
+        "desktop_bridge_codex_remote_start_turn",
+        "desktop_bridge_codex_remote_steer_turn",
+        "desktop_bridge_codex_remote_interrupt_turn",
         "evaos_provider_profiles",
         "evaos_provider_active_profile",
         "evaos_provider_complete_auth",
@@ -144,6 +150,9 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "customerMacControlStart" in source
     assert "customerMacIphoneMirroringOpenApp" in source
     assert "customerMacIphoneMirroringSendApprovedMessage" in source
+    assert "codexRemoteStartTurn" in source
+    assert "codexRemoteSteerTurn" in source
+    assert "codexRemoteInterruptTurn" in source
     assert "evaosProviderProfiles" in source
     assert "evaosProviderActiveProfile" in source
     assert "evaosSharedBrowserGuidance" in source
@@ -969,9 +978,11 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
     assert "block: true" in source
     assert "requireApproval: {" in source
     assert "title: \"Approve customer Mac action\"" in source
+    assert "title: \"Approve Codex Desktop remote control\"" in source
     assert "timeoutBehavior: \"deny\"" in source
     assert "allowedDecisions: [\"allow-once\", \"deny\"]" in source
     assert "approval_audit_id" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
+    assert "source_audit_id" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
     assert "requireApproval: true" not in source
     assert "before_tool_call" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
 

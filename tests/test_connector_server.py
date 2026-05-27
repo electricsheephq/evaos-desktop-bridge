@@ -35,6 +35,7 @@ def test_connector_builds_fixed_status_argv() -> None:
     assert build_bridge_argv("customerMacStatus") == ["customer-mac", "status", "--json"]
     assert build_bridge_argv("customerMacIphoneMirroringStatus") == ["customer-mac", "iphone-mirroring", "status", "--json"]
     assert build_bridge_argv("codexAppServerRemoteControlStatus") == ["codex", "app-server", "remote-control-status", "--json"]
+    assert build_bridge_argv("codexConnectionsStatus") == ["codex", "connections", "status", "--json"]
 
 
 def test_connector_accepts_openclaw_tool_name_aliases() -> None:
@@ -42,6 +43,7 @@ def test_connector_accepts_openclaw_tool_name_aliases() -> None:
     assert normalize_connector_command("desktop_see") == "desktopSee"
     assert normalize_connector_command("iphone_swipe") == "iphoneSwipe"
     assert normalize_connector_command("desktop_bridge_audit_tail") == "auditTail"
+    assert normalize_connector_command("desktop_bridge_codex_remote_start_turn") == "codexRemoteStartTurn"
     assert build_bridge_argv("customer_mac_status") == ["customer-mac", "status", "--json"]
     assert build_bridge_argv("desktop_see", {"max_chars": 800, "max_nodes": 40}) == [
         "customer-mac",
@@ -52,6 +54,74 @@ def test_connector_accepts_openclaw_tool_name_aliases() -> None:
         "800",
         "--max-nodes",
         "40",
+    ]
+
+
+def test_connector_builds_codex_remote_control_argv() -> None:
+    assert build_bridge_argv("codexAppServerLoadedThreads", {"max_items": 3}) == [
+        "codex",
+        "app-server",
+        "loaded-threads",
+        "--json",
+        "--max-items",
+        "3",
+    ]
+    assert build_bridge_argv("codexLiveStatus", {"thread_id": "thread-1", "duration_ms": 25}) == [
+        "codex",
+        "app-server",
+        "subscribe",
+        "--json",
+        "--thread-id",
+        "thread-1",
+        "--duration-ms",
+        "25",
+    ]
+    assert build_bridge_argv("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue"}) == [
+        "codex",
+        "app-server",
+        "start-turn",
+        "--json",
+        "--thread-id",
+        "thread-1",
+        "--message",
+        "continue",
+        "--dry-run",
+    ]
+    assert build_bridge_argv(
+        "codexRemoteSteerTurn",
+        {"thread_id": "thread-1", "turn_id": "turn-1", "message": "adjust", "dry_run": False, "source_audit_id": "audit-1", "confirm": True},
+    ) == [
+        "codex",
+        "app-server",
+        "steer-turn",
+        "--json",
+        "--thread-id",
+        "thread-1",
+        "--turn-id",
+        "turn-1",
+        "--message",
+        "adjust",
+        "--live",
+        "--confirm",
+        "--source-audit-id",
+        "audit-1",
+    ]
+    assert build_bridge_argv(
+        "codexRemoteInterruptTurn",
+        {"thread_id": "thread-1", "turn_id": "turn-1", "dry_run": False, "source_audit_id": "audit-1", "confirm": True},
+    ) == [
+        "codex",
+        "app-server",
+        "interrupt-turn",
+        "--json",
+        "--thread-id",
+        "thread-1",
+        "--turn-id",
+        "turn-1",
+        "--live",
+        "--confirm",
+        "--source-audit-id",
+        "audit-1",
     ]
     assert build_bridge_argv("iphone_swipe", {"direction": "left", "dry_run": False}) == [
         "customer-mac",
@@ -135,9 +205,11 @@ def test_connector_clamps_caps_and_rejects_missing_required_values() -> None:
 
 def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> None:
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": False}) is True
+    assert _live_guarded_without_approval("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue", "dry_run": False}) is True
     assert _live_guarded_without_approval("customerMacIphoneMirroringSwipeLeft", {"dry_run": False}) is True
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": True}) is False
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"}) is False
+    assert _live_guarded_without_approval("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue", "dry_run": False, "source_audit_id": "audit-1", "confirm": True}) is False
     assert _live_guarded_without_approval("customerMacStatus", {}) is False
     argv = build_bridge_argv("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"})
     assert "--approval-audit-id" in argv

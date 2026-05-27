@@ -109,12 +109,13 @@ posts to `/v1/commands`.
 - `primitive`: safe-surface capability checks for desktop and iPhone control
   primitives. This proves the engine can click/type/scroll/drag/tap, but it is
   not scenario certification.
-- `desktop_scenario`: opens a known browser page, captures a visual snapshot,
-  asserts the expected state, then performs follow-up actions from that verified
-  state.
-- `iphone_scenario`: focuses iPhone Mirroring, opens Calculator, verifies the
-  screen, enters `1+1+1=`, captures another snapshot, then navigates Home,
-  Spotlight, and App Switcher only after a verified iPhone state.
+- `desktop_scenario`: captures an initial visual snapshot, opens a known
+  browser page only from that verified state, captures a new snapshot, asserts
+  the expected state, then performs follow-up actions from the verified page.
+- `iphone_scenario`: focuses iPhone Mirroring, captures a pre-action iPhone
+  snapshot, opens Calculator only from that verified state, verifies the screen,
+  enters `1+1+1=`, captures another snapshot, then navigates Home, Spotlight,
+  and App Switcher only after a verified iPhone state.
 - `ask_permission`: starts Ask Permission, proves a high-impact live type is
   denied without approval, then proves the dry-run audit id can approve the
   matching action.
@@ -126,10 +127,23 @@ posts to `/v1/commands`.
 
 `primitive` and `scenario` lanes are both required. Primitive rows prove the
 transport and automation engine; scenario rows prove the agent-style loop. Real
-task canaries must use a fresh `iphone_see` or `desktop_see`, assert the
-expected app/screen, run one action, then capture another `see` result to prove
-the intended state changed. Do not use blind swipes or coordinates for scenario
-certification.
+task canaries must use a fresh `iphone_see` or `desktop_see` before live
+scenario actions, run one action only from that visual evidence, then capture
+another `see` result to prove the intended state changed. Do not use blind
+swipes or coordinates for scenario certification.
+
+Known 0.6.5 release-reality result from the 2026-05-27 fresh canary:
+
+- Connector/OpenClaw/Hermes `--suite all` each passed 33/44 rows before the
+  harness bootstrap fix.
+- Foreground Mac and iPhone primitive rows passed, including desktop see/click/
+  type/scroll/drag/hotkey and iPhone focus/open-app/see/tap/type.
+- Desktop scenario passed 5/5 after adding the initial visual bootstrap.
+- iPhone scenario still has a product/tuning gap: `open Calculator` can return
+  ok while the visible phone remains in the previous app.
+- Codex app-server rows failed in the installed 0.6.5 LaunchAgent because that
+  packaged helper could not find `codex` on `PATH`; the source bridge now
+  prefers the Codex app bundle CLI to close that gap.
 
 The command timeout is per primitive command, not a task budget. A multi-minute
 agent task is expected to issue many bounded commands. Current defaults are 60s

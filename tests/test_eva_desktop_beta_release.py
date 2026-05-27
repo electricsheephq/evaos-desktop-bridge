@@ -124,6 +124,11 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "customer-mac\", \"control\", \"status\", \"--json" in model
     assert "customer-mac\", \"control\", \"stop\", \"--json" in model
     assert "customer-mac\", \"control\", \"kill-switch\", \"--json" in model
+    assert 'bridge.run(arguments: ["codex", "connections", "status", "--json"])' in model
+    assert 'bridgeKey(["codex", "connections", "status", "--json"])' in model
+    assert "remote_control_command" in model
+    assert "control_sockets" in model
+    assert "socket_path" not in model
     assert "full-access" in model
     assert "ask-permission" in model
 

@@ -8,7 +8,14 @@ import stat
 import pytest
 
 from evaos_desktop_bridge.audit import append_audit
-from evaos_desktop_bridge.adapters.codex_app_server import ALLOWED_APP_SERVER_METHODS, CodexAppServerObserver, JsonRpcResponse
+from evaos_desktop_bridge.adapters.codex_app_server import (
+    ALLOWED_APP_SERVER_METHODS,
+    CONTROLLER_APP_SERVER_METHODS,
+    CodexAppServerObserver,
+    CodexJsonRpcClient,
+    JsonRpcResponse,
+    _build_websocket_frame,
+)
 from evaos_desktop_bridge.adapters.codex_macos import RunnerResult
 from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_allowed
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
@@ -89,7 +96,13 @@ def test_policy_allows_only_mvp_commands() -> None:
     assert ensure_allowed("codex.continue_thread") == "codex.continue_thread"
     assert ensure_allowed("codex.app_server.status") == "codex.app_server.status"
     assert ensure_allowed("codex.app_server.threads") == "codex.app_server.threads"
+    assert ensure_allowed("codex.app_server.loaded_threads") == "codex.app_server.loaded_threads"
+    assert ensure_allowed("codex.app_server.subscribe") == "codex.app_server.subscribe"
+    assert ensure_allowed("codex.app_server.start_turn") == "codex.app_server.start_turn"
+    assert ensure_allowed("codex.app_server.steer_turn") == "codex.app_server.steer_turn"
+    assert ensure_allowed("codex.app_server.interrupt_turn") == "codex.app_server.interrupt_turn"
     assert ensure_allowed("codex.app_server.remote_control_status") == "codex.app_server.remote_control_status"
+    assert ensure_allowed("codex.connections.status") == "codex.connections.status"
     assert ensure_allowed("codex.snapshot") == "codex.snapshot"
     assert ensure_allowed("codex.ax_tree") == "codex.ax_tree"
     assert ensure_allowed("customer_mac.status") == "customer_mac.status"
@@ -116,6 +129,8 @@ def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("codex.select_thread")["mode"] == "guarded_visible_action"
     assert command_metadata("codex.app_server.status")["source"] == "app_server"
     assert command_metadata("codex.app_server.threads")["source"] == "app_server"
+    assert command_metadata("codex.app_server.start_turn")["mode"] == "guarded_remote_control_action"
+    assert command_metadata("codex.app_server.start_turn")["requires_confirmation"] is True
     assert command_metadata("codex.continue_thread")["support_only"] is True
     assert command_metadata("customer_mac.iphone_mirroring_open_app")["requires_active_control_session"] is True
     assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["mode"] == "full_access_control"
@@ -239,10 +254,75 @@ def test_app_server_method_allowlist_blocks_mutations() -> None:
     observer = CodexAppServerObserver(rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"threads": []}))
 
     assert "thread/list" in ALLOWED_APP_SERVER_METHODS
+    assert "turn/start" in CONTROLLER_APP_SERVER_METHODS
+    assert "turn/start" not in ALLOWED_APP_SERVER_METHODS
     result = observer.request("turn/start", {})
 
     assert result.ok is False
     assert result.errors[0]["code"] == "app_server_method_not_allowed"
+
+
+class FakeTransport:
+    def __init__(self, lines: list[dict[str, object]]) -> None:
+        self.lines = [json.dumps(line) for line in lines]
+        self.sent: list[dict[str, object]] = []
+        self.closed = False
+
+    def send_json(self, payload: dict[str, object]) -> None:
+        self.sent.append(payload)
+
+    def read_line(self, deadline: float) -> str | None:
+        if not self.lines:
+            return None
+        return self.lines.pop(0)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_app_server_json_rpc_client_initializes_before_request() -> None:
+    transport = FakeTransport(
+        [
+            {"jsonrpc": "2.0", "method": "remoteControl/status/changed", "params": {"status": "ready"}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"codexHome": f"{Path.home()}/.codex"}},
+            {"jsonrpc": "2.0", "id": 2, "result": {"data": [{"id": "thread-1", "name": "SDK Docs"}]}},
+        ]
+    )
+    client = CodexJsonRpcClient(lambda: transport, timeout=0.1)
+
+    with client:
+        response = client.request("thread/list", {"limit": 1})
+
+    assert response.ok is True
+    assert response.payload == {"data": [{"id": "thread-1", "name": "SDK Docs"}]}
+    assert response.notifications[0]["method"] == "remoteControl/status/changed"
+    assert [item.get("method") for item in transport.sent] == ["initialize", "initialized", "thread/list"]
+    assert transport.sent[0]["params"]["clientInfo"]["name"] == "evaos-desktop-bridge"
+    assert transport.closed is True
+
+
+def test_app_server_json_rpc_client_preserves_empty_result() -> None:
+    transport = FakeTransport(
+        [
+            {"jsonrpc": "2.0", "id": 1, "result": {}},
+            {"jsonrpc": "2.0", "id": 2, "result": {}},
+        ]
+    )
+    client = CodexJsonRpcClient(lambda: transport, timeout=0.1)
+
+    with client:
+        response = client.request("remoteControl/status/read", {})
+
+    assert response.ok is True
+    assert response.payload == {}
+
+
+def test_websocket_client_frames_are_masked() -> None:
+    frame = _build_websocket_frame(b'{"jsonrpc":"2.0"}', opcode=0x1, mask_key=b"abcd")
+
+    assert frame[0] == 0x81
+    assert frame[1] & 0x80 == 0x80
+    assert b"abcd" in frame
 
 
 def test_app_server_threads_sanitizes_response() -> None:
@@ -358,6 +438,71 @@ def test_app_server_status_reports_cli_and_rpc_handshake() -> None:
     assert result.data["rpc_handshake_ok"] is True
     assert result.data["available"] is True
     assert result.data["selected_cli"]["version"] == "codex-cli 0.133.0"
+
+
+def test_app_server_loaded_threads_reads_data_array() -> None:
+    observer = CodexAppServerObserver(
+        rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"data": ["thread-1", f"{Path.home()}/thread-2"]}),
+    )
+
+    result = observer.loaded_threads(max_items=1)
+
+    assert result.ok is True
+    assert result.data["threads"] == [{"index": 0, "id": "thread-1", "source": "app_server_loaded"}]
+    assert str(Path.home()) not in json.dumps(result.data)
+
+
+def test_app_server_controller_dry_run_does_not_call_rpc() -> None:
+    calls: list[str] = []
+    observer = CodexAppServerObserver(
+        rpc_client=lambda method, params: calls.append(method) or JsonRpcResponse(ok=True, payload={}),
+    )
+
+    result = observer.start_turn(thread_id="thread-1", message="continue", dry_run=True, confirmed=False, source_audit_id=None)
+
+    assert result.ok is True
+    assert result.data["would_send"] is True
+    assert calls == []
+
+
+def test_app_server_controller_live_requires_confirmation_and_loaded_thread() -> None:
+    def rpc(method: str, params: dict[str, object]) -> JsonRpcResponse:
+        if method == "thread/loaded/list":
+            return JsonRpcResponse(ok=True, payload={"data": ["thread-1"]})
+        if method == "turn/start":
+            return JsonRpcResponse(ok=True, payload={"turnId": "turn-1"})
+        raise AssertionError(f"unexpected method {method}")
+
+    observer = CodexAppServerObserver(rpc_client=rpc)
+
+    missing_confirm = observer.start_turn(thread_id="thread-1", message="continue", dry_run=False, confirmed=False, source_audit_id="audit-123")
+    missing_source = observer.start_turn(thread_id="thread-1", message="continue", dry_run=False, confirmed=True, source_audit_id=None)
+    live = observer.start_turn(thread_id="thread-1", message="continue", dry_run=False, confirmed=True, source_audit_id="audit-123")
+
+    assert missing_confirm.ok is False
+    assert missing_confirm.errors[0]["code"] == "remote_control_confirmation_required"
+    assert missing_source.ok is False
+    assert missing_source.errors[0]["code"] == "source_audit_id_required"
+    assert live.ok is True
+    assert live.data["method"] == "turn/start"
+    assert live.data["sent"] is True
+
+
+def test_app_server_controller_live_fails_closed_for_stale_thread() -> None:
+    observer = CodexAppServerObserver(
+        rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"data": ["other-thread"]}),
+    )
+
+    result = observer.interrupt_turn(
+        thread_id="thread-1",
+        turn_id="turn-1",
+        dry_run=False,
+        confirmed=True,
+        source_audit_id="audit-123",
+    )
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "codex_thread_not_loaded"
 
 
 def test_app_server_remote_control_status_is_read_only_probe() -> None:

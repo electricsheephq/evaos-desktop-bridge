@@ -34,8 +34,11 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.snapshot",
         "codex.inspect",
         "codex.ax_tree",
+        "codex.connections.status",
         "codex.app_server.status",
         "codex.app_server.threads",
+        "codex.app_server.loaded_threads",
+        "codex.app_server.subscribe",
         "codex.app_server.remote_control_status",
         "customer_mac.status",
         "customer_mac.capabilities",
@@ -169,6 +172,14 @@ ASK_PERMISSION_SAFE_HOTKEYS = frozenset(
 )
 
 
+def _add_remote_control_flags(parser: argparse.ArgumentParser) -> None:
+    dry_run_group = parser.add_mutually_exclusive_group()
+    dry_run_group.add_argument("--dry-run", dest="dry_run", action="store_true", default=True, help="Report what would happen without mutating Codex Desktop.")
+    dry_run_group.add_argument("--live", dest="dry_run", action="store_false", help="Run the approved Codex Desktop remote-control action.")
+    parser.add_argument("--confirm", action="store_true", help="Required with --live.")
+    parser.add_argument("--source-audit-id", default=None, help="Audit id from the evidence/dry-run command that approved this live action.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="evaos-desktop-bridge",
@@ -289,6 +300,13 @@ def build_parser() -> argparse.ArgumentParser:
     ax_parser.add_argument("--max-nodes", type=_positive_int, default=200, help="Maximum AX nodes to return.")
     ax_parser.set_defaults(command_id="codex.ax_tree", target="codex")
 
+    connections_parser = codex_subparsers.add_parser("connections", help="Codex Desktop native connection/status commands.")
+    connections_subparsers = connections_parser.add_subparsers(dest="connections_command")
+
+    connections_status_parser = connections_subparsers.add_parser("status", help="Report Codex Desktop, app-server, remote-control, websocket, and notification readiness.")
+    connections_status_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    connections_status_parser.set_defaults(command_id="codex.connections.status", target="codex")
+
     app_server_parser = codex_subparsers.add_parser("app-server", help="Read-only Codex app-server seam commands.")
     app_server_subparsers = app_server_parser.add_subparsers(dest="app_server_command")
 
@@ -300,6 +318,40 @@ def build_parser() -> argparse.ArgumentParser:
     app_server_threads_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     app_server_threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum app-server thread summaries to return.")
     app_server_threads_parser.set_defaults(command_id="codex.app_server.threads", target="codex")
+
+    app_server_loaded_parser = app_server_subparsers.add_parser("loaded-threads", help="Read Codex Desktop's currently loaded app-server thread ids.")
+    app_server_loaded_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_loaded_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum loaded thread ids to return.")
+    app_server_loaded_parser.set_defaults(command_id="codex.app_server.loaded_threads", target="codex")
+
+    app_server_subscribe_parser = app_server_subparsers.add_parser("subscribe", help="Read buffered Codex app-server notifications for a loaded thread.")
+    app_server_subscribe_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_subscribe_parser.add_argument("--thread-id", required=True, help="Loaded Codex app-server thread id.")
+    app_server_subscribe_parser.add_argument("--duration-ms", type=_positive_int, default=1000, help="How long to buffer notifications.")
+    app_server_subscribe_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum JSON chars per notification payload.")
+    app_server_subscribe_parser.set_defaults(command_id="codex.app_server.subscribe", target="codex")
+
+    app_server_start_parser = app_server_subparsers.add_parser("start-turn", help="Guarded remote-control action: start a turn in a loaded Codex Desktop thread.")
+    app_server_start_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_start_parser.add_argument("--thread-id", required=True, help="Loaded Codex app-server thread id.")
+    app_server_start_parser.add_argument("--message", required=True, help="Exact user message for the turn.")
+    _add_remote_control_flags(app_server_start_parser)
+    app_server_start_parser.set_defaults(command_id="codex.app_server.start_turn", target="codex")
+
+    app_server_steer_parser = app_server_subparsers.add_parser("steer-turn", help="Guarded remote-control action: steer an active Codex Desktop turn.")
+    app_server_steer_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_steer_parser.add_argument("--thread-id", required=True, help="Loaded Codex app-server thread id.")
+    app_server_steer_parser.add_argument("--turn-id", required=True, help="Currently active Codex turn id precondition.")
+    app_server_steer_parser.add_argument("--message", required=True, help="Exact steering message.")
+    _add_remote_control_flags(app_server_steer_parser)
+    app_server_steer_parser.set_defaults(command_id="codex.app_server.steer_turn", target="codex")
+
+    app_server_interrupt_parser = app_server_subparsers.add_parser("interrupt-turn", help="Guarded remote-control action: interrupt an active Codex Desktop turn.")
+    app_server_interrupt_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    app_server_interrupt_parser.add_argument("--thread-id", required=True, help="Loaded Codex app-server thread id.")
+    app_server_interrupt_parser.add_argument("--turn-id", required=True, help="Currently active Codex turn id precondition.")
+    _add_remote_control_flags(app_server_interrupt_parser)
+    app_server_interrupt_parser.set_defaults(command_id="codex.app_server.interrupt_turn", target="codex")
 
     app_server_remote_parser = app_server_subparsers.add_parser("remote-control-status", help="Probe Codex native remote-control readiness without enabling or mutating it.")
     app_server_remote_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -734,10 +786,22 @@ def _run_command(
         return observer.inspect(max_nodes=args.max_nodes)
     if command_id == "codex.ax_tree":
         return observer.ax_tree(max_nodes=args.max_nodes)
+    if command_id == "codex.connections.status":
+        return app_server.connections_status()
     if command_id == "codex.app_server.status":
         return app_server.status()
     if command_id == "codex.app_server.threads":
         return app_server.threads(max_items=args.max_items)
+    if command_id == "codex.app_server.loaded_threads":
+        return app_server.loaded_threads(max_items=args.max_items)
+    if command_id == "codex.app_server.subscribe":
+        return app_server.subscribe(thread_id=args.thread_id, duration_ms=args.duration_ms, max_chars=args.max_chars)
+    if command_id == "codex.app_server.start_turn":
+        return app_server.start_turn(thread_id=args.thread_id, message=args.message, dry_run=args.dry_run, confirmed=args.confirm, source_audit_id=args.source_audit_id)
+    if command_id == "codex.app_server.steer_turn":
+        return app_server.steer_turn(thread_id=args.thread_id, turn_id=args.turn_id, message=args.message, dry_run=args.dry_run, confirmed=args.confirm, source_audit_id=args.source_audit_id)
+    if command_id == "codex.app_server.interrupt_turn":
+        return app_server.interrupt_turn(thread_id=args.thread_id, turn_id=args.turn_id, dry_run=args.dry_run, confirmed=args.confirm, source_audit_id=args.source_audit_id)
     if command_id == "codex.app_server.remote_control_status":
         return app_server.remote_control_status()
     if command_id == "customer_mac.status":
@@ -942,8 +1006,14 @@ def _capabilities() -> dict[str, object]:
                 "codex.snapshot",
                 "codex.inspect",
                 "codex.ax_tree",
+                "codex.connections.status",
                 "codex.app_server.status",
                 "codex.app_server.threads",
+                "codex.app_server.loaded_threads",
+                "codex.app_server.subscribe",
+                "codex.app_server.start_turn",
+                "codex.app_server.steer_turn",
+                "codex.app_server.interrupt_turn",
                 "codex.app_server.remote_control_status",
                 "customer_mac.status",
                 "customer_mac.capabilities",

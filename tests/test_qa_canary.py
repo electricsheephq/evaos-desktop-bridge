@@ -339,6 +339,26 @@ def test_scenario_catalog_is_explicit_and_real_world_config_is_local_only() -> N
     assert any(step.lane == "primitive" for step in all_steps)
     assert any(step.lane == "scenario" for step in all_steps)
     assert all(step.id and step.command for step in all_steps)
+    for step in all_steps:
+        if step.lane == "scenario" and step.command in {
+            "desktop_browser_action",
+            "desktop_click",
+            "desktop_drag",
+            "desktop_focus_app",
+            "desktop_hotkey",
+            "desktop_menu",
+            "desktop_scroll",
+            "desktop_type",
+            "desktop_window",
+            "iphone_swipe",
+            "iphone_tap",
+            "iphone_type",
+            "customer_mac_iphone_mirroring_app_switcher",
+            "customer_mac_iphone_mirroring_home",
+            "customer_mac_iphone_mirroring_open_app",
+            "customer_mac_iphone_mirroring_spotlight",
+        }:
+            assert step.assert_from_step is not None
     assert classify_status(envelope("desktop_see")) == "passed"
     assert classify_status(envelope("iphone_see", ok=False, errors=[{"code": "not_found", "message": "missing", "guidance": "test"}]), skip_on_unavailable=True) == "skipped"
 
