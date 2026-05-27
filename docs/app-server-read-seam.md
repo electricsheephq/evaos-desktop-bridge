@@ -71,9 +71,13 @@ If the local Codex app-server cannot be reached, commands return structured JSON
 
 Supported transports:
 
-- `stdio` default: starts `codex app-server --listen stdio://` and performs `initialize` followed by `initialized`.
-- `websocket`: set `EVAOS_CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:PORT`; only loopback websocket URLs are accepted and client frames are masked.
-- `proxy`: set `EVAOS_CODEX_APP_SERVER_TRANSPORT=proxy`; the bridge uses `codex app-server proxy`.
+- `stdio` default: starts `codex app-server --listen stdio://` and performs
+  `initialize` followed by `initialized`.
+- `websocket`: set `EVAOS_CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:PORT`; only
+  loopback websocket URLs are accepted and client frames are masked.
+- `proxy`: set `EVAOS_CODEX_APP_SERVER_TRANSPORT=proxy`; the bridge uses
+  `codex app-server proxy` and performs the required WebSocket handshake and
+  frame masking over the proxied Unix socket stream.
 
 `remote-control-status` is a read-only probe. It checks the installed Codex CLI and `/Applications/Codex.app/Contents/Resources/codex`, reports whether a native `remote-control` command appears available, checks known control socket locations, and attempts `remoteControl/status/read` only. It does not enable remote control, approve remote clients, start turns, steer turns, or expose generic app-server passthrough.
 

@@ -157,6 +157,146 @@ class LineProcessTransport:
                 self.process.wait(timeout=1)
 
 
+class ProxyWebSocketProcessTransport:
+    def __init__(self, argv: list[str], *, timeout: float = 10.0) -> None:
+        self.argv = argv
+        self.process = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=False,
+            bufsize=0,
+        )
+        self.timeout = timeout
+        self._buffer = b""
+        self._handshake()
+
+    def _handshake(self) -> None:
+        key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
+        request = (
+            "GET / HTTP/1.1\r\n"
+            "Host: localhost\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n"
+            "\r\n"
+        ).encode("ascii")
+        self._write_raw(request)
+        response = self._recv_until(b"\r\n\r\n", time.monotonic() + self.timeout).decode(
+            "latin1",
+            errors="replace",
+        )
+        expected_accept = base64.b64encode(
+            hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+        ).decode("ascii")
+        if " 101 " not in response or expected_accept not in response:
+            raise RuntimeError("Codex app-server proxy websocket handshake failed")
+
+    def send_json(self, payload: dict[str, Any]) -> None:
+        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self._write_raw(_build_websocket_frame(encoded, opcode=0x1))
+
+    def read_line(self, deadline: float) -> str | None:
+        while time.monotonic() < deadline:
+            try:
+                message = self._read_message(deadline)
+            except TimeoutError:
+                return None
+            if message is not None:
+                return message
+        return None
+
+    def _read_message(self, deadline: float) -> str | None:
+        header = self._recv_exact(2, deadline)
+        if header is None:
+            raise TimeoutError
+        first, second = header
+        opcode = first & 0x0F
+        masked = bool(second & 0x80)
+        length = second & 0x7F
+        if length == 126:
+            extended = self._recv_exact(2, deadline)
+            if extended is None:
+                raise TimeoutError
+            length = struct.unpack("!H", extended)[0]
+        elif length == 127:
+            extended = self._recv_exact(8, deadline)
+            if extended is None:
+                raise TimeoutError
+            length = struct.unpack("!Q", extended)[0]
+        mask_key = self._recv_exact(4, deadline) if masked else None
+        payload = self._recv_exact(length, deadline) if length else b""
+        if payload is None:
+            raise TimeoutError
+        if mask_key:
+            payload = bytes(byte ^ mask_key[index % 4] for index, byte in enumerate(payload))
+        if opcode == 0x8:
+            return None
+        if opcode == 0x9:
+            self._write_raw(_build_websocket_frame(payload, opcode=0xA))
+            return None
+        if opcode not in {0x1, 0x0}:
+            return None
+        return payload.decode("utf-8", errors="replace")
+
+    def _recv_until(self, marker: bytes, deadline: float) -> bytes:
+        while marker not in self._buffer and time.monotonic() < deadline:
+            chunk = self._read_available(deadline)
+            if not chunk:
+                break
+            self._buffer += chunk
+        if marker not in self._buffer:
+            raise TimeoutError("Timed out waiting for Codex app-server proxy websocket handshake")
+        end = self._buffer.index(marker) + len(marker)
+        payload = self._buffer[:end]
+        self._buffer = self._buffer[end:]
+        return payload
+
+    def _recv_exact(self, size: int, deadline: float) -> bytes | None:
+        while len(self._buffer) < size and time.monotonic() < deadline:
+            chunk = self._read_available(deadline)
+            if not chunk:
+                break
+            self._buffer += chunk
+        if len(self._buffer) < size:
+            return None
+        payload = self._buffer[:size]
+        self._buffer = self._buffer[size:]
+        return payload
+
+    def _read_available(self, deadline: float) -> bytes:
+        if self.process.stdout is None:
+            return b""
+        if self.process.poll() is not None:
+            return b""
+        timeout = max(0.0, min(0.05, deadline - time.monotonic()))
+        ready, _, _ = select.select([self.process.stdout], [], [], timeout)
+        if not ready:
+            return b""
+        return os.read(self.process.stdout.fileno(), 4096)
+
+    def _write_raw(self, payload: bytes) -> None:
+        if self.process.stdin is None:
+            raise RuntimeError("codex app-server proxy stdin is unavailable")
+        self.process.stdin.write(payload)
+        self.process.stdin.flush()
+
+    def close(self) -> None:
+        try:
+            self._write_raw(_build_websocket_frame(b"", opcode=0x8))
+        except (BrokenPipeError, OSError, RuntimeError):
+            pass
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=1)
+
+
 class WebSocketTransport:
     def __init__(self, url: str, *, timeout: float = 10.0) -> None:
         parsed = urlparse(url)
@@ -781,7 +921,10 @@ class CodexAppServerObserver:
                 raise RuntimeError("No Codex app-server websocket URL configured")
             return WebSocketTransport(config.ws_url)
         if config.mode == "proxy":
-            return LineProcessTransport([config.cli, "app-server", "proxy"])
+            argv = [config.cli, "app-server", "proxy"]
+            if config.socket_path is not None:
+                argv.extend(["--sock", str(config.socket_path)])
+            return ProxyWebSocketProcessTransport(argv)
         return LineProcessTransport([config.cli, "app-server", "--listen", "stdio://"])
 
     def _transport_config(self, *, cli: str | None = None) -> TransportConfig:

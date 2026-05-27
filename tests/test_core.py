@@ -14,8 +14,10 @@ from evaos_desktop_bridge.adapters.codex_app_server import (
     CodexAppServerObserver,
     CodexJsonRpcClient,
     JsonRpcResponse,
+    TransportConfig,
     _build_websocket_frame,
 )
+from evaos_desktop_bridge.adapters import codex_app_server as codex_app_server_module
 from evaos_desktop_bridge.adapters.codex_macos import RunnerResult
 from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_allowed
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
@@ -496,6 +498,36 @@ def test_app_server_controller_dry_run_does_not_call_rpc() -> None:
     assert result.ok is True
     assert result.data["would_send"] is True
     assert calls == []
+
+
+def test_app_server_proxy_transport_uses_websocket_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[list[str]] = []
+
+    class FakeProxyTransport:
+        def __init__(self, argv: list[str]) -> None:
+            created.append(argv)
+
+    monkeypatch.setattr(codex_app_server_module, "ProxyWebSocketProcessTransport", FakeProxyTransport)
+
+    observer = CodexAppServerObserver()
+    transport = observer._transport(
+        TransportConfig(
+            mode="proxy",
+            cli="/Applications/Codex.app/Contents/Resources/codex",
+            socket_path=Path("/tmp/codex.sock"),
+        )
+    )
+
+    assert isinstance(transport, FakeProxyTransport)
+    assert created == [
+        [
+            "/Applications/Codex.app/Contents/Resources/codex",
+            "app-server",
+            "proxy",
+            "--sock",
+            "/tmp/codex.sock",
+        ]
+    ]
 
 
 def test_app_server_controller_live_requires_confirmation_and_loaded_thread() -> None:
