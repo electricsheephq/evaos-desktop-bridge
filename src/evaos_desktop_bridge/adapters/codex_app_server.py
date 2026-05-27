@@ -423,8 +423,9 @@ class CodexAppServerObserver:
         remote_help = self._run([config.cli, "remote-control", "--help"], 5.0)
         daemon_version = self._run([config.cli, "app-server", "daemon", "version"], 5.0)
         control_sockets = [{"path": redact_value(path), "exists": path.exists()} for path in CONTROL_SOCKET_CANDIDATES]
+        transport_status = self._probe_app_server(config)
         remote_status = self.request("remoteControl/status/read", {}, cli=config.cli)
-        handshake_ok = remote_status.ok
+        handshake_ok = transport_status.ok
         warnings = list(config.warnings)
         if remote_help.returncode != 0:
             warnings.append("Codex native remote-control command was not detected.")
@@ -446,11 +447,14 @@ class CodexAppServerObserver:
                     "preferred_cli": redact_value(config.cli),
                     "transport": config.mode,
                     "handshake": "ok" if handshake_ok else "unavailable",
-                    "error": remote_status.errors[0]["message"] if remote_status.errors else None,
+                    "initialize": transport_status.data if transport_status.ok else None,
+                    "error": transport_status.errors[0]["message"] if transport_status.errors else None,
                 },
                 "remote_control": {
                     "supported": remote_help.returncode == 0,
                     "status": remote_status.data if remote_status.ok else None,
+                    "available": remote_status.ok,
+                    "errors": remote_status.errors,
                 },
                 "remote_control_command": {
                     "supported": remote_help.returncode == 0,
@@ -480,7 +484,7 @@ class CodexAppServerObserver:
                 },
             },
             warnings=warnings,
-            provenance={"source": "app_server", "app_server_method": "remoteControl/status/read"},
+            provenance={"source": "app_server", "app_server_method": "initialize,remoteControl/status/read"},
         )
 
     def threads(self, *, max_items: int) -> CommandResult:
@@ -504,7 +508,7 @@ class CodexAppServerObserver:
         threads = [
             {
                 "index": index,
-                "id": redact_value(row.get("id") if isinstance(row, dict) else row),
+                "id": redact_value(_thread_id_from_loaded_row(row)),
                 "source": "app_server_loaded",
             }
             for index, row in enumerate(raw_threads[:max_items])
@@ -754,6 +758,20 @@ class CodexAppServerObserver:
         except Exception as exc:
             return JsonRpcResponse(ok=False, error=str(exc))
 
+    def _probe_app_server(self, config: TransportConfig) -> CommandResult:
+        if self._custom_rpc_client and self.rpc_client is not None:
+            rpc = self.rpc_client("initialize", {})
+            if not rpc.ok:
+                return self._rpc_error_result("initialize", rpc)
+            payload = rpc.payload if isinstance(rpc.payload, dict) else {"result": rpc.payload}
+            return CommandResult(ok=True, data=redact_value(payload), provenance={"source": "app_server", "app_server_method": "initialize"})
+        try:
+            with self._json_rpc_client(config) as client:
+                payload = client.initialize_payload if isinstance(client.initialize_payload, dict) else {"result": client.initialize_payload}
+                return CommandResult(ok=True, data=redact_value(payload), provenance={"source": "app_server", "app_server_method": "initialize"})
+        except Exception as exc:
+            return self._rpc_error_result("initialize", JsonRpcResponse(ok=False, error=str(exc)))
+
     def _json_rpc_client(self, config: TransportConfig) -> CodexJsonRpcClient:
         return CodexJsonRpcClient(lambda: self._transport(config), timeout=10.0)
 
@@ -950,6 +968,12 @@ def _extract_result_array(payload: dict[str, Any], *, keys: tuple[str, ...]) -> 
     if isinstance(result, list):
         return result
     return []
+
+
+def _thread_id_from_loaded_row(row: Any) -> Any:
+    if isinstance(row, dict):
+        return row.get("id") or row.get("thread_id") or row.get("threadId")
+    return row
 
 
 def _is_loopback_host(host: str | None) -> bool:

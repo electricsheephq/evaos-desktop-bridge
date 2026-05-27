@@ -597,7 +597,7 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                         403,
                         _error_envelope(
                             command or "connector.command",
-                            "customer_mac" if command.startswith("customerMac") else "desktop",
+                            _target_for_connector_command(command),
                             error_code,
                             approval_error,
                         ),
@@ -923,3 +923,12 @@ def _error_envelope(command: str, target: str, code: str, message: str) -> dict[
         errors=[make_error(code=code, message=message, guidance="Check connector pairing, command shape, and approval state.")],
         audit_id="connector-rejected",
     )
+
+
+def _target_for_connector_command(command: str | None) -> str:
+    if isinstance(command, str):
+        if command.startswith("customerMac"):
+            return "customer_mac"
+        if command.startswith("codex"):
+            return "codex"
+    return "desktop"

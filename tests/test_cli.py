@@ -339,7 +339,12 @@ def test_capabilities_reports_read_only_surface(tmp_path: Path) -> None:
     snapshot = next(command for command in payload["data"]["commands"] if command["id"] == "codex.snapshot")
     assert snapshot["target"] == "codex"
     assert snapshot["mode"] == "read_only"
-    assert "send_prompts_or_messages" in payload["data"]["forbidden"]
+    assert "unguarded_send_prompts_or_messages" in payload["data"]["forbidden"]
+    assert payload["data"]["guarded_prompt_or_message_commands"] == [
+        "codex.app_server.start_turn",
+        "codex.app_server.steer_turn",
+        "codex.app_server.interrupt_turn",
+    ]
     assert payload["data"]["data_minimization"]["append_only_audit_log"] is True
 
 
@@ -571,6 +576,8 @@ def test_app_server_start_turn_live_requires_confirm_flag(tmp_path: Path) -> Non
 
 
 def test_app_server_steer_and_interrupt_require_turn_id(tmp_path: Path) -> None:
+    missing_steer = _run_cli_argparse_error(["codex", "app-server", "steer-turn", "--json", "--thread-id", "t1", "--message", "adjust"], tmp_path)
+    missing_interrupt = _run_cli_argparse_error(["codex", "app-server", "interrupt-turn", "--json", "--thread-id", "t1"], tmp_path)
     steer = run_cli(
         ["codex", "app-server", "steer-turn", "--json", "--thread-id", "t1", "--turn-id", "turn-1", "--message", "adjust"],
         FakeObserver(),
@@ -582,10 +589,28 @@ def test_app_server_steer_and_interrupt_require_turn_id(tmp_path: Path) -> None:
         tmp_path,
     )
 
+    assert missing_steer == 2
+    assert missing_interrupt == 2
     assert steer["_exit_code"] == 0
     assert steer["data"]["method"] == "turn/steer"
     assert interrupt["_exit_code"] == 0
     assert interrupt["data"]["method"] == "turn/interrupt"
+
+
+def _run_cli_argparse_error(argv: list[str], tmp_path: Path) -> int:
+    stdout = io.StringIO()
+    try:
+        return main(
+            argv,
+            observer_factory=lambda: FakeObserver(),
+            customer_mac_factory=lambda: FakeCustomerMac(),
+            app_server_factory=lambda: FakeAppServer(),
+            stdout=stdout,
+            state_dir=tmp_path,
+        )
+    except SystemExit as exc:
+        return int(exc.code)
+    return 0
 
 
 def test_app_server_remote_control_status_is_read_only(tmp_path: Path) -> None:

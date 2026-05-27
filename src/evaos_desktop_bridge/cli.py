@@ -984,7 +984,7 @@ def _capabilities() -> dict[str, object]:
     return {
         "modes": {
             "eyes": "Read-only visible desktop observation with redaction and caps.",
-            "hands": "Guarded visible focus/select only; no typing, send controls, prompt sending, or session mutation.",
+            "hands": "Guarded visible focus/select only; Codex turn messages use separate guarded app-server controller commands.",
             "brain": "Local Eva/OpenClaw announcement queue contract with external relay left to future sinks.",
         },
         "commands": [
@@ -1058,8 +1058,13 @@ def _capabilities() -> dict[str, object]:
                 "customer_mac.screen_sharing_status",
             ]
         ],
+        "guarded_prompt_or_message_commands": [
+            "codex.app_server.start_turn",
+            "codex.app_server.steer_turn",
+            "codex.app_server.interrupt_turn",
+        ],
         "forbidden": [
-            "send_prompts_or_messages",
+            "unguarded_send_prompts_or_messages",
             "type_into_codex",
             "click_codex_controls",
             "call_codex_internal_mutation_rpc",

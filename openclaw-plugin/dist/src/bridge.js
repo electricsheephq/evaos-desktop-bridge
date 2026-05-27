@@ -999,6 +999,9 @@ async function runRemoteBridge(remoteURL, command, params) {
     }
 }
 function timeoutForCommand(command) {
+    if (command === "codexLiveStatus") {
+        return 35_000;
+    }
     if (command === "desktopSee" || command === "iphoneSee" || command === "customerMacSnapshot" || command === "customerMacAxTree") {
         return 60_000;
     }

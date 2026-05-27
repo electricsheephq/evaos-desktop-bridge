@@ -384,6 +384,35 @@ def test_connector_rejects_post_without_token_even_on_loopback(tmp_path: Path) -
         thread.join(timeout=2)
 
 
+def test_connector_codex_remote_rejection_targets_codex(tmp_path: Path) -> None:
+    handler = _make_handler(token="secret-token", command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/commands",
+            body=json.dumps(
+                {
+                    "command": "codexRemoteStartTurn",
+                    "params": {"thread_id": "thread-1", "message": "continue", "dry_run": False},
+                }
+            ),
+            headers={"Content-Type": "application/json", "Authorization": "Bearer secret-token"},
+        )
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 403
+        assert payload["target"] == "codex"
+        assert payload["errors"][0]["code"] == "approval_audit_required"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
 def test_connector_serves_visual_artifacts_with_token(tmp_path: Path) -> None:
     artifact_dir = tmp_path / "artifacts"
     artifact_dir.mkdir()

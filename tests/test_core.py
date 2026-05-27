@@ -452,6 +452,39 @@ def test_app_server_loaded_threads_reads_data_array() -> None:
     assert str(Path.home()) not in json.dumps(result.data)
 
 
+def test_app_server_loaded_threads_accepts_alternate_id_keys() -> None:
+    observer = CodexAppServerObserver(
+        rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"data": [{"threadId": "thread-1"}, {"thread_id": "thread-2"}]}),
+    )
+
+    result = observer.loaded_threads(max_items=2)
+
+    assert result.ok is True
+    assert [thread["id"] for thread in result.data["threads"]] == ["thread-1", "thread-2"]
+
+
+def test_connections_status_splits_transport_from_remote_control_status() -> None:
+    def rpc(method: str, params: dict[str, object]) -> JsonRpcResponse:
+        if method == "initialize":
+            return JsonRpcResponse(ok=True, payload={"protocolVersion": "0.1"})
+        if method == "remoteControl/status/read":
+            return JsonRpcResponse(ok=False, error="unsupported")
+        raise AssertionError(f"unexpected method {method}")
+
+    observer = CodexAppServerObserver(
+        runner=lambda command, timeout=5.0: RunnerResult(returncode=0, stdout="codex-cli 0.133.0", stderr=""),
+        rpc_client=rpc,
+    )
+
+    result = observer.connections_status()
+
+    assert result.ok is True
+    assert result.data["app_server"]["available"] is True
+    assert result.data["app_server"]["handshake"] == "ok"
+    assert result.data["remote_control"]["available"] is False
+    assert result.data["remote_control"]["errors"][0]["message"] == "unsupported"
+
+
 def test_app_server_controller_dry_run_does_not_call_rpc() -> None:
     calls: list[str] = []
     observer = CodexAppServerObserver(

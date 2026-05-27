@@ -1204,6 +1204,9 @@ async function runRemoteBridge(remoteURL: string, command: BridgeCommandKey, par
 }
 
 function timeoutForCommand(command: BridgeCommandKey): number {
+  if (command === "codexLiveStatus") {
+    return 35_000;
+  }
   if (command === "desktopSee" || command === "iphoneSee" || command === "customerMacSnapshot" || command === "customerMacAxTree") {
     return 60_000;
   }

@@ -987,6 +987,14 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
     assert "before_tool_call" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
 
 
+def test_openclaw_codex_live_status_timeout_exceeds_subscription_cap() -> None:
+    source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
+
+    assert 'command === "codexLiveStatus"' in source
+    assert "return 35_000;" in source
+    assert "clampInt(params.duration_ms, 1000, 1, 30000)" in source
+
+
 def test_launch_agent_uses_launchd_logging_and_loopback_connector() -> None:
     plist_path = ROOT / "packaging" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
     plist = plistlib.loads(plist_path.read_bytes())
