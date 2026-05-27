@@ -170,7 +170,11 @@ class ProxyWebSocketProcessTransport:
         )
         self.timeout = timeout
         self._buffer = b""
-        self._handshake()
+        try:
+            self._handshake()
+        except Exception:
+            self.close()
+            raise
 
     def _handshake(self) -> None:
         key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
@@ -275,7 +279,10 @@ class ProxyWebSocketProcessTransport:
         ready, _, _ = select.select([self.process.stdout], [], [], timeout)
         if not ready:
             return b""
-        return os.read(self.process.stdout.fileno(), 4096)
+        try:
+            return os.read(self.process.stdout.fileno(), 4096)
+        except OSError:
+            return b""
 
     def _write_raw(self, payload: bytes) -> None:
         if self.process.stdin is None:
