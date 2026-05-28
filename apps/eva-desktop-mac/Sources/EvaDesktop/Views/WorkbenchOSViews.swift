@@ -122,8 +122,11 @@ struct SessionCenterView: View {
             return "No broker session state has been loaded yet. Refresh Session Center to read gateway status."
         }
         let attentionCount = model.sessionMissionCards.filter { $0.attentionState == .needsAttention }.count
-        if attentionCount > 0 {
-            return "\(attentionCount) mission card attention state needs review."
+        if attentionCount == 1 {
+            return "1 mission card needs review."
+        }
+        if attentionCount > 1 {
+            return "\(attentionCount) mission cards need review."
         }
         return "No gateway, queue, audit, or Codex attention states in the read-only evidence."
     }

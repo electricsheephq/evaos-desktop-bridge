@@ -653,9 +653,7 @@ final class WorkbenchModel: ObservableObject {
 
     func refreshSessionCenterState() async {
         guard isSignedIn else {
-            runtimeStatuses.removeAll()
-            sessionMissionCards.removeAll()
-            sessionCenterStatusText = "Sign in first"
+            resetSessionCenterState(statusText: "Sign in first")
             return
         }
         guard !isRefreshingSessionCenter else { return }
@@ -682,7 +680,6 @@ final class WorkbenchModel: ObservableObject {
                 }
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 clearLocalSessionState(allowKeychainInteraction: false)
-                sessionMissionCards.removeAll()
                 sessionCenterStatusText = "Session expired"
                 return
             } catch {
@@ -1282,6 +1279,7 @@ final class WorkbenchModel: ObservableObject {
     private func clearLocalSessionState(allowKeychainInteraction: Bool) {
         try? keychain.clear(allowUserInteraction: allowKeychainInteraction)
         session = nil
+        resetSessionCenterState(statusText: "Sign in first")
         customerTargets = []
         sessionRoles = []
         isOperatorSession = false
@@ -1314,6 +1312,7 @@ final class WorkbenchModel: ObservableObject {
     private func saveAuthenticatedSession(_ newSession: DesktopSession) throws {
         try keychain.save(newSession)
         session = newSession
+        resetSessionCenterState(statusText: "Unchecked")
         customerTargets = []
         sessionRoles = []
         isOperatorSession = false
@@ -1336,6 +1335,13 @@ final class WorkbenchModel: ObservableObject {
         runtimeURLs.removeAll()
         fallbackReloadAttempts.removeAll()
         webViewRefreshToken = UUID()
+    }
+
+    private func resetSessionCenterState(statusText: String) {
+        runtimeStatuses.removeAll()
+        sessionMissionCards.removeAll()
+        sessionCenterStatusText = statusText
+        isRefreshingSessionCenter = false
     }
 
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
