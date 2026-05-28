@@ -139,12 +139,22 @@ private struct RuntimeSignInView: View {
             Button {
                 model.signIn()
             } label: {
-                Label(model.isSigningIn ? "Opening Login..." : "Sign In with ElectricSheep", systemImage: "arrow.up.forward.app")
+                Label(model.isSigningIn ? "Open Login Again" : "Sign In with ElectricSheep", systemImage: "arrow.up.forward.app")
                     .frame(minWidth: 220)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(model.isSigningIn)
+            .disabled(model.isSigningIn && model.lastSignInURL == nil)
+
+            if model.isSigningIn {
+                Button {
+                    model.cancelSignIn()
+                } label: {
+                    Label("Cancel Login", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Backup code from browser")
@@ -167,7 +177,7 @@ private struct RuntimeSignInView: View {
                 Text(model.deviceCodeStatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Use the Backup code shown on the browser handoff page, or press Use Code with the prefilled code if the browser never shows one.")
+                Text("Use the Backup code shown on the browser page. If no page appears, press Open Login Again; if a code fails, start a fresh sign-in.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }

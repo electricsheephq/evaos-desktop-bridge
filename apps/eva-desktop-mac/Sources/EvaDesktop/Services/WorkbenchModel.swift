@@ -43,8 +43,9 @@ final class WorkbenchModel: ObservableObject {
     @Published var runtimeNavigationRequest: RuntimeNavigationRequest?
     @Published var session: DesktopSession?
     @Published var isSigningIn = false
+    @Published var lastSignInURL: URL?
     @Published var deviceCodeInput = ""
-    @Published var deviceCodeStatusText = "If the browser keeps spinning, press Sign In again, wait a few seconds, then press Use Code with the prefilled fallback code."
+    @Published var deviceCodeStatusText = "Press Sign In to open the ElectricSheep login page. Backup codes must come from the browser page."
     @Published var isClaimingDeviceCode = false
     @Published var loadingRuntimes: Set<RuntimeKey> = []
     @Published var loadingRuntimePages: Set<RuntimeKey> = []
@@ -92,6 +93,7 @@ final class WorkbenchModel: ObservableObject {
     let featureFlags: WorkbenchFeatureFlags
 
     let webViews = WebViewStore()
+    private var activeAuthCoordinator: DesktopAuthCoordinator?
 
     private let keychain = KeychainSessionStore()
     private var broker: RuntimeSessionBrokerClient
@@ -319,27 +321,65 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func signIn() {
-        guard !isSigningIn else { return }
+        guard !isSigningIn else {
+            reopenSignIn()
+            return
+        }
         isSigningIn = true
         let fallbackCode = UUID().uuidString
-        deviceCodeInput = fallbackCode
-        deviceCodeStatusText = "Opening ElectricSheep login. If the browser stays on the spinner, wait a few seconds and press Use Code."
+        lastSignInURL = nil
+        deviceCodeInput = ""
+        deviceCodeStatusText = "Opening ElectricSheep login. If no page loads, press Open Login Again; use only a Backup code shown in the browser."
 
         Task {
             let coordinator = DesktopAuthCoordinator(dashboardBaseURL: resolver.dashboardBaseURL)
-            defer { isSigningIn = false }
+            activeAuthCoordinator = coordinator
+            defer {
+                if activeAuthCoordinator === coordinator {
+                    activeAuthCoordinator = nil
+                }
+                isSigningIn = false
+            }
 
             do {
-                let newSession = try await coordinator.signIn(fallbackCode: fallbackCode)
+                let newSession = try await coordinator.signIn(fallbackCode: fallbackCode) { [weak self] authURL in
+                    self?.lastSignInURL = authURL
+                }
                 try saveAuthenticatedSession(newSession)
                 await refreshCustomerTargets()
                 await refreshFlaggedOSShellState()
                 await loadRuntime(selectedRuntime, force: true)
+            } catch DesktopAuthSessionError.cancelled {
+                deviceCodeStatusText = "Login cancelled. Press Sign In to generate a fresh Backup code."
+            } catch DesktopAuthSessionError.timedOut {
+                deviceCodeStatusText = "Login timed out. Press Sign In to generate a fresh Backup code, or use the Backup code shown in the browser."
+                runtimeErrors[selectedRuntime] = "Desktop sign-in timed out before Workbench received the callback."
+            } catch DesktopAuthSessionError.couldNotStart {
+                deviceCodeStatusText = "Workbench could not open the login page. Press Sign In again to generate a fresh Backup code."
+                runtimeErrors[selectedRuntime] = "Desktop sign-in could not open the ElectricSheep login page."
             } catch {
-                deviceCodeStatusText = "Login did not complete. If the browser is still open, wait a few seconds and press Use Code."
+                deviceCodeStatusText = "Login did not complete. If the browser is still open, use the Backup code shown there."
                 runtimeErrors[selectedRuntime] = "Desktop sign-in failed or was cancelled: \(error.localizedDescription)"
             }
         }
+    }
+
+    func reopenSignIn() {
+        guard let lastSignInURL else {
+            if !isSigningIn {
+                signIn()
+            }
+            return
+        }
+        deviceCodeStatusText = "Opening the current ElectricSheep login page again. If it still does not load, cancel and start a fresh sign-in."
+        if !NSWorkspace.shared.open(lastSignInURL) {
+            deviceCodeStatusText = "Workbench could not reopen the login page. Cancel and start a fresh sign-in."
+        }
+    }
+
+    func cancelSignIn() {
+        guard isSigningIn else { return }
+        activeAuthCoordinator?.cancel()
     }
 
     func claimDeviceCode() {
@@ -366,7 +406,8 @@ final class WorkbenchModel: ObservableObject {
                 await refreshFlaggedOSShellState()
                 await loadRuntime(selectedRuntime, force: true)
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-                deviceCodeStatusText = "That code expired or was already used. Generate a new Backup code from the login page."
+                deviceCodeInput = ""
+                deviceCodeStatusText = "That code expired, was already used, or was never registered by the browser. Press Sign In to generate a fresh Backup code."
             } catch {
                 deviceCodeStatusText = "Code sign-in failed: \(error.localizedDescription)"
             }
@@ -382,6 +423,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func resetLocalSession() {
+        cancelSignIn()
         clearLocalSessionState(allowKeychainInteraction: false)
     }
 
@@ -1267,6 +1309,7 @@ final class WorkbenchModel: ObservableObject {
         providerProfiles = WorkbenchProviderCatalog.defaultStates
         providerHubStatusText = "Sign in to connect providers."
         providerActionInFlight = nil
+        lastSignInURL = nil
         sharedBrowserStatusText = "Unchecked"
         sharedBrowserRoomText = "Unavailable"
         sharedBrowserCurrentURLText = "Unavailable"
@@ -1274,8 +1317,9 @@ final class WorkbenchModel: ObservableObject {
         isRefreshingSharedBrowserStatus = false
         pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
         deviceCodeInput = ""
-        deviceCodeStatusText = "If the browser keeps spinning, press Sign In again, wait a few seconds, then press Use Code with the prefilled fallback code."
+        deviceCodeStatusText = "Press Sign In to open the ElectricSheep login page. Backup codes must come from the browser page."
         isClaimingDeviceCode = false
+        isSigningIn = false
         webViews.reset()
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()
@@ -1293,9 +1337,11 @@ final class WorkbenchModel: ObservableObject {
         isOperatorSession = false
         customerTargetError = nil
         runtimeErrors.removeAll()
+        lastSignInURL = nil
         deviceCodeInput = ""
         deviceCodeStatusText = "Signed in."
         isClaimingDeviceCode = false
+        isSigningIn = false
         providerProfiles = WorkbenchProviderCatalog.defaultStates
         providerHubStatusText = "Unchecked"
         providerActionInFlight = nil
@@ -1507,27 +1553,57 @@ final class RuntimeNavigationObserver: NSObject, WKNavigationDelegate {
     }
 }
 
+private enum DesktopAuthSessionError: Error, LocalizedError {
+    case couldNotStart
+    case timedOut
+    case cancelled
+
+    var errorDescription: String? {
+        switch self {
+        case .couldNotStart:
+            "Workbench could not open the ElectricSheep login page."
+        case .timedOut:
+            "Workbench did not receive a desktop login callback before the sign-in window timed out."
+        case .cancelled:
+            "The desktop login was cancelled."
+        }
+    }
+}
+
 @MainActor
 final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationContextProviding {
+    private static let loginTimeoutNanoseconds: UInt64 = 180 * 1_000_000_000
+
     private var authSession: ASWebAuthenticationSession?
+    private var finishActiveSignIn: (@MainActor (Result<DesktopSession, Error>) -> Void)?
     private let dashboardBaseURL: URL
 
     init(dashboardBaseURL: URL) {
         self.dashboardBaseURL = dashboardBaseURL
     }
 
-    func signIn(fallbackCode: String) async throws -> DesktopSession {
+    func cancel() {
+        finishActiveSignIn?(.failure(DesktopAuthSessionError.cancelled))
+    }
+
+    func signIn(
+        fallbackCode: String,
+        onAuthURL: @escaping @MainActor (URL) -> Void = { _ in }
+    ) async throws -> DesktopSession {
         return try await withCheckedThrowingContinuation { continuation in
             var didComplete = false
             var loopbackReceiver: DesktopAuthLoopbackReceiver?
+            var timeoutTask: Task<Void, Never>?
 
             @MainActor
             func finish(_ result: Result<DesktopSession, Error>) {
                 guard !didComplete else { return }
                 didComplete = true
+                timeoutTask?.cancel()
                 loopbackReceiver?.stop()
                 authSession?.cancel()
                 authSession = nil
+                finishActiveSignIn = nil
                 switch result {
                 case .success(let desktopSession):
                     continuation.resume(returning: desktopSession)
@@ -1549,6 +1625,7 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
                 loopbackReceiver.map { URLQueryItem(name: "desktop_callback", value: $0.callbackURL.absoluteString) }
             ].compactMap { $0 }
             let authURL = components.url!
+            onAuthURL(authURL)
 
             let session = ASWebAuthenticationSession(
                 url: authURL,
@@ -1576,7 +1653,23 @@ final class DesktopAuthCoordinator: NSObject, ASWebAuthenticationPresentationCon
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = true
             authSession = session
-            session.start()
+            finishActiveSignIn = { result in
+                finish(result)
+            }
+            timeoutTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: Self.loginTimeoutNanoseconds)
+                guard !Task.isCancelled else { return }
+                finish(.failure(DesktopAuthSessionError.timedOut))
+            }
+
+            let didStart = session.start()
+            guard didStart else {
+                guard NSWorkspace.shared.open(authURL) else {
+                    finish(.failure(DesktopAuthSessionError.couldNotStart))
+                    return
+                }
+                return
+            }
         }
     }
 
