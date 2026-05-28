@@ -72,10 +72,10 @@ struct SidebarView: View {
 
                 HStack {
                     if !model.isSignedIn {
-                        Button(model.isSigningIn ? "Opening..." : "Sign In") {
+                        Button(model.isSigningIn ? "Open Login" : "Sign In") {
                             model.signIn()
                         }
-                        .disabled(model.isSigningIn)
+                        .disabled(model.isSigningIn && model.lastSignInURL == nil)
                     } else {
                         Button("Sign Out") {
                             model.signOut()

@@ -12,10 +12,10 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.6.6"' in script
-    assert 'BUILD_NUMBER="46"' in script
-    assert 'version = "0.6.6"' in app_brand
-    assert 'buildNumber = "46"' in app_brand
+    assert 'VERSION="0.6.7"' in script
+    assert 'BUILD_NUMBER="47"' in script
+    assert 'version = "0.6.7"' in app_brand
+    assert 'buildNumber = "47"' in app_brand
     assert 'REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-0}"' in script
@@ -158,8 +158,16 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "Copy Agent Prompt" in bridge_panel
     assert "Complete Here" not in bridge_panel
     assert "Backup code from browser" in runtime_detail
-    assert "prefilled code if the browser never shows one" in runtime_detail
-    assert "wait a few seconds and press Use Code" in model
+    assert "Open Login Again" in runtime_detail
+    assert "Cancel Login" in runtime_detail
+    assert "Backup codes must come from the browser page" in model
+    assert "session.start()" in model
+    assert "DesktopAuthSessionError.couldNotStart" in model
+    assert "NSWorkspace.shared.open(authURL)" in model
+    assert "finishActiveSignIn" in model
+    assert "DesktopAuthSessionError.timedOut" in model
+    assert "deviceCodeInput = \"\"" in model
+    assert "deviceCodeInput = fallbackCode" not in model
     assert "signIn(fallbackCode: fallbackCode)" in model
 
 
