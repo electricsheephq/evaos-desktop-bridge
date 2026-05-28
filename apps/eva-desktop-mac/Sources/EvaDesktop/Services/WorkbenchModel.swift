@@ -87,6 +87,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var sharedBrowserLastActivityText = "Not checked"
     @Published var isRefreshingSharedBrowserStatus = false
     @Published var runtimeStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
+    @Published var sessionMissionCards: [WorkbenchMissionCard] = []
     @Published var sessionCenterStatusText = "Unchecked"
     @Published var isRefreshingSessionCenter = false
     let featureFlags: WorkbenchFeatureFlags
@@ -653,6 +654,7 @@ final class WorkbenchModel: ObservableObject {
     func refreshSessionCenterState() async {
         guard isSignedIn else {
             runtimeStatuses.removeAll()
+            sessionMissionCards.removeAll()
             sessionCenterStatusText = "Sign in first"
             return
         }
@@ -662,6 +664,7 @@ final class WorkbenchModel: ObservableObject {
         defer { isRefreshingSessionCenter = false }
 
         var nextStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
+        var nextErrors: [RuntimeKey: String] = [:]
         var failures = 0
         for definition in visibleRuntimes where RuntimeDefinition.isBrokeredRuntime(definition.key) {
             do {
@@ -679,13 +682,36 @@ final class WorkbenchModel: ObservableObject {
                 }
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 clearLocalSessionState(allowKeychainInteraction: false)
+                sessionMissionCards.removeAll()
                 sessionCenterStatusText = "Session expired"
                 return
             } catch {
+                nextErrors[definition.key] = error.localizedDescription
                 failures += 1
             }
         }
+        let queueRaw = await bridge.run(arguments: ["queue", "list", "--json", "--limit", "10"])
+        let auditRaw = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
+        let codexStatusRaw = await bridge.run(arguments: ["codex", "app-server", "status", "--json"])
+        let codexRemoteRaw = await bridge.run(arguments: ["codex", "app-server", "remote-control-status", "--json"])
+        let codexThreadsRaw = await bridge.run(arguments: ["codex", "app-server", "threads", "--json", "--max-items", "5"])
+
+        var nextCards = visibleRuntimes
+            .filter { RuntimeDefinition.isBrokeredRuntime($0.key) }
+            .map { definition in
+                WorkbenchMissionCardDeriver.runtimeCard(
+                    definition: definition,
+                    status: nextStatuses[definition.key],
+                    localURLLoaded: runtimeURLs[definition.key] != nil,
+                    error: nextErrors[definition.key]
+                )
+            }
+        nextCards.append(contentsOf: WorkbenchMissionCardDeriver.queueCards(from: queueRaw))
+        nextCards.append(contentsOf: WorkbenchMissionCardDeriver.auditCards(from: auditRaw))
+        nextCards.append(contentsOf: WorkbenchMissionCardDeriver.codexCards(statusRaw: codexStatusRaw, remoteRaw: codexRemoteRaw, threadsRaw: codexThreadsRaw))
+
         runtimeStatuses = nextStatuses
+        sessionMissionCards = nextCards
         if nextStatuses.isEmpty && failures > 0 {
             sessionCenterStatusText = "Unavailable"
         } else if failures > 0 {
@@ -1733,7 +1759,10 @@ struct BridgeCommandService {
         bridgeKey(["customer-mac", "control", "kill-switch", "--json"]),
         bridgeKey(["customer-mac", "iphone-mirroring", "status", "--json"]),
         bridgeKey(["customer-mac", "screen-sharing", "status", "--json"]),
-        bridgeKey(["codex", "app-server", "remote-control-status", "--json"])
+        bridgeKey(["queue", "list", "--json", "--limit", "10"]),
+        bridgeKey(["codex", "app-server", "status", "--json"]),
+        bridgeKey(["codex", "app-server", "remote-control-status", "--json"]),
+        bridgeKey(["codex", "app-server", "threads", "--json", "--max-items", "5"])
     ]
 
     func run(arguments: [String]) async -> String {

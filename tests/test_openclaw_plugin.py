@@ -110,6 +110,10 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_click",
         "desktop_bridge_shell",
         "desktop_bridge_exec",
+        "desktop_bridge_codex_remote_start_turn",
+        "desktop_bridge_codex_remote_steer_turn",
+        "desktop_bridge_codex_remote_interrupt_turn",
+        "desktop_bridge_codex_app_server_rpc",
         "customer_mac_screen_sharing_enable",
     ]
     for tool_name in forbidden_tool_names:

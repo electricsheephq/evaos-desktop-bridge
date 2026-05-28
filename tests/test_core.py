@@ -44,6 +44,7 @@ def test_policy_allows_only_mvp_commands() -> None:
     assert ensure_allowed("codex.threads") == "codex.threads"
     assert ensure_allowed("codex.select_thread") == "codex.select_thread"
     assert ensure_allowed("codex.continue_thread") == "codex.continue_thread"
+    assert ensure_allowed("codex.app_server.status") == "codex.app_server.status"
     assert ensure_allowed("codex.app_server.threads") == "codex.app_server.threads"
     assert ensure_allowed("codex.app_server.remote_control_status") == "codex.app_server.remote_control_status"
     assert ensure_allowed("codex.snapshot") == "codex.snapshot"
@@ -58,10 +59,19 @@ def test_policy_allows_only_mvp_commands() -> None:
 
     assert exc.value.error["code"] == "command_not_allowed"
     assert "allowlist" in exc.value.error["message"]
+    for command in [
+        "codex.app_server.start_turn",
+        "codex.app_server.steer_turn",
+        "codex.app_server.interrupt_turn",
+        "codex.app_server.rpc",
+    ]:
+        with pytest.raises(PolicyError):
+            ensure_allowed(command)
 
 
 def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("codex.select_thread")["mode"] == "guarded_visible_action"
+    assert command_metadata("codex.app_server.status")["source"] == "app_server"
     assert command_metadata("codex.app_server.threads")["source"] == "app_server"
     assert command_metadata("codex.continue_thread")["support_only"] is True
     assert command_metadata("customer_mac.iphone_mirroring_open_app")["requires_active_control_session"] is True

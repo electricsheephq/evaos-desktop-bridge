@@ -60,3 +60,13 @@ codesign --verify --deep --strict dist/evaOS.app
 ```
 
 Use GitHub Actions for heavier archive/signing validation once it exists.
+
+## Release Notes
+
+- Keep the repository root `CHANGELOG.md` updated for every release-impacting
+  Workbench/Desktop Bridge change.
+- Add unreleased entries in the implementation PR and move them under the
+  concrete version heading when cutting a release.
+- Do not rely only on generated Sparkle appcast notes, GitHub release text, or
+  dashboard copy; agents need the in-repo changelog as the durable handoff
+  record.

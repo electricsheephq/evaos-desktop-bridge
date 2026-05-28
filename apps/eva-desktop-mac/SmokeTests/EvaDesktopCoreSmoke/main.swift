@@ -64,7 +64,7 @@ precondition(contentViewSource.contains("sidebarSelection = .runtime(request.run
 let osViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
 precondition(!osViewsSource.contains("struct SharedBrowser2View"))
 precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
-precondition(osViewsSource.contains("model.runtimeStatuses"))
+precondition(osViewsSource.contains("model.sessionMissionCards"))
 precondition(!osViewsSource.contains("model.runtimeURLs[runtime.key] == nil ? \"Ready to open\" : \"Loaded\""))
 precondition(osViewsSource.contains("Needs verification"))
 precondition(!osViewsSource.contains("OpenClaw and Hermes"))
@@ -104,6 +104,12 @@ precondition(workbenchModelSource.contains("runtimeURLs[runtime] = url"))
 precondition(workbenchModelSource.contains("resetRuntimeWebViewIfNeeded(runtime, customerId: targetCustomerId)"))
 precondition(workbenchModelSource.contains("func reset(runtime: RuntimeKey, customerId: String)"))
 precondition(workbenchModelSource.contains("webView.removeFromSuperview()"))
+precondition(workbenchModelSource.contains("bridgeKey([\"queue\", \"list\", \"--json\", \"--limit\", \"10\"])"))
+precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"status\", \"--json\"])"))
+precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"threads\", \"--json\", \"--max-items\", \"5\"])"))
+precondition(!workbenchModelSource.contains("turn/start"))
+precondition(!workbenchModelSource.contains("turn/steer"))
+precondition(!workbenchModelSource.contains("turn/interrupt"))
 precondition(!workbenchModelSource.contains("Complete `/auth openai-codex`"))
 let bridgePanelSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/BridgePanelView.swift", encoding: .utf8)
 precondition(!bridgePanelSource.contains("Your agent can control this Mac and iPhone until you stop it."))
@@ -291,6 +297,68 @@ precondition(decodedRuntimeStatus.runtimeKey == .liveBrowser)
 precondition(decodedRuntimeStatus.displayLabel == "Shared Browser")
 precondition(decodedRuntimeStatus.roomId == "room-1")
 precondition(decodedRuntimeStatus.currentUrl == "https://example.com/path")
+let runtimeMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
+    definition: RuntimeDefinition.definition(for: .liveBrowser),
+    status: decodedRuntimeStatus,
+    localURLLoaded: true
+)
+precondition(runtimeMissionCard.id == "runtime-browser")
+precondition(runtimeMissionCard.attentionState == .active)
+precondition(runtimeMissionCard.sourcePointer == "broker:runtime_status:browser")
+
+let degradedRuntimeStatusResponse = """
+{"runtime_key":"openclaw","display_label":"evaOS (OpenClaw)","status":"degraded","health_summary":"Needs login","last_checked_at":"2026-05-23T10:00:00Z","auth_needed":true,"captcha_needed":false}
+""".data(using: .utf8)!
+let decodedDegradedRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: degradedRuntimeStatusResponse)
+let degradedMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
+    definition: RuntimeDefinition.definition(for: .openclaw),
+    status: decodedDegradedRuntimeStatus,
+    localURLLoaded: false
+)
+precondition(degradedMissionCard.attentionState == .needsAttention)
+precondition(degradedMissionCard.nextAction.contains("auth handoff"))
+
+let queueRaw = """
+{"ok":true,"data":{"events":[{"queue_id":"queue-approval","timestamp":"2026-05-28T01:00:00Z","kind":"approval_needed","source_audit_id":"audit-approval","message":"Approve visible action"},{"queue_id":"queue-attention","timestamp":"2026-05-28T01:01:00Z","kind":"attention","source_audit_id":"audit-attention"},{"queue_id":"queue-done","timestamp":"2026-05-28T01:02:00Z","kind":"done","source_audit_id":"audit-done"},{"queue_id":"queue-error","timestamp":"2026-05-28T01:03:00Z","kind":"error","source_audit_id":"audit-error"},{"queue_id":"queue-idle","timestamp":"2026-05-28T01:04:00Z","kind":"idle","source_audit_id":"audit-idle"}]}}
+"""
+let queueCards = WorkbenchMissionCardDeriver.queueCards(from: queueRaw)
+precondition(queueCards.count == 5)
+precondition(queueCards[0].attentionState == .needsAttention)
+precondition(queueCards[0].auditId == "audit-approval")
+precondition(queueCards[1].attentionState == .needsAttention)
+precondition(queueCards[2].attentionState == .done)
+precondition(queueCards[3].attentionState == .needsAttention)
+precondition(queueCards[4].attentionState == .idle)
+precondition(queueCards[4].sourcePointer == "queue:queue-idle")
+
+let auditRaw = """
+{"ok":true,"data":{"records":[{"audit_id":"audit-ok","timestamp":"2026-05-28T01:10:00Z","command":"status","ok":true},{"audit_id":"audit-failed","timestamp":"2026-05-28T01:11:00Z","command":"codex.app_server.status","ok":false}]}}
+"""
+let auditCards = WorkbenchMissionCardDeriver.auditCards(from: auditRaw)
+precondition(auditCards.count == 2)
+precondition(auditCards[0].sourcePointer == "audit:audit-ok")
+precondition(auditCards[1].attentionState == .needsAttention)
+
+let codexStatusRaw = """
+{"ok":true,"audit_id":"audit-codex-status","data":{"available":true,"read_only":true}}
+"""
+let codexRemoteRaw = """
+{"ok":true,"data":{"remote_control_command":{"supported":true},"daemon":{"version_available":true},"safety":{"read_only_probe":true}}}
+"""
+let codexThreadsRaw = """
+{"ok":true,"audit_id":"audit-codex-threads","data":{"threads":[{"id":"t1","title":"Release handoff","updated_at":"2026-05-28T01:20:00Z"}],"count":1}}
+"""
+let codexCards = WorkbenchMissionCardDeriver.codexCards(statusRaw: codexStatusRaw, remoteRaw: codexRemoteRaw, threadsRaw: codexThreadsRaw)
+precondition(codexCards.count == 2)
+precondition(codexCards[0].attentionState == .active)
+precondition(codexCards[0].auditId == "audit-codex-status")
+precondition(codexCards[1].attentionState == .active)
+precondition(codexCards[1].sourcePointer == "bridge:codex.app_server.threads")
+
+let malformedCards = WorkbenchMissionCardDeriver.queueCards(from: "{")
+precondition(malformedCards.count == 1)
+precondition(malformedCards[0].attentionState == .needsAttention)
+precondition(malformedCards[0].sourcePointer == "bridge:queue.list")
 
 let callbackURL = URL(string: "evaos://auth/callback?desktop_session=eds_test&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=admin%40100yen.org")!
 let callbackSession = try DesktopSessionCallbackParser.parse(callbackURL)

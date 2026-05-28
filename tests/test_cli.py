@@ -700,6 +700,14 @@ def test_disallowed_command_is_not_registered(tmp_path: Path) -> None:
 
     assert exit_code == 2
 
+    for args in [
+        ["codex", "app-server", "start-turn", "--json"],
+        ["codex", "app-server", "steer-turn", "--json"],
+        ["codex", "app-server", "interrupt-turn", "--json"],
+        ["codex", "app-server", "rpc", "--json"],
+    ]:
+        assert main(args, observer_factory=FakeObserver, stdout=io.StringIO(), stderr=io.StringIO(), state_dir=tmp_path) == 2
+
 
 def test_connector_start_autoinstalls_user_launchagent(monkeypatch, tmp_path: Path) -> None:
     plist_path = tmp_path / "Library" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
