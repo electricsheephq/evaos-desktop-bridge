@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -14,6 +15,47 @@ from evaos_desktop_bridge.redaction import cap_text, redact_value
 from evaos_desktop_bridge.schema import build_envelope, make_error
 from evaos_desktop_bridge.state import read_audit_record, read_audit_tail, read_latest, write_latest
 from evaos_desktop_bridge.cli import _run_connector_service
+
+
+def _fake_codex_app_server(tmp_path: Path, *, response_method: str = "thread/list") -> tuple[Path, Path]:
+    transcript_path = tmp_path / "app-server-transcript.json"
+    script_path = tmp_path / "fake-codex"
+    script_path.write_text(
+        f"""#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+
+transcript_path = pathlib.Path({str(transcript_path)!r})
+messages = []
+initialized = False
+for line in sys.stdin:
+    payload = json.loads(line)
+    messages.append(payload.get("method"))
+    transcript_path.write_text(json.dumps(messages), encoding="utf-8")
+    if payload.get("method") == "initialize":
+        capabilities = payload.get("params", {{}}).get("capabilities", {{}})
+        if payload.get("params", {{}}).get("clientInfo") and capabilities.get("experimentalApi") is True:
+            print(json.dumps({{"id": payload.get("id"), "result": {{"userAgent": "fake-codex", "platformFamily": "macos", "platformOs": "darwin"}}}}), flush=True)
+        else:
+            print(json.dumps({{"id": payload.get("id"), "error": {{"code": -32600, "message": "bad initialize"}}}}), flush=True)
+        continue
+    if payload.get("method") == "initialized":
+        initialized = True
+        continue
+    if initialized and payload.get("method") == {response_method!r}:
+        print(json.dumps({{"method": "remoteControl/status/changed", "params": {{"status": "disabled", "serverName": "fake", "installationId": "install", "environmentId": None}}}}), flush=True)
+        if payload.get("method") == "remoteControl/status/read":
+            result = {{"status": "disabled", "serverName": "fake", "installationId": "install", "environmentId": None}}
+        else:
+            result = {{"data": [{{"id": "thread-1", "name": "Handshake thread", "updatedAt": "2026-05-28T01:20:00Z", "status": {{"state": "idle"}}}}], "nextCursor": None, "backwardsCursor": None}}
+        print(json.dumps({{"id": payload.get("id"), "result": result}}), flush=True)
+        break
+""",
+        encoding="utf-8",
+    )
+    script_path.chmod(script_path.stat().st_mode | stat.S_IXUSR)
+    return script_path, transcript_path
 
 
 def test_build_envelope_has_stable_required_fields() -> None:
@@ -206,7 +248,7 @@ def test_app_server_threads_sanitizes_response() -> None:
     observer = CodexAppServerObserver(
         rpc_client=lambda method, params: JsonRpcResponse(
             ok=True,
-            payload={"threads": [{"id": "thread-1", "title": f"{Path.home()}/project " + ("x" * 200), "updated_at": "now"}]},
+            payload={"data": [{"id": "thread-1", "title": f"{Path.home()}/project " + ("x" * 200), "updated_at": 1779992752, "status": {"type": "notLoaded"}}]},
         )
     )
 
@@ -216,16 +258,74 @@ def test_app_server_threads_sanitizes_response() -> None:
     assert result.data["threads"][0]["id"] == "thread-1"
     assert str(Path.home()) not in json.dumps(result.data)
     assert result.data["threads"][0]["title_truncated"] is True
+    assert result.data["threads"][0]["updated_at"] == "1779992752"
+    assert result.data["threads"][0]["status"] == {"type": "notLoaded"}
+    assert result.data["thread_state"] == "active"
+
+
+def test_app_server_threads_empty_result_data_is_idle() -> None:
+    observer = CodexAppServerObserver(
+        rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"data": [], "nextCursor": None})
+    )
+
+    result = observer.threads(max_items=5)
+
+    assert result.ok is True
+    assert result.data["threads"] == []
+    assert result.data["count"] == 0
+    assert result.data["thread_state"] == "idle"
+
+
+def test_app_server_stdio_rpc_initializes_and_ignores_notifications(tmp_path: Path) -> None:
+    fake_codex, transcript = _fake_codex_app_server(tmp_path)
+    observer = CodexAppServerObserver()
+
+    response = observer._stdio_rpc("thread/list", {"limit": 1}, cli=str(fake_codex))
+
+    assert response.ok is True
+    assert response.payload is not None
+    assert response.payload["data"][0]["id"] == "thread-1"
+    assert json.loads(transcript.read_text(encoding="utf-8")) == ["initialize", "initialized", "thread/list"]
+
+
+def test_app_server_remote_status_stdio_rpc_uses_experimental_initialize(tmp_path: Path) -> None:
+    fake_codex, transcript = _fake_codex_app_server(tmp_path, response_method="remoteControl/status/read")
+    observer = CodexAppServerObserver()
+
+    response = observer._stdio_rpc("remoteControl/status/read", {}, cli=str(fake_codex))
+
+    assert response.ok is True
+    assert response.payload == {"status": "disabled", "serverName": "fake", "installationId": "install", "environmentId": None}
+    assert json.loads(transcript.read_text(encoding="utf-8")) == ["initialize", "initialized", "remoteControl/status/read"]
+
+
+def test_app_server_status_reports_cli_and_rpc_handshake() -> None:
+    observer = CodexAppServerObserver(
+        runner=lambda command, timeout=5.0: RunnerResult(returncode=0, stdout="codex-cli 0.133.0\n", stderr=""),
+        rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"data": []}),
+    )
+
+    result = observer.status()
+
+    assert result.ok is True
+    assert result.data["cli_available"] is True
+    assert result.data["rpc_handshake_ok"] is True
+    assert result.data["available"] is True
+    assert result.data["selected_cli"]["version"] == "codex-cli 0.133.0"
 
 
 def test_app_server_remote_control_status_is_read_only_probe() -> None:
-    observer = CodexAppServerObserver(runner=lambda command, timeout=5.0: RunnerResult(returncode=1, stdout="", stderr="missing"), rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"connected": False}))
+    observer = CodexAppServerObserver(
+        runner=lambda command, timeout=5.0: RunnerResult(returncode=1, stdout="", stderr="missing"),
+        rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"status": "disabled"}),
+    )
 
     result = observer.remote_control_status()
 
     assert result.ok is True
     assert result.data["preferred_path"] == "codex_native_remote_control"
     assert result.data["remote_control_status_read"]["ok"] is True
+    assert result.data["connections_state"] == "disabled"
     assert result.data["safety"]["generic_app_server_mutations_exposed"] is False
 
 

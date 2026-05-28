@@ -257,15 +257,25 @@ class FakeAppServer:
     mode: str = "ok"
 
     def status(self) -> CommandResult:
-        return CommandResult(ok=True, data={"available": self.mode == "ok", "allowed_methods": ["thread/list"], "read_only": True})
+        return CommandResult(
+            ok=True,
+            data={
+                "available": self.mode == "ok",
+                "cli_available": True,
+                "rpc_handshake_ok": self.mode == "ok",
+                "selected_cli": {"path": "codex", "version": "codex-cli test"},
+                "allowed_methods": ["thread/list"],
+                "read_only": True,
+            },
+        )
 
     def threads(self, *, max_items: int) -> CommandResult:
         if self.mode != "ok":
             return CommandResult(ok=False, errors=[{"code": "app_server_unavailable", "message": "offline", "guidance": "start app-server"}])
-        return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Thread 1", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items})
+        return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Thread 1", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items, "thread_state": "active"})
 
     def remote_control_status(self) -> CommandResult:
-        return CommandResult(ok=True, data={"preferred_path": "codex_native_remote_control", "safety": {"read_only_probe": True}})
+        return CommandResult(ok=True, data={"preferred_path": "codex_native_remote_control", "connections_state": "disabled", "safety": {"read_only_probe": True}})
 
 
 def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
@@ -456,6 +466,8 @@ def test_app_server_status_json_reports_allowlist(tmp_path: Path) -> None:
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.app_server.status"
     assert payload["data"]["read_only"] is True
+    assert payload["data"]["cli_available"] is True
+    assert payload["data"]["rpc_handshake_ok"] is True
 
 
 def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
@@ -464,6 +476,7 @@ def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.app_server.threads"
     assert payload["data"]["threads"][0]["source"] == "app_server"
+    assert payload["data"]["thread_state"] == "active"
 
 
 def test_app_server_remote_control_status_is_read_only(tmp_path: Path) -> None:
@@ -471,6 +484,7 @@ def test_app_server_remote_control_status_is_read_only(tmp_path: Path) -> None:
 
     assert payload["_exit_code"] == 0
     assert payload["command"] == "codex.app_server.remote_control_status"
+    assert payload["data"]["connections_state"] == "disabled"
     assert payload["data"]["safety"]["read_only_probe"] is True
 
 
