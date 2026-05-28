@@ -227,6 +227,10 @@ final class WorkbenchModel: ObservableObject {
             return
         }
 
+        if force {
+            resetRuntimeWebViewIfNeeded(runtime, customerId: targetCustomerId)
+        }
+
         loadingRuntimes.insert(runtime)
         runtimeErrors[runtime] = nil
         defer {
@@ -258,6 +262,14 @@ final class WorkbenchModel: ObservableObject {
     func reloadSelectedRuntime() {
         guard isSignedIn else {
             loadSelectedRuntime()
+            return
+        }
+        if selectedRuntime == .openclaw {
+            runtimeURLs[selectedRuntime] = nil
+            fallbackReloadAttempts[selectedRuntime] = nil
+            let sanitized = resolver.sanitizedCustomerId(customerId)
+            resetRuntimeWebViewIfNeeded(selectedRuntime, customerId: sanitized)
+            loadSelectedRuntime(force: true)
             return
         }
         guard runtimeURLs[selectedRuntime] != nil else {
@@ -1218,6 +1230,12 @@ final class WorkbenchModel: ObservableObject {
         fallbackReloadAttempts[runtime] = nil
     }
 
+    private func resetRuntimeWebViewIfNeeded(_ runtime: RuntimeKey, customerId: String) {
+        guard runtime == .openclaw else { return }
+        webViews.reset(runtime: runtime, customerId: customerId)
+        webViewRefreshToken = UUID()
+    }
+
     private func rebuildClients() {
         guard let dashboardBaseURL = URL(string: dashboardBaseURLString) else {
             runtimeErrors[selectedRuntime] = "Dashboard URL is invalid."
@@ -1399,13 +1417,27 @@ final class WebViewStore {
         return webView
     }
 
+    func reset(runtime: RuntimeKey, customerId: String) {
+        let key = "\(customerId)::\(runtime.rawValue)"
+        if let webView = webViews.removeValue(forKey: key) {
+            discard(webView)
+        }
+        delegates.removeValue(forKey: key)
+    }
+
     func reset() {
         for webView in webViews.values {
-            webView.stopLoading()
-            webView.loadHTMLString("", baseURL: nil)
+            discard(webView)
         }
         webViews.removeAll()
         delegates.removeAll()
+    }
+
+    private func discard(_ webView: WKWebView) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.loadHTMLString("", baseURL: nil)
+        webView.removeFromSuperview()
     }
 }
 
