@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import select
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -255,6 +257,7 @@ class CodexAppServerObserver:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
             initialize = {
                 "jsonrpc": "2.0",
@@ -327,24 +330,36 @@ class CodexAppServerObserver:
     def _close_stdio_process(self, process: subprocess.Popen[str] | None) -> None:
         if process is None:
             return
-        for stream in (process.stdin, process.stdout):
+        for stream in (process.stdin,):
             try:
                 if stream is not None:
                     stream.close()
             except Exception:
                 pass
+        self._signal_process_group(process, signal.SIGTERM)
         if process.poll() is None:
-            process.terminate()
             try:
                 process.wait(timeout=1.0)
             except subprocess.TimeoutExpired:
-                process.kill()
+                self._signal_process_group(process, signal.SIGKILL)
                 process.wait(timeout=1.0)
+        for stream in (process.stdout, process.stderr):
+            try:
+                if stream is not None:
+                    stream.close()
+            except Exception:
+                pass
+
+    def _signal_process_group(self, process: subprocess.Popen[str], sig: signal.Signals) -> None:
         try:
-            if process.stderr is not None:
-                process.stderr.close()
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            return
         except Exception:
-            pass
+            try:
+                process.send_signal(sig)
+            except Exception:
+                pass
 
     def _extract_thread_rows(self, payload: dict[str, Any]) -> list[Any]:
         candidates = [

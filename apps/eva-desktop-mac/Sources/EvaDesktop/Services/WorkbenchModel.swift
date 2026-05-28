@@ -1784,10 +1784,32 @@ struct BridgeCommandService {
             process.executableURL = bridgeURL
             process.arguments = arguments
 
-            let pipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = errorPipe
+            let fileManager = FileManager.default
+            let captureID = UUID().uuidString
+            let stdoutURL = fileManager.temporaryDirectory.appendingPathComponent("evaos-bridge-\(captureID).stdout")
+            let stderrURL = fileManager.temporaryDirectory.appendingPathComponent("evaos-bridge-\(captureID).stderr")
+            guard fileManager.createFile(atPath: stdoutURL.path, contents: nil),
+                  fileManager.createFile(atPath: stderrURL.path, contents: nil) else {
+                return "Unable to create bridge command capture files."
+            }
+            let stdoutHandle: FileHandle
+            let stderrHandle: FileHandle
+            do {
+                stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+                stderrHandle = try FileHandle(forWritingTo: stderrURL)
+            } catch {
+                try? fileManager.removeItem(at: stdoutURL)
+                try? fileManager.removeItem(at: stderrURL)
+                return "Unable to create bridge command capture files: \(error.localizedDescription)"
+            }
+            defer {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+                try? fileManager.removeItem(at: stdoutURL)
+                try? fileManager.removeItem(at: stderrURL)
+            }
+            process.standardOutput = stdoutHandle
+            process.standardError = stderrHandle
 
             do {
                 try process.run()
@@ -1813,9 +1835,11 @@ struct BridgeCommandService {
                 }
             }
             process.waitUntilExit()
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
 
-            let stdout = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let stdout = (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? ""
+            let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
             if timedOut {
                 let detail = stderr.isEmpty ? "" : " \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
                 return "evaos-desktop-bridge timed out after 8 seconds.\(detail)"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import signal
 import stat
 
 import pytest
@@ -297,6 +298,51 @@ def test_app_server_remote_status_stdio_rpc_uses_experimental_initialize(tmp_pat
     assert response.ok is True
     assert response.payload == {"status": "disabled", "serverName": "fake", "installationId": "install", "environmentId": None}
     assert json.loads(transcript.read_text(encoding="utf-8")) == ["initialize", "initialized", "remoteControl/status/read"]
+
+
+def test_app_server_close_stdio_process_signals_process_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    signals: list[tuple[int, signal.Signals]] = []
+
+    class Closeable:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeProcess:
+        pid = 4242
+        stdin = Closeable()
+        stdout = Closeable()
+        stderr = Closeable()
+
+        def __init__(self) -> None:
+            self.waited = False
+
+        def poll(self) -> int | None:
+            return 0 if self.waited else None
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.waited = True
+            return 0
+
+        def send_signal(self, sig: signal.Signals) -> None:
+            signals.append((self.pid, sig))
+
+    def fake_killpg(pid: int, sig: signal.Signals) -> None:
+        signals.append((pid, sig))
+
+    observer = CodexAppServerObserver()
+    process = FakeProcess()
+
+    monkeypatch.setattr("evaos_desktop_bridge.adapters.codex_app_server.os.killpg", fake_killpg)
+    observer._close_stdio_process(process)  # type: ignore[arg-type]
+
+    assert signals == [(4242, signal.SIGTERM)]
+    assert process.waited is True
+    assert process.stdin.closed is True
+    assert process.stdout.closed is True
+    assert process.stderr.closed is True
 
 
 def test_app_server_status_reports_cli_and_rpc_handshake() -> None:
