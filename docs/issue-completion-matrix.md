@@ -130,3 +130,18 @@ cd apps/eva-desktop-mac
 swift run EvaDesktopCoreSmoke
 swift build
 ```
+
+## Background Computer-Use Helper
+
+Milestone: `0.7 background and parallel Mac control foundation`
+
+| Issue | Acceptance | Implemented |
+| --- | --- | --- |
+| `#163` Computer-use helper IPC auth contract skeleton | Define a safe helper IPC seam without enabling live helper actuation. Require capability-token and peer-uid checks, reject malformed envelopes/frames and actuation-like commands, and expose only `ping`. | `helper_ipc.py` defines `evaos.helper_ipc.v1`, length-prefixed JSON framing, per-launch token generation, strict peer uid authorization, request envelope validation, and a contract-only ping response that does not echo the token. `docs/computer-use-helper-ipc.md` documents the dumb-hands seam and no-live-action boundary. `tests/test_helper_ipc.py` locks the ping-only command surface, token/peer policy rejection, malformed envelope/frame rejection, oversized-frame rejection before JSON parsing, and unknown command denial. |
+
+Verification:
+
+```bash
+python3 -m pytest tests/test_helper_ipc.py -q
+git diff --check
+```
