@@ -188,29 +188,29 @@ public enum WorkbenchApprovalPreviewBuilder {
     public static let excerptLimit = 220
 
     public static func preview(toolName: String, payload: [String: String]) -> WorkbenchApprovalDestinationPreview {
-        let normalizedTool = toolName.lowercased()
-        if normalizedTool.contains("gmail") || normalizedTool.contains("email") {
+        let tokens = toolTokens(toolName)
+        if tokens.contains("gmail") || tokens.contains("email") {
             return emailPreview(payload)
         }
-        if normalizedTool.contains("browser") || normalizedTool.contains("fetch") || normalizedTool.contains("url") {
+        if tokens.contains("browser") || tokens.contains("fetch") || tokens.contains("url") {
             return urlPreview(payload)
         }
-        if normalizedTool.contains("slack") || normalizedTool.contains("message") {
+        if tokens.contains("slack") || tokens.contains("message") {
             return messagePreview(payload)
         }
-        if normalizedTool.contains("delete") || normalizedTool.contains("file") || normalizedTool.contains("drive.write") {
+        if tokens.contains("delete") || tokens.contains("file") || (tokens.contains("drive") && tokens.contains("write")) {
             return filePreview(payload)
         }
-        if normalizedTool.contains("purchase") || normalizedTool.contains("payment") || normalizedTool.contains("money") {
+        if tokens.contains("purchase") || tokens.contains("payment") || tokens.contains("money") {
             return purchasePreview(payload)
         }
-        if normalizedTool.contains("secret") {
+        if tokens.contains("secret") {
             return namedPreview(.secretName, keys: ["secret_name", "secret_id", "name"], payload: payload)
         }
-        if normalizedTool.contains("budget") {
+        if tokens.contains("budget") {
             return namedPreview(.budget, keys: ["budget", "amount", "limit"], payload: payload)
         }
-        if normalizedTool.contains("permission") || normalizedTool.contains("scope") {
+        if tokens.contains("permission") || tokens.contains("scope") {
             return namedPreview(.permission, keys: ["permission", "scope", "grant"], payload: payload)
         }
         return missingDestinationPreview()
@@ -245,7 +245,7 @@ public enum WorkbenchApprovalPreviewBuilder {
             primary: url,
             secondary: host,
             bodyExcerpt: nil,
-            warning: nil
+            warning: urlWarning(for: components)
         )
     }
 
@@ -307,6 +307,14 @@ public enum WorkbenchApprovalPreviewBuilder {
         return nil
     }
 
+    private static func toolTokens(_ toolName: String) -> Set<String> {
+        let tokens = toolName
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        return Set(tokens)
+    }
+
     private static func emailAddress(in payload: [String: String], keys: [String]) -> String? {
         guard let value = firstValue(in: payload, keys: keys), isLikelyEmailAddress(value) else {
             return nil
@@ -323,6 +331,13 @@ public enum WorkbenchApprovalPreviewBuilder {
             return false
         }
         return parts[1].contains(".")
+    }
+
+    private static func urlWarning(for components: URLComponents) -> String? {
+        if components.user != nil || components.password != nil {
+            return "URL includes embedded credentials; verify the actual host before approving."
+        }
+        return nil
     }
 
     private static func capped(_ value: String) -> String {

@@ -142,6 +142,20 @@ precondition(urlApproval.destinationPreview.kind == .url)
 precondition(urlApproval.destinationPreview.primary == "https://evil.example/login?next=/oauth")
 precondition(urlApproval.destinationPreview.secondary == "evil.example")
 
+let credentialURLApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-credentials",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.fetch",
+    riskClass: .critical,
+    actionPayload: ["url": "https://trusted.example@evil.example/login"],
+    createdAt: "2026-05-29T21:22:15Z",
+    sourcePointer: "approval:approval-url-credentials"
+)
+precondition(credentialURLApproval.destinationPreview.kind == .url)
+precondition(credentialURLApproval.destinationPreview.secondary == "evil.example")
+precondition(credentialURLApproval.destinationPreview.warning?.contains("embedded credentials") == true)
+
 let malformedURLApproval = WorkbenchApprovalRequest.pending(
     id: "approval-url-2",
     ownerID: "andrew-main",
@@ -154,6 +168,18 @@ let malformedURLApproval = WorkbenchApprovalRequest.pending(
 )
 precondition(malformedURLApproval.destinationPreview.kind == .missingDestination)
 precondition(!malformedURLApproval.isActionable)
+
+let curlToolApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-curl-1",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "curl.status",
+    riskClass: .info,
+    actionPayload: ["url": "https://evil.example/status"],
+    createdAt: "2026-05-29T21:22:45Z",
+    sourcePointer: "approval:approval-curl-1"
+)
+precondition(curlToolApproval.destinationPreview.kind == .missingDestination)
 
 precondition(WorkbenchApprovalCenterSummary.statusText(for: [emailApproval, urlApproval]) == "2 pending approvals")
 precondition(WorkbenchApprovalCenterSummary.statusText(for: []) == "No pending approvals")
@@ -200,7 +226,9 @@ let spoofedPreviewJSON = """
 }
 """
 let spoofedPreviewApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(spoofedPreviewJSON.utf8))
+precondition(spoofedPreviewApproval.destinationPreview.kind == .emailRecipient)
 precondition(spoofedPreviewApproval.destinationPreview.primary == "outside@example.com")
+precondition(spoofedPreviewApproval.destinationPreview.secondary == "Broker-shaped request")
 
 let manifestPayload = """
 {
