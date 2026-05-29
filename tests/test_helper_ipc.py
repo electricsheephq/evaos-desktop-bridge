@@ -34,6 +34,7 @@ def test_helper_ipc_ping_accepts_authorized_request_without_echoing_token() -> N
     assert response["request_id"] == "req-1"
     assert response["data"]["command"] == "ping"
     assert response["data"]["helper_mode"] == "contract_only"
+    assert response["data"]["actuation_enabled"] is False
     serialized = json.dumps(response)
     assert serialized
     assert token not in serialized
