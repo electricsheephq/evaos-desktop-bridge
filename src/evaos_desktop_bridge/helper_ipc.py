@@ -118,5 +118,7 @@ def _authorize_request(
         raise HelperIpcError("helper_ipc_missing_token", "Helper IPC request is missing its capability token.")
     if not expected_token or not secrets.compare_digest(supplied_token, expected_token):
         raise HelperIpcError("helper_ipc_bad_token", "Helper IPC request has an invalid capability token.")
+    if type(peer_uid) is not int or peer_uid < 0:
+        raise HelperIpcError("helper_ipc_bad_peer", "Helper IPC peer uid is not authorized.")
     if peer_uid != expected_uid:
         raise HelperIpcError("helper_ipc_bad_peer", "Helper IPC peer uid is not authorized.")

@@ -66,12 +66,13 @@ def test_helper_ipc_rejects_missing_or_invalid_expected_uid(expected_uid: object
     assert exc.value.code == "helper_ipc_missing_peer_policy"
 
 
-def test_helper_ipc_rejects_missing_peer_uid() -> None:
+@pytest.mark.parametrize("peer_uid", [None, -1, "501", True, False])
+def test_helper_ipc_rejects_missing_or_invalid_peer_uid(peer_uid: object) -> None:
     token = "correct-token"
     request = build_helper_request(command="ping", token=token, request_id="req-peer")
 
     with pytest.raises(HelperIpcError) as exc:
-        handle_helper_request(request, expected_token=token, expected_uid=501, peer_uid=None)
+        handle_helper_request(request, expected_token=token, expected_uid=501, peer_uid=peer_uid)
 
     assert exc.value.code == "helper_ipc_bad_peer"
 
