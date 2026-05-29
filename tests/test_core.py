@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import signal
 import stat
+import sys
+import time
 
 import pytest
 
@@ -16,6 +18,7 @@ from evaos_desktop_bridge.adapters.codex_app_server import (
     CodexAppServerObserver,
     CodexJsonRpcClient,
     JsonRpcResponse,
+    LineProcessTransport,
     TransportConfig,
     WebSocketTransport,
     _build_websocket_frame,
@@ -853,6 +856,24 @@ def test_app_server_stdio_rpc_initializes_and_ignores_notifications(tmp_path: Pa
     assert response.payload is not None
     assert response.payload["data"][0]["id"] == "thread-1"
     assert json.loads(transcript.read_text(encoding="utf-8")) == ["initialize", "initialized", "thread/list"]
+
+
+def test_line_process_transport_reads_buffered_line_after_process_exits(tmp_path: Path) -> None:
+    script_path = tmp_path / "print-and-exit.py"
+    script_path.write_text(
+        "import json\nprint(json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': {'ok': True}}), flush=True)\n",
+        encoding="utf-8",
+    )
+    transport = LineProcessTransport([sys.executable, str(script_path)], timeout=0.2)
+
+    try:
+        transport.process.wait(timeout=2.0)
+        line = transport.read_line(time.monotonic() + 1.0)
+    finally:
+        transport.close()
+
+    assert line is not None
+    assert json.loads(line)["result"] == {"ok": True}
 
 
 def test_app_server_remote_status_stdio_rpc_uses_experimental_initialize(tmp_path: Path) -> None:

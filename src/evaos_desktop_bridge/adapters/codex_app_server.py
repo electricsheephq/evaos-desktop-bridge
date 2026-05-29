@@ -147,14 +147,14 @@ class LineProcessTransport:
         if self.process.stdout is None:
             return None
         while time.monotonic() < deadline:
-            if self.process.poll() is not None:
-                break
             timeout = max(0.0, min(0.05, deadline - time.monotonic()))
             ready, _, _ = select.select([self.process.stdout], [], [], timeout)
             if ready:
                 line = self.process.stdout.readline()
                 if line:
                     return line.strip()
+                break
+            if self.process.poll() is not None:
                 break
         return None
 
