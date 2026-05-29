@@ -159,6 +159,8 @@ evaos-desktop-bridge codex app-server remote-control-status --json
 
 The app-server adapter uses a hard allowlist for read methods only. It can report status, probe native remote-control readiness, and attempt capped thread reads, but it blocks turn starts, steering, interrupts, injection, shell commands, file writes, config writes, plugin installs, login/logout, and other mutations.
 
+These are bridge commands. They start and initialize the local Codex app-server protocol internally; `codex app-server threads` is not a native Codex CLI command. Codex Connections is treated as read-only status/future capability here, not the primary OpenClaw control transport.
+
 Support-only Codex visible fallback:
 
 ```bash

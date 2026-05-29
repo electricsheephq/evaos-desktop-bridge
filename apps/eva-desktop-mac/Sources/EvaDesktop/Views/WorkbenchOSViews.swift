@@ -74,15 +74,11 @@ struct SessionCenterView: View {
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-                ForEach(model.visibleRuntimes) { runtime in
-                    let status = model.runtimeStatuses[runtime.key]
-                    SessionCard(
-                        title: runtime.title,
-                        systemImage: runtime.systemImage,
-                        status: sessionStatusCopy(status?.status, localURLLoaded: model.runtimeURLs[runtime.key] != nil),
-                        detail: sessionDetail(runtime: runtime, status: status)
-                    ) {
-                        jumpToRuntime(runtime.key)
+                ForEach(model.sessionMissionCards) { card in
+                    SessionCard(card: card, systemImage: systemImage(for: card)) {
+                        if let runtime = card.runtime {
+                            jumpToRuntime(runtime)
+                        }
                     }
                 }
             }
@@ -105,56 +101,34 @@ struct SessionCenterView: View {
         return .electricSheepGoldSoft
     }
 
-    private func sessionStatusCopy(_ status: String?, localURLLoaded: Bool) -> String {
-        guard let status else {
-            return localURLLoaded ? "Loaded" : "Unchecked"
+    private func systemImage(for card: WorkbenchMissionCard) -> String {
+        if let runtime = card.runtime {
+            return RuntimeDefinition.definition(for: runtime).systemImage
         }
-        switch status {
-        case "enabled":
-            return localURLLoaded ? "Loaded" : "Ready"
-        case "degraded":
-            return "Needs attention"
-        case "disabled":
-            return "Blocked"
-        case "coming_soon":
-            return "Unavailable"
+        switch card.surface {
+        case "queue":
+            return "bell.badge"
+        case "audit":
+            return "list.clipboard"
+        case "codex":
+            return "sparkle.magnifyingglass"
         default:
-            return status.capitalized
+            return "rectangle.3.group.bubble.left"
         }
-    }
-
-    private func sessionDetail(runtime: RuntimeDefinition, status: RuntimeStatusResponse?) -> String {
-        if let error = model.runtimeErrors[runtime.key] {
-            return error
-        }
-        guard let status else {
-            return "Runtime status has not been checked yet."
-        }
-        if runtime.key == .liveBrowser {
-            if status.authNeeded == true {
-                return "Shared Browser needs auth handoff."
-            }
-            if status.captchaNeeded == true {
-                return "Shared Browser reports CAPTCHA needed."
-            }
-        }
-        return status.healthSummary ?? runtime.subtitle
     }
 
     private var sessionAttentionSummary: String {
-        if model.runtimeStatuses.isEmpty {
+        if model.sessionMissionCards.isEmpty {
             return "No broker session state has been loaded yet. Refresh Session Center to read gateway status."
         }
-        if !model.runtimeErrors.isEmpty {
-            return "\(model.runtimeErrors.count) gateway session needs attention."
+        let attentionCount = model.sessionMissionCards.filter { $0.attentionState == .needsAttention }.count
+        if attentionCount == 1 {
+            return "1 mission card needs review."
         }
-        let attentionCount = model.runtimeStatuses.values.filter { response in
-            response.status == "degraded" || response.authNeeded == true || response.captchaNeeded == true
-        }.count
-        if attentionCount > 0 {
-            return "\(attentionCount) session attention state needs review."
+        if attentionCount > 1 {
+            return "\(attentionCount) mission cards need review."
         }
-        return "No gateway errors in the brokered session state."
+        return "No gateway, queue, audit, or Codex attention states in the read-only evidence."
     }
 }
 
@@ -345,37 +319,86 @@ private struct MetricTile: View {
 }
 
 private struct SessionCard: View {
-    let title: String
+    let card: WorkbenchMissionCard
     let systemImage: String
-    let status: String
-    let detail: String
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    RuntimeIconBadge(systemImage: systemImage, tint: .electricSheepCyan)
-                    Spacer()
-                    StatusPill(title: status, systemImage: status == "Loaded" ? "checkmark.circle" : "circle", tint: status == "Loaded" ? .electricSheepSuccess : .electricSheepMutedText)
-                }
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(Color.electricSheepPrimaryText)
-                Text(detail)
-                    .font(.callout)
-                    .foregroundStyle(Color.electricSheepSecondaryText)
-                    .lineLimit(2)
+        if card.runtime == nil {
+            content
+                .help("Read-only evidence card; no runtime jump is available.")
+        } else {
+            Button(action: action) {
+                content
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.electricSheepLineWarm, lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+            .help("Open this gateway.")
         }
-        .buttonStyle(.plain)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                RuntimeIconBadge(systemImage: systemImage, tint: tint)
+                Spacer()
+                StatusPill(title: card.status, systemImage: statusIcon, tint: tint)
+            }
+            Text(card.title)
+                .font(.headline)
+                .foregroundStyle(Color.electricSheepPrimaryText)
+            Text(card.nextAction)
+                .font(.callout)
+                .foregroundStyle(Color.electricSheepSecondaryText)
+                .lineLimit(2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(card.sourcePointer)
+                if let auditId = card.auditId {
+                    Text(auditId)
+                }
+                if let lastUpdate = card.lastUpdate {
+                    Text(lastUpdate)
+                }
+            }
+            .font(.caption2.monospaced())
+            .foregroundStyle(Color.electricSheepMutedText)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.electricSheepLineWarm, lineWidth: 1)
+        )
+    }
+
+    private var tint: Color {
+        switch card.attentionState {
+        case .active:
+            return .electricSheepSuccess
+        case .done:
+            return .electricSheepCyan
+        case .idle:
+            return .electricSheepMutedText
+        case .needsAttention:
+            return .electricSheepDanger
+        case .unknown:
+            return .electricSheepGoldSoft
+        }
+    }
+
+    private var statusIcon: String {
+        switch card.attentionState {
+        case .active:
+            return "checkmark.circle"
+        case .done:
+            return "checkmark.seal"
+        case .idle:
+            return "pause.circle"
+        case .needsAttention:
+            return "exclamationmark.triangle"
+        case .unknown:
+            return "questionmark.circle"
+        }
     }
 }
 

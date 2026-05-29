@@ -1,0 +1,361 @@
+import Foundation
+
+public enum WorkbenchMissionAttentionState: String, Codable, Sendable {
+    case active
+    case done
+    case idle
+    case needsAttention = "needs_attention"
+    case unknown
+}
+
+public struct WorkbenchMissionCard: Identifiable, Codable, Equatable, Sendable {
+    public let id: String
+    public let surface: String
+    public let runtime: RuntimeKey?
+    public let title: String
+    public let status: String
+    public let attentionState: WorkbenchMissionAttentionState
+    public let lastUpdate: String?
+    public let nextAction: String
+    public let sourcePointer: String
+    public let auditId: String?
+
+    public init(
+        id: String,
+        surface: String,
+        runtime: RuntimeKey? = nil,
+        title: String,
+        status: String,
+        attentionState: WorkbenchMissionAttentionState,
+        lastUpdate: String? = nil,
+        nextAction: String,
+        sourcePointer: String,
+        auditId: String? = nil
+    ) {
+        self.id = id
+        self.surface = surface
+        self.runtime = runtime
+        self.title = title
+        self.status = status
+        self.attentionState = attentionState
+        self.lastUpdate = lastUpdate
+        self.nextAction = nextAction
+        self.sourcePointer = sourcePointer
+        self.auditId = auditId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case surface
+        case runtime
+        case title
+        case status
+        case attentionState = "attention_state"
+        case lastUpdate = "last_update"
+        case nextAction = "next_action"
+        case sourcePointer = "source_pointer"
+        case auditId = "audit_id"
+    }
+}
+
+public enum WorkbenchMissionCardDeriver {
+    public static func runtimeCard(
+        definition: RuntimeDefinition,
+        status: RuntimeStatusResponse?,
+        localURLLoaded: Bool,
+        error: String? = nil
+    ) -> WorkbenchMissionCard {
+        let attention: WorkbenchMissionAttentionState
+        let statusText: String
+        let detail: String
+        let lastUpdate = status?.lastActivityAt ?? status?.lastCheckedAt
+
+        if let error {
+            attention = .needsAttention
+            statusText = "Needs attention"
+            detail = error
+        } else if let status {
+            attention = runtimeAttentionState(status: status, localURLLoaded: localURLLoaded)
+            statusText = runtimeStatusText(status: status.status, localURLLoaded: localURLLoaded)
+            detail = runtimeNextAction(definition: definition, status: status)
+        } else if localURLLoaded {
+            attention = .active
+            statusText = "Loaded"
+            detail = "Gateway is open in Workbench; broker status has not been refreshed yet."
+        } else {
+            attention = .idle
+            statusText = "Unchecked"
+            detail = "Refresh Session Center to read broker status."
+        }
+
+        return WorkbenchMissionCard(
+            id: "runtime-\(definition.key.rawValue)",
+            surface: "broker",
+            runtime: definition.key,
+            title: definition.title,
+            status: statusText,
+            attentionState: attention,
+            lastUpdate: isoString(lastUpdate),
+            nextAction: detail,
+            sourcePointer: "broker:runtime_status:\(definition.key.rawValue)",
+            auditId: nil
+        )
+    }
+
+    public static func queueCards(from raw: String, limit: Int = 10) -> [WorkbenchMissionCard] {
+        guard let object = jsonObject(from: raw), object["ok"] as? Bool == true else {
+            return raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [
+                bridgeFailureCard(id: "queue-unavailable", title: "Announcement Queue", sourcePointer: "bridge:queue.list")
+            ]
+        }
+        let events = value(at: ["data", "events"], in: object) as? [[String: Any]] ?? []
+        return events.prefix(limit).compactMap { event in
+            guard let queueId = event["queue_id"] as? String else { return nil }
+            let kind = event["kind"] as? String ?? "unknown"
+            let message = event["message"] as? String
+            let sourceAuditId = event["source_audit_id"] as? String
+            return WorkbenchMissionCard(
+                id: "queue-\(queueId)",
+                surface: "queue",
+                runtime: nil,
+                title: queueTitle(kind),
+                status: kind,
+                attentionState: queueAttentionState(kind),
+                lastUpdate: event["timestamp"] as? String,
+                nextAction: capped(message ?? queueNextAction(kind)),
+                sourcePointer: "queue:\(queueId)",
+                auditId: sourceAuditId
+            )
+        }
+    }
+
+    public static func auditCards(from raw: String, limit: Int = 3) -> [WorkbenchMissionCard] {
+        guard let object = jsonObject(from: raw), object["ok"] as? Bool == true else {
+            return raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [
+                bridgeFailureCard(id: "audit-unavailable", title: "Bridge Audit", sourcePointer: "bridge:audit-tail")
+            ]
+        }
+        let records = value(at: ["data", "records"], in: object) as? [[String: Any]] ?? []
+        return records.prefix(limit).compactMap { record in
+            guard let auditId = record["audit_id"] as? String else { return nil }
+            let command = record["command"] as? String ?? "unknown"
+            let ok = record["ok"] as? Bool
+            return WorkbenchMissionCard(
+                id: "audit-\(auditId)",
+                surface: "audit",
+                runtime: nil,
+                title: "Bridge Audit",
+                status: ok == false ? "failed" : "ok",
+                attentionState: ok == false ? .needsAttention : .done,
+                lastUpdate: record["timestamp"] as? String,
+                nextAction: capped(command),
+                sourcePointer: "audit:\(auditId)",
+                auditId: auditId
+            )
+        }
+    }
+
+    public static func codexCards(statusRaw: String, remoteRaw: String, threadsRaw: String) -> [WorkbenchMissionCard] {
+        var cards: [WorkbenchMissionCard] = []
+        cards.append(codexReadinessCard(statusRaw: statusRaw, remoteRaw: remoteRaw))
+        if let threadsCard = codexThreadsCard(threadsRaw: threadsRaw) {
+            cards.append(threadsCard)
+        }
+        return cards
+    }
+
+    private static func codexReadinessCard(statusRaw: String, remoteRaw: String) -> WorkbenchMissionCard {
+        guard let statusObject = jsonObject(from: statusRaw), statusObject["ok"] as? Bool == true else {
+            return bridgeFailureCard(id: "codex-readiness", title: "Codex Readiness", sourcePointer: "bridge:codex.app_server.status")
+        }
+        let available = value(at: ["data", "available"], in: statusObject) as? Bool
+        let remoteObject = jsonObject(from: remoteRaw)
+        let remoteOK = remoteObject?["ok"] as? Bool
+        let supported = value(at: ["data", "remote_control_command", "supported"], in: remoteObject ?? [:]) as? Bool
+        let daemon = value(at: ["data", "daemon", "version_available"], in: remoteObject ?? [:]) as? Bool
+        let attention: WorkbenchMissionAttentionState = available == true ? .active : .needsAttention
+        let status = available == true ? "available" : "unavailable"
+        let detail = [
+            "App-server \(status)",
+            remoteOK == true ? nil : "remote status unavailable",
+            supported.map { "remote command \($0 ? "detected" : "missing")" },
+            daemon.map { "daemon \($0 ? "reported" : "unreported")" },
+        ].compactMap { $0 }.joined(separator: "; ")
+
+        return WorkbenchMissionCard(
+            id: "codex-readiness",
+            surface: "codex",
+            runtime: nil,
+            title: "Codex Readiness",
+            status: status,
+            attentionState: attention,
+            lastUpdate: nil,
+            nextAction: detail,
+            sourcePointer: "bridge:codex.app_server.status",
+            auditId: statusObject["audit_id"] as? String
+        )
+    }
+
+    private static func codexThreadsCard(threadsRaw: String) -> WorkbenchMissionCard? {
+        guard let object = jsonObject(from: threadsRaw), object["ok"] as? Bool == true else {
+            return bridgeFailureCard(id: "codex-threads", title: "Codex Threads", sourcePointer: "bridge:codex.app_server.threads")
+        }
+        let threads = value(at: ["data", "threads"], in: object) as? [[String: Any]] ?? []
+        guard !threads.isEmpty else {
+            return WorkbenchMissionCard(
+                id: "codex-threads",
+                surface: "codex",
+                runtime: nil,
+                title: "Codex Threads",
+                status: "idle",
+                attentionState: .idle,
+                lastUpdate: nil,
+                nextAction: "No app-server thread summaries returned.",
+                sourcePointer: "bridge:codex.app_server.threads",
+                auditId: object["audit_id"] as? String
+            )
+        }
+        let title = threads.first?["title"] as? String ?? "Recent Codex thread"
+        return WorkbenchMissionCard(
+            id: "codex-threads",
+            surface: "codex",
+            runtime: nil,
+            title: "Codex Threads",
+            status: "\(threads.count) visible",
+            attentionState: .active,
+            lastUpdate: threads.first?["updated_at"] as? String,
+            nextAction: capped(title),
+            sourcePointer: "bridge:codex.app_server.threads",
+            auditId: object["audit_id"] as? String
+        )
+    }
+
+    private static func runtimeAttentionState(status: RuntimeStatusResponse, localURLLoaded: Bool) -> WorkbenchMissionAttentionState {
+        if status.status == "degraded" || status.status == "disabled" || status.authNeeded == true || status.captchaNeeded == true {
+            return .needsAttention
+        }
+        if status.status == "enabled" || localURLLoaded {
+            return .active
+        }
+        if status.status == "coming_soon" {
+            return .unknown
+        }
+        return .idle
+    }
+
+    private static func runtimeStatusText(status: String, localURLLoaded: Bool) -> String {
+        switch status {
+        case "enabled":
+            return localURLLoaded ? "Loaded" : "Ready"
+        case "degraded":
+            return "Needs attention"
+        case "disabled":
+            return "Blocked"
+        case "coming_soon":
+            return "Unavailable"
+        default:
+            return status.capitalized
+        }
+    }
+
+    private static func runtimeNextAction(definition: RuntimeDefinition, status: RuntimeStatusResponse) -> String {
+        if status.authNeeded == true {
+            return "\(definition.title) needs auth handoff."
+        }
+        if status.captchaNeeded == true {
+            return "\(definition.title) reports CAPTCHA needed."
+        }
+        return status.healthSummary ?? definition.subtitle
+    }
+
+    private static func queueAttentionState(_ kind: String) -> WorkbenchMissionAttentionState {
+        switch kind {
+        case "approval_needed", "attention", "error":
+            return .needsAttention
+        case "done":
+            return .done
+        case "idle":
+            return .idle
+        default:
+            return .unknown
+        }
+    }
+
+    private static func queueTitle(_ kind: String) -> String {
+        switch kind {
+        case "approval_needed":
+            return "Approval Needed"
+        case "done":
+            return "Queue Done"
+        case "error":
+            return "Queue Error"
+        case "idle":
+            return "Queue Idle"
+        case "attention":
+            return "Needs Attention"
+        default:
+            return "Queue Event"
+        }
+    }
+
+    private static func queueNextAction(_ kind: String) -> String {
+        switch kind {
+        case "approval_needed":
+            return "Review the referenced audit record before continuing."
+        case "attention":
+            return "Review the referenced bridge event."
+        case "error":
+            return "Inspect the source audit record for failure details."
+        case "done":
+            return "No action required."
+        case "idle":
+            return "No active queue work."
+        default:
+            return "Queue event kind is not recognized."
+        }
+    }
+
+    private static func bridgeFailureCard(id: String, title: String, sourcePointer: String) -> WorkbenchMissionCard {
+        WorkbenchMissionCard(
+            id: id,
+            surface: "bridge",
+            runtime: nil,
+            title: title,
+            status: "unavailable",
+            attentionState: .needsAttention,
+            lastUpdate: nil,
+            nextAction: "Read-only bridge evidence was unavailable or malformed.",
+            sourcePointer: sourcePointer,
+            auditId: nil
+        )
+    }
+
+    private static func jsonObject(from raw: String) -> [String: Any]? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+        return object
+    }
+
+    private static func value(at path: [String], in object: [String: Any]) -> Any? {
+        var current: Any? = object
+        for key in path {
+            current = (current as? [String: Any])?[key]
+        }
+        return current
+    }
+
+    private static func isoString(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        return ISO8601DateFormatter().string(from: date)
+    }
+
+    private static func capped(_ value: String, limit: Int = 180) -> String {
+        if value.count <= limit {
+            return value
+        }
+        return String(value.prefix(limit)) + "..."
+    }
+}
