@@ -173,7 +173,7 @@ public enum WorkbenchCapabilityManifestVerifier {
         guard claims.audience == audience else {
             throw WorkbenchCapabilityManifestError.invalidAudience
         }
-        guard !claims.agentID.isEmpty, !claims.ownerID.isEmpty, !claims.approvalChannel.isEmpty, !claims.grants.isEmpty else {
+        guard !isBlank(claims.agentID), !isBlank(claims.ownerID), !isBlank(claims.approvalChannel), !claims.grants.isEmpty else {
             throw WorkbenchCapabilityManifestError.invalidClaims
         }
         guard claims.expiresAt > claims.issuedAt else {
@@ -198,6 +198,10 @@ public enum WorkbenchCapabilityManifestVerifier {
             throw WorkbenchCapabilityManifestError.malformedToken
         }
         return data
+    }
+
+    private static func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

@@ -86,6 +86,13 @@ def test_capability_manifest_rejects_bad_signature_algorithm_and_expiry() -> Non
         verify_hs256_manifest(_jwt(_payload()), SECRET, now=datetime(2026, 5, 31, tzinfo=timezone.utc))
 
 
+def test_capability_manifest_rejects_non_ascii_segments_as_manifest_errors() -> None:
+    header = _b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
+
+    with pytest.raises(CapabilityManifestError, match="base64url segment"):
+        verify_hs256_manifest(f"{header}.é.invalid", SECRET)
+
+
 def test_capability_manifest_rejects_invalid_claims() -> None:
     with pytest.raises(CapabilityManifestError, match="issuer"):
         verify_hs256_manifest(

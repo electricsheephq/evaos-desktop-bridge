@@ -113,6 +113,20 @@ do {
 } catch WorkbenchCapabilityManifestError.invalidSignature {
     // Expected.
 }
+let blankClaimPayload = manifestPayload.replacingOccurrences(
+    of: "\"approval_channel\": \"evaos://approvals/email-sorter-2026-05\"",
+    with: "\"approval_channel\": \"   \""
+)
+do {
+    _ = try WorkbenchCapabilityManifestVerifier.verifyHS256JWT(
+        signedHS256JWT(payloadJSON: blankClaimPayload, secret: manifestSecret),
+        secret: manifestSecret,
+        now: ISO8601DateFormatter().date(from: "2026-05-29T19:00:00Z")!
+    )
+    preconditionFailure("blank capability manifest claims should fail")
+} catch WorkbenchCapabilityManifestError.invalidClaims {
+    // Expected.
+}
 let capabilityStore = WorkbenchCapabilityManifestStore(service: "com.electricsheephq.EvaDesktop.capabilities.smoke.\(UUID().uuidString)")
 precondition(capabilityStore.storagePointer().contains("capability-manifest"))
 try capabilityStore.saveToken(manifestJWT)

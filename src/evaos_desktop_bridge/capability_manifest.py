@@ -57,7 +57,10 @@ def verify_hs256_manifest(
     header = _loads_json_object(_base64url_decode(parts[0]), "header")
     if header.get("alg") != EXPECTED_ALGORITHM:
         raise CapabilityManifestError("capability manifest algorithm must be HS256")
-    signing_input = f"{parts[0]}.{parts[1]}".encode("ascii")
+    try:
+        signing_input = f"{parts[0]}.{parts[1]}".encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise CapabilityManifestError("capability manifest base64url segment is invalid") from exc
     expected_signature = hmac.new(secret, signing_input, hashlib.sha256).digest()
     actual_signature = _base64url_decode(parts[2])
     if not hmac.compare_digest(actual_signature, expected_signature):
