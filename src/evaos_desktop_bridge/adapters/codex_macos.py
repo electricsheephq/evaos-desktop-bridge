@@ -1267,7 +1267,13 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 message="The visible thread candidate center is outside the Codex window bounds.",
                 guidance="Rerun the thread inventory with the target row visible in the Codex window.",
             )
-        if live and (target.get("selection_only") is True or target.get("confidence") == "low"):
+        if live and target.get("selection_only") is True and not self._selection_only_live_target_allowed(target):
+            return make_error(
+                code="visible_thread_identity_not_verifiable",
+                message="Live visible GUI messaging requires the title-hidden row to carry stable visible row evidence.",
+                guidance="Use a current title-hidden candidate with row bounds and a visible updated label, or use a titled medium-or-better candidate.",
+            )
+        if live and target.get("selection_only") is not True and target.get("confidence") == "low":
             return make_error(
                 code="visible_thread_identity_not_verifiable",
                 message="Live visible GUI messaging requires a titled, medium-or-better confidence thread candidate.",
@@ -1296,6 +1302,12 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             )
         if current.get("selected") is True or current.get("focused") is True:
             return CommandResult(ok=True, data={"selection_verified": True, "selected_thread": current}, provenance={"source": "codex_visible_gui"})
+        if target.get("selection_only") is True and self._selection_only_live_target_allowed(current):
+            return CommandResult(
+                ok=True,
+                data={"selection_verified": True, "selected_thread": current, "verification": "title_hidden_row_still_visible_after_select"},
+                provenance={"source": "codex_visible_gui"},
+            )
         return CommandResult(
             ok=False,
             data={"selection_verified": False, "selected_thread": current},
@@ -1409,7 +1421,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         return "low"
 
     def _is_action_only_thread_row(self, lowered: str, node: dict[str, Any]) -> bool:
-        if "archive chat" not in lowered or "unpin chat" not in lowered:
+        if "archive chat" not in lowered or ("unpin chat" not in lowered and "pin chat" not in lowered):
             return False
         bounds = node.get("bounds")
         if not isinstance(bounds, dict):
@@ -1456,3 +1468,16 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             "title_available": False,
             "selection_only": True,
         }
+
+    def _selection_only_live_target_allowed(self, target: dict[str, Any]) -> bool:
+        if target.get("title_available") is not False or target.get("selection_only") is not True:
+            return False
+        if not str(target.get("updated_label") or "").strip():
+            return False
+        if not self._bounds_have_positive_size(target.get("bounds")):
+            return False
+        center = target.get("center")
+        if not isinstance(center, dict):
+            return False
+        window_bounds = target.get("window_bounds")
+        return not isinstance(window_bounds, dict) or self._point_inside_bounds(center, window_bounds)

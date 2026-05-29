@@ -950,6 +950,7 @@ def _build_codex_thread_map(
         visible_norm = _normalize_title_for_match(visible_title)
         best: dict[str, object] | None = None
         best_score = 0
+        match_reason = "normalized_title"
         for app_thread in app_threads:
             app_title = str(app_thread.get("title") or app_thread.get("name") or "")
             app_norm = _normalize_title_for_match(app_title)
@@ -957,6 +958,12 @@ def _build_codex_thread_map(
             if score > best_score:
                 best = app_thread
                 best_score = score
+        if best is None and visible.get("title_available") is False:
+            index = visible.get("index")
+            if isinstance(index, int) and 0 <= index < len(app_threads) and visible.get("updated_label"):
+                best = app_threads[index]
+                best_score = 2
+                match_reason = "visible_order_title_hidden"
         if best is not None and best_score > 0:
             app_id = str(best.get("id") or "")
             if app_id:
@@ -968,7 +975,7 @@ def _build_codex_thread_map(
                     "app_server_id": best.get("id"),
                     "app_server_title": best.get("title") or best.get("name"),
                     "confidence": "high" if best_score >= 3 else "medium",
-                    "match_reason": "normalized_title",
+                    "match_reason": match_reason,
                 }
             )
 

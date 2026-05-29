@@ -28,6 +28,7 @@ def rewrite_audit_timestamp(state_dir: Path, audit_id: str, timestamp: str) -> N
 @dataclass
 class FakeObserver:
     mode: str = "ok"
+    title_hidden: bool = False
 
     def status(self) -> CommandResult:
         return CommandResult(
@@ -52,21 +53,31 @@ class FakeObserver:
         return CommandResult(ok=True, data={"windows": [{"index": 0, "title": "Codex", "role": "AXWindow", "bounds": {"x": 1, "y": 2, "width": 3, "height": 4}, "codex_frontmost": True}], "count": 1})
 
     def threads(self, *, max_items: int) -> CommandResult:
+        thread = {
+            "visible_id": "visible-0-abc",
+            "index": 0,
+            "title": "Implement bridge",
+            "role": "AXStaticText",
+            "bounds": {"x": 10, "y": 20, "width": 100, "height": 40},
+            "center": {"x": 60, "y": 40},
+            "confidence": "medium",
+            "source": "ax",
+        }
+        if self.title_hidden:
+            thread.update(
+                {
+                    "title": "Visible thread row 1 (title unavailable)",
+                    "raw_title": "title_unavailable",
+                    "title_available": False,
+                    "selection_only": True,
+                    "updated_label": "1m",
+                    "confidence": "low",
+                }
+            )
         return CommandResult(
             ok=True,
             data={
-                "threads": [
-                    {
-                        "visible_id": "visible-0-abc",
-                        "index": 0,
-                        "title": "Implement bridge",
-                        "role": "AXStaticText",
-                        "bounds": {"x": 10, "y": 20, "width": 100, "height": 40},
-                        "center": {"x": 60, "y": 40},
-                        "confidence": "medium",
-                        "source": "ax",
-                    }
-                ][:max_items],
+                "threads": [thread][:max_items],
                 "count": min(max_items, 1),
                 "max_items": max_items,
                 "source": "ax",
@@ -417,6 +428,15 @@ def test_thread_map_json_merges_visible_and_app_server_candidates(tmp_path: Path
     assert payload["data"]["app_server_threads"][0]["id"] == "t1"
     assert payload["data"]["matches"][0]["visible_id"] == "visible-0-abc"
     assert payload["data"]["matches"][0]["app_server_id"] == "t1"
+
+
+def test_thread_map_json_order_matches_title_hidden_visible_rows(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "thread-map", "--json", "--max-items", "5"], FakeObserver(title_hidden=True), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["matches"][0]["visible_id"] == "visible-0-abc"
+    assert payload["data"]["matches"][0]["app_server_id"] == "t1"
+    assert payload["data"]["matches"][0]["match_reason"] == "visible_order_title_hidden"
 
 
 def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> None:

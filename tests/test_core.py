@@ -207,6 +207,7 @@ class FakeVisibleCodexObserver(MacOSCodexObserver):
         stale: bool = False,
         selected_after_select: bool = True,
         selection_only: bool = False,
+        title_hidden_updated_label: str | None = None,
     ) -> None:
         self.commands: list[list[str]] = []
         self._composer = composer
@@ -214,6 +215,7 @@ class FakeVisibleCodexObserver(MacOSCodexObserver):
         self._stale = stale
         self._selected_after_select = selected_after_select
         self._selection_only = selection_only
+        self._title_hidden_updated_label = title_hidden_updated_label
         self._did_select = False
         super().__init__(
             runner=self._run,
@@ -239,6 +241,8 @@ class FakeVisibleCodexObserver(MacOSCodexObserver):
                     "raw_title": "Implement bridge Awaiting response",
                     "title_hash": "title-hash",
                     "role": "AXButton",
+                    "title_available": False if self._selection_only else True,
+                    "updated_label": self._title_hidden_updated_label,
                     "bounds": {"x": 10, "y": 20, "width": 100, "height": 40},
                     "window_bounds": {"x": 0, "y": 0, "width": 800, "height": 800},
                     "center": {"x": 60, "y": 40},
@@ -346,6 +350,16 @@ def test_send_visible_message_live_rejects_selection_only_rows(tmp_path: Path) -
     assert result.ok is False
     assert result.errors[0]["code"] == "visible_thread_identity_not_verifiable"
     assert observer.commands == []
+
+
+def test_send_visible_message_live_allows_current_title_hidden_row_with_stable_evidence(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, selection_only=True, title_hidden_updated_label="1m")
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=False, confirmed=True)
+
+    assert result.ok is True
+    assert result.data["submitted"] is True
+    assert any("keystroke" in " ".join(command) and "key code 36" in " ".join(command) for command in observer.commands)
 
 
 def test_redaction_removes_home_paths_and_secret_like_tokens() -> None:
