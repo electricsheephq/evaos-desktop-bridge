@@ -48,6 +48,16 @@ Fields:
 - `source_pointer`: provenance pointer that a support agent can use to fetch the source evidence.
 - `audit_id`: bridge audit id when one exists.
 
+Surface and actor names are related but not interchangeable. `surface` names the record family; `last_actor` names the producing component. In v1, `queue` means Desktop Bridge announcement queue evidence and maps to `last_actor = bridge_queue`; `bridge` means bridge-service failure or fallback evidence and maps to `last_actor = desktop_bridge`; `audit` maps to `desktop_bridge`; `broker` maps to `broker`; `codex` maps to `codex_app_server`.
+
+Resume route kinds are exhaustive for `evaos.session_center.v1`:
+
+- `broker_runtime`: open/reconnect an existing brokered Workbench runtime for the selected customer target.
+- `queue_event`: evidence route to queue-event details.
+- `audit_record`: evidence route to bridge audit details.
+- `codex_evidence`: evidence route to Codex readiness or thread summary details.
+- `evidence_only`: render source evidence without opening a runtime.
+
 ## Attention States
 
 | State | Meaning |
