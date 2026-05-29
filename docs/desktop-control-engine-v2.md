@@ -92,3 +92,22 @@ is active, stop and tell the customer they need to start a new session.
   observation and live desktop control.
 - Kill switch blocks live desktop and iPhone commands.
 - OpenClaw and Hermes use the same command contract.
+- Issue #130 behavior harness passes against the local scratch app before
+  certifying background-control safety claims.
+
+Run the issue #130 harness locally from the repo root:
+
+```bash
+PYTHONPATH=src python3 -m evaos_desktop_bridge.behavior_harness \
+  --suite issue130 \
+  --repo-root /Volumes/LEXAR/repos/evaos-desktop-bridge \
+  --artifact-dir /Volumes/LEXAR/Codex/evaos-desktop-bridge-issue130-runs/<run-id> \
+  --sensitive-app "System Settings" \
+  --operator-ack-live-control
+```
+
+It opens `tests/fixtures/macos/Issue130ScratchApp`, then records JSON/Markdown
+evidence for the six invariants that previously had only argv-level coverage:
+intended effect, frontmost unchanged, cursor not warped, occluded target pixels,
+policy-denied zero effect, and sensitive observation blocks for `desktop see`,
+`snapshot`, and `ax-tree`.

@@ -130,6 +130,36 @@ posts to `/v1/commands`.
   never enabled unless `--allow-real-world-actions` is set and local environment
   variables provide exact text/contact/app values.
 
+## Issue #130 Behavior Invariants
+
+The issue #130 harness is separate from the connector/OpenClaw/Hermes canary
+matrix because it starts a local native scratch app and verifies behavior, not
+just connector argv shape. It is the release gate for sensitive-app denylist and
+background-control safety regressions:
+
+```bash
+PYTHONPATH=src python3 -m evaos_desktop_bridge.behavior_harness \
+  --suite issue130 \
+  --repo-root /Volumes/LEXAR/repos/evaos-desktop-bridge \
+  --artifact-dir /Volumes/LEXAR/Codex/evaos-desktop-bridge-issue130-runs/<run-id> \
+  --sensitive-app "System Settings" \
+  --operator-ack-live-control
+```
+
+The harness writes `issue130-behavior-report.json` and
+`issue130-behavior-report.md`. Required checks:
+
+- `intended_effect`: a live scratch-app action increments exactly once.
+- `frontmost_unchanged`: the live action does not steal focus away from the
+  target app.
+- `cursor_not_warped`: the user's cursor does not jump to the action point.
+- `occluded_capture_target_pixels`: occluded capture returns the target marker,
+  not the covering window marker.
+- `policy_denied_zero_effect`: a denied live command has no scratch-state
+  effect.
+- `sensitive_denylist_all_observation_paths`: `desktop see`, `snapshot`, and
+  `ax-tree` all fail closed with `sensitive_app_blocked`.
+
 `primitive` and `scenario` lanes are both required. Primitive rows prove the
 transport and automation engine; scenario rows prove the agent-style loop. Real
 task canaries must use a fresh `iphone_see` or `desktop_see` before live

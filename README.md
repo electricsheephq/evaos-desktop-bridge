@@ -218,6 +218,22 @@ actions. Sensitive Mac/iPhone apps, dangerous target labels, arbitrary
 coordinates, generic shell, AppleScript passthrough, and Screen Sharing
 enablement are blocked.
 
+Issue #130 behavior/invariant harness:
+
+```bash
+PYTHONPATH=src python3 -m evaos_desktop_bridge.behavior_harness \
+  --suite issue130 \
+  --repo-root /Volumes/LEXAR/repos/evaos-desktop-bridge \
+  --artifact-dir /Volumes/LEXAR/Codex/evaos-desktop-bridge-issue130-runs/<run-id> \
+  --sensitive-app "System Settings" \
+  --operator-ack-live-control
+```
+
+This local harness launches a native scratch app and proves intended effect,
+frontmost stability, cursor non-warping, occluded target-window capture,
+policy-denied zero-effect behavior, and sensitive observation blocks across
+`desktop see`, `snapshot`, and `ax-tree`.
+
 Support-only live iPhone canary controls:
 
 ```bash
