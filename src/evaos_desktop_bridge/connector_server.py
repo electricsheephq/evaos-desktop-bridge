@@ -45,6 +45,10 @@ GUARDED_REMOTE_COMMANDS = frozenset(
     }
 )
 
+CODEX_REMOTE_CONTROL_COMMANDS = frozenset()
+
+CODEX_REMOTE_CONTROL_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {}
+
 CONTROLLED_REMOTE_COMMANDS = frozenset(
     {
         "customerMacIphoneMirroringFocus",
@@ -149,6 +153,9 @@ CONNECTOR_COMMAND_ALIASES = {
     "desktop_bridge_codex_app_server_status": "codexAppServerStatus",
     "desktop_bridge_codex_app_server_remote_control_status": "codexAppServerRemoteControlStatus",
     "desktop_bridge_codex_app_server_threads": "codexAppServerThreads",
+    "desktop_bridge_codex_connections_status": "codexConnectionsStatus",
+    "desktop_bridge_codex_app_server_loaded_threads": "codexAppServerLoadedThreads",
+    "desktop_bridge_codex_live_status": "codexLiveStatus",
     "customer_mac_status": "customerMacStatus",
     "customer_mac_capabilities": "customerMacCapabilities",
     "customer_mac_snapshot": "customerMacSnapshot",
@@ -241,6 +248,7 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         "latest": ["latest", "--json"],
         "codexFrontmost": ["codex", "frontmost", "--json"],
         "codexWindows": ["codex", "windows", "--json"],
+        "codexConnectionsStatus": ["codex", "connections", "status", "--json"],
         "codexAppServerStatus": ["codex", "app-server", "status", "--json"],
         "codexAppServerRemoteControlStatus": ["codex", "app-server", "remote-control-status", "--json"],
         "customerMacStatus": ["customer-mac", "status", "--json"],
@@ -302,6 +310,19 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         return ["codex", "ax-tree", "--json", "--max-nodes", str(_clamp_int(params.get("max_nodes"), 200, 1, 1000))]
     if command == "codexAppServerThreads":
         return ["codex", "app-server", "threads", "--json", "--max-items", str(_clamp_int(params.get("max_items"), 50, 1, 200))]
+    if command == "codexAppServerLoadedThreads":
+        return ["codex", "app-server", "loaded-threads", "--json", "--max-items", str(_clamp_int(params.get("max_items"), 50, 1, 200))]
+    if command == "codexLiveStatus":
+        return [
+            "codex",
+            "app-server",
+            "subscribe",
+            "--json",
+            "--thread-id",
+            _required_string(params, "thread_id"),
+            "--duration-ms",
+            str(_clamp_int(params.get("duration_ms"), 1000, 1, 30000)),
+        ]
     if command == "customerMacSnapshot":
         return ["customer-mac", "snapshot", "--json", "--max-chars", str(_clamp_int(params.get("max_chars"), 4000, 1, 20000))]
     if command == "customerMacAxTree":
@@ -528,7 +549,7 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                         403,
                         _error_envelope(
                             command or "connector.command",
-                            "customer_mac" if command.startswith("customerMac") else "desktop",
+                            _target_for_connector_command(command),
                             error_code,
                             approval_error,
                         ),
@@ -680,6 +701,9 @@ def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool
         return False
     if params.get("dry_run") is not False:
         return False
+    if command in CODEX_REMOTE_CONTROL_COMMANDS:
+        source = params.get("source_audit_id")
+        return params.get("confirm") is not True or not isinstance(source, str) or not source.strip().startswith("audit-")
     approval = params.get("approval_audit_id")
     return not isinstance(approval, str) or not approval.strip()
 
@@ -699,6 +723,28 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
     if command not in GUARDED_REMOTE_COMMANDS:
         return None
     if params.get("dry_run") is not False:
+        return None
+    if command in CODEX_REMOTE_CONTROL_COMMANDS:
+        source = params.get("source_audit_id")
+        if params.get("confirm") is not True:
+            return "Live Codex remote-control actions require confirm=true."
+        if not isinstance(source, str) or not source.strip().startswith("audit-"):
+            return "Live Codex remote-control actions require source_audit_id from a dry-run or evidence command."
+        command_id, fields = CODEX_REMOTE_CONTROL_APPROVAL[command]
+        record = read_audit_record(source.strip(), state_dir=state_dir)
+        if record is None:
+            return "source_audit_id was not found in the local audit log."
+        if record.get("command") != command_id or record.get("ok") is not True:
+            return "source_audit_id does not reference a successful dry-run for this command."
+        record_args = record.get("args")
+        if not isinstance(record_args, dict) or record_args.get("dry_run") is not True:
+            return "source_audit_id must reference a dry-run record."
+        freshness_error = approval_audit_freshness_error(record)
+        if freshness_error is not None:
+            return freshness_error.replace("approval_audit_id", "source_audit_id")
+        for field in fields:
+            if record_args.get(field) != _approval_field_value(command, params, field):
+                return f"source_audit_id does not match {field}."
         return None
     approval = params.get("approval_audit_id")
     if not isinstance(approval, str) or not approval.strip():
@@ -807,6 +853,18 @@ def _approval_arg(params: dict[str, Any]) -> list[str]:
     return ["--approval-audit-id", approval.strip()]
 
 
+def _codex_remote_control_args(params: dict[str, Any]) -> list[str]:
+    if params.get("dry_run") is not False:
+        return ["--dry-run"]
+    argv = ["--live"]
+    if params.get("confirm") is True:
+        argv.append("--confirm")
+    source = params.get("source_audit_id")
+    if isinstance(source, str) and source.strip():
+        argv.extend(["--source-audit-id", source.strip()])
+    return argv
+
+
 def _clamp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
@@ -832,3 +890,12 @@ def _error_envelope(command: str, target: str, code: str, message: str) -> dict[
         errors=[make_error(code=code, message=message, guidance="Check connector pairing, command shape, and approval state.")],
         audit_id="connector-rejected",
     )
+
+
+def _target_for_connector_command(command: str | None) -> str:
+    if isinstance(command, str):
+        if command.startswith("customerMac"):
+            return "customer_mac"
+        if command.startswith("codex"):
+            return "codex"
+    return "desktop"

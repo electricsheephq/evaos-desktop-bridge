@@ -269,14 +269,29 @@ class FakeAppServer:
             },
         )
 
+    def connections_status(self) -> CommandResult:
+        return CommandResult(
+            ok=True,
+            data={
+                "app_server": {"available": self.mode == "ok", "transport": "stdio"},
+                "remote_control": {"supported": True},
+                "safety": {"read_only_default": True, "controller_requires_confirmation": True},
+            },
+        )
+
     def threads(self, *, max_items: int) -> CommandResult:
         if self.mode != "ok":
             return CommandResult(ok=False, errors=[{"code": "app_server_unavailable", "message": "offline", "guidance": "start app-server"}])
         return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Thread 1", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items, "thread_state": "active"})
 
+    def loaded_threads(self, *, max_items: int) -> CommandResult:
+        return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "source": "app_server_loaded"}][:max_items], "count": 1, "max_items": max_items})
+
+    def subscribe(self, *, thread_id: str, duration_ms: int, max_chars: int) -> CommandResult:
+        return CommandResult(ok=True, data={"thread_id": thread_id, "duration_ms": duration_ms, "events": [{"method": "turn/started"}]})
+
     def remote_control_status(self) -> CommandResult:
         return CommandResult(ok=True, data={"preferred_path": "codex_native_remote_control", "connections_state": "disabled", "safety": {"read_only_probe": True}})
-
 
 def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
     stdout = io.StringIO()
@@ -312,7 +327,8 @@ def test_capabilities_reports_read_only_surface(tmp_path: Path) -> None:
     snapshot = next(command for command in payload["data"]["commands"] if command["id"] == "codex.snapshot")
     assert snapshot["target"] == "codex"
     assert snapshot["mode"] == "read_only"
-    assert "send_prompts_or_messages" in payload["data"]["forbidden"]
+    assert "unguarded_send_prompts_or_messages" in payload["data"]["forbidden"]
+    assert payload["data"]["guarded_prompt_or_message_commands"] == []
     assert payload["data"]["data_minimization"]["append_only_audit_log"] is True
 
 
@@ -470,6 +486,14 @@ def test_app_server_status_json_reports_allowlist(tmp_path: Path) -> None:
     assert payload["data"]["rpc_handshake_ok"] is True
 
 
+def test_codex_connections_status_json_reports_safety(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "connections", "status", "--json"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.connections.status"
+    assert payload["data"]["safety"]["read_only_default"] is True
+
+
 def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
     payload = run_cli(["codex", "app-server", "threads", "--json", "--max-items", "1"], FakeObserver(), tmp_path)
 
@@ -477,6 +501,44 @@ def test_app_server_threads_json_is_capped(tmp_path: Path) -> None:
     assert payload["command"] == "codex.app_server.threads"
     assert payload["data"]["threads"][0]["source"] == "app_server"
     assert payload["data"]["thread_state"] == "active"
+
+
+def test_app_server_loaded_threads_json_is_capped(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "app-server", "loaded-threads", "--json", "--max-items", "1"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.app_server.loaded_threads"
+    assert payload["data"]["threads"][0]["source"] == "app_server_loaded"
+
+
+def test_app_server_subscribe_json_buffers_events(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "app-server", "subscribe", "--json", "--thread-id", "t1", "--duration-ms", "25"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.app_server.subscribe"
+    assert payload["data"]["events"][0]["method"] == "turn/started"
+
+
+def test_app_server_live_controller_cli_commands_are_not_registered(tmp_path: Path) -> None:
+    assert _run_cli_argparse_error(["codex", "app-server", "start-turn", "--json"], tmp_path) == 2
+    assert _run_cli_argparse_error(["codex", "app-server", "steer-turn", "--json"], tmp_path) == 2
+    assert _run_cli_argparse_error(["codex", "app-server", "interrupt-turn", "--json"], tmp_path) == 2
+
+
+def _run_cli_argparse_error(argv: list[str], tmp_path: Path) -> int:
+    stdout = io.StringIO()
+    try:
+        return main(
+            argv,
+            observer_factory=lambda: FakeObserver(),
+            customer_mac_factory=lambda: FakeCustomerMac(),
+            app_server_factory=lambda: FakeAppServer(),
+            stdout=stdout,
+            state_dir=tmp_path,
+        )
+    except SystemExit as exc:
+        return int(exc.code)
+    return 0
 
 
 def test_app_server_remote_control_status_is_read_only(tmp_path: Path) -> None:

@@ -18,11 +18,13 @@ For release execution, use the shorter gate checklist in
 
 ## Current Customer Release Target
 
-Workbench `0.6.2` / build `42` is the current GA-candidate release lane. It
-promotes the one-app Workbench surfaces, keeps customer-granted Full Access and
-Ask Permission control sessions, and ships Providers, Session Center,
-Creative Studio, and the single upgraded Shared Browser lane as real product
-surfaces rather than Preview entries.
+The exact GA-candidate version/build is tracked in the release checklist,
+`CHANGELOG.md`, and signed app metadata. Do not reuse stale runbook examples as
+the version source of truth. The current Workbench release lane promotes the
+one-app Workbench surfaces, keeps customer-granted Full Access and Ask
+Permission control sessions, and ships Providers, Session Center, Creative
+Studio, and the single upgraded Shared Browser lane as real product surfaces
+rather than Preview entries.
 
 Before giving the link to a tester, verify the packaged app contains
 `Contents/Resources/Bridge/evaos-desktop-bridge`,

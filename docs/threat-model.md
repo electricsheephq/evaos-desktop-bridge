@@ -20,7 +20,7 @@ tags:
 
 ## Summary
 
-The bridge gives Eva/OpenClaw customer-granted control of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam, and provides narrow guarded visible focus/select actions. Desktop Control Engine V2 adds customer-controlled Full Access and Ask Permission modes for audited Mac and iPhone Mirroring operation through the Workbench connector. Full Access unlocks the new `desktop_*` and `iphone_*` computer-use tools after the customer starts a visible session; legacy Codex/message fallback commands remain dry-run/approval gated.
+The bridge gives Eva/OpenClaw customer-granted control of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam by default, and provides narrow guarded visible focus/select actions. The Codex app-server lane now has separately named, approval-gated controller commands for loaded Desktop threads only. Desktop Control Engine V2 adds customer-controlled Full Access and Ask Permission modes for audited Mac and iPhone Mirroring operation through the Workbench connector. Full Access unlocks the new `desktop_*` and `iphone_*` computer-use tools after the customer starts a visible session; legacy Codex/message fallback commands remain dry-run/approval gated.
 
 ## Current Status
 
@@ -53,9 +53,9 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 
 The MVP must not:
 
-- Send prompts, messages, turns, approvals, or keyboard text.
+- Send prompts, messages, turns, approvals, or keyboard text through generic tools.
 - Automate iMessage/messages/dating-app sends outside the exact same-turn approval flow.
-- Call Codex internal mutation RPCs or mutation-capable app-server methods.
+- Call Codex internal mutation RPCs or mutation-capable app-server methods through generic passthrough.
 - Hijack stdio, file descriptors, PTYs, or process streams.
 - Read Codex session databases wholesale.
 - Expose tokens, auth files, or full home paths.
@@ -78,6 +78,8 @@ The MVP must not:
 - Return a capped AX tree containing roles and names only.
 - Return capped app-server thread summaries through a hard read-only method allowlist.
 - Probe Codex native remote-control readiness without enabling it or calling mutation methods.
+- Keep Codex app-server controller methods withheld from the public CLI and
+  plugin surface until live loaded-thread acceptance passes.
 - In support-VM canary mode only, select a visible Codex thread by title and submit exact `continue` as a guarded fallback when native remote-control is unavailable.
 - Return the last redacted observation envelope.
 - Return a capped redacted local audit-log tail.
@@ -100,6 +102,7 @@ The MVP must not:
 | Silent prompt sending | No command types, pastes, clicks send controls, or exposes prompt APIs. |
 | Support Codex fallback drift | The only prompt-like fallback is fixed to exact `continue` and requires a matching dry-run audit id. |
 | Hidden Codex state mutation | App-server methods are denied unless on the read-only allowlist. |
+| Codex controller abuse | `turn/start`, `turn/steer`, and `turn/interrupt` are not registered in the CLI, connector, or OpenClaw plugin while #136 remains blocked; no generic RPC tool exists. |
 | Session data leakage | No database reads; AX output is capped to roles/names only. |
 | Secret leakage | Redaction replaces home paths, API-key-like strings, bearer tokens, and authorization headers. |
 | Permission confusion | Commands return structured permission errors with setup guidance. |

@@ -773,7 +773,7 @@ final class WorkbenchModel: ObservableObject {
             let iphoneRaw = await bridge.run(arguments: ["customer-mac", "iphone-mirroring", "status", "--json"])
             let controlRaw = await bridge.run(arguments: ["customer-mac", "control", "status", "--json"])
             let screenRaw = await bridge.run(arguments: ["customer-mac", "screen-sharing", "status", "--json"])
-            let codexRaw = await bridge.run(arguments: ["codex", "app-server", "remote-control-status", "--json"])
+            let codexRaw = await bridge.run(arguments: ["codex", "connections", "status", "--json"])
             let bridgeCapsRaw = await bridge.run(arguments: ["capabilities", "--json"])
             let macCapsRaw = await bridge.run(arguments: ["customer-mac", "capabilities", "--json"])
             let auditRaw = await bridge.run(arguments: ["audit-tail", "--json", "--limit", "12"])
@@ -1859,6 +1859,7 @@ struct BridgeCommandService {
         bridgeKey(["customer-mac", "iphone-mirroring", "status", "--json"]),
         bridgeKey(["customer-mac", "screen-sharing", "status", "--json"]),
         bridgeKey(["queue", "list", "--json", "--limit", "10"]),
+        bridgeKey(["codex", "connections", "status", "--json"]),
         bridgeKey(["codex", "app-server", "status", "--json"]),
         bridgeKey(["codex", "app-server", "remote-control-status", "--json"]),
         bridgeKey(["codex", "app-server", "threads", "--json", "--max-items", "5"])
@@ -2328,13 +2329,23 @@ enum BridgeStatusFormatter {
     static func codex(raw: String) -> String {
         guard let object = object(from: raw) else { return cleanFallback(raw) }
         let ok = object["ok"] as? Bool == true
-        let data = object["data"] as? [String: Any]
-        let available = data?["available"] as? Bool
-        let socket = data?["socket_path"] as? String
+        let appServerReady = value(at: ["data", "app_server", "available"], in: object) as? Bool
+        let transport = value(at: ["data", "app_server", "transport"], in: object) as? String
+        let remoteCommand = value(at: ["data", "remote_control_command", "supported"], in: object) as? Bool
+        let daemonReady = value(at: ["data", "daemon", "version_available"], in: object) as? Bool
+        let controlSockets = value(at: ["data", "control_sockets"], in: object) as? [[String: Any]]
+        let socketDetected = controlSockets?.contains { socket in
+            socket["exists"] as? Bool == true
+        }
+        let notifications = value(at: ["data", "live_notifications", "supported"], in: object) as? Bool
         return compact([
             ok ? "Checked" : "Needs attention",
-            available.map { "Native remote-control: \($0 ? "available" : "not available")" },
-            socket == nil ? nil : "Socket detected",
+            appServerReady.map { "App-server: \($0 ? "ready" : "unavailable")" },
+            transport.map { "Transport: \($0)" },
+            remoteCommand.map { "Remote-control command: \($0 ? "supported" : "missing")" },
+            daemonReady.map { "Daemon: \($0 ? "ready" : "not running")" },
+            socketDetected.map { "Control socket: \($0 ? "detected" : "not detected")" },
+            notifications.map { "Live events: \($0 ? "supported" : "unavailable")" },
             ok ? nil : errorSummary(object, fallback: "Codex readiness check failed")
         ])
     }

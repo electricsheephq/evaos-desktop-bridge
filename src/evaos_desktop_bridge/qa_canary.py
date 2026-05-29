@@ -509,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--operator-ack-live-control", action="store_true", help="Required for suites that may move the mouse, keyboard, or iPhone Mirroring.")
     parser.add_argument("--allow-skips", action="store_true", help="Exit 0 when required suites contain skipped rows; release certification should not use this.")
     parser.add_argument("--repo-root", type=Path, help="Repository root containing openclaw-plugin/ and hermes-adapter/ for adapter surfaces.")
-    parser.add_argument("--version-under-test", default="0.6.2")
+    parser.add_argument("--version-under-test", default="local-dev")
     args = parser.parse_args(argv)
 
     token = os.environ.get(args.token_env)
@@ -584,7 +584,9 @@ def _codex_steps() -> list[CanaryStep]:
         CanaryStep(id="codex.frontmost", suite="codex", command="desktop_bridge_codex_frontmost", skip_on_unavailable=True),
         CanaryStep(id="codex.windows", suite="codex", command="desktop_bridge_codex_windows", skip_on_unavailable=True),
         CanaryStep(id="codex.threads", suite="codex", command="desktop_bridge_codex_threads", params={"max_items": 20}, skip_on_unavailable=True),
+        CanaryStep(id="codex.connections_status", suite="codex", command="desktop_bridge_codex_connections_status", skip_on_unavailable=True),
         CanaryStep(id="codex.app_server_status", suite="codex", command="desktop_bridge_codex_app_server_status", skip_on_unavailable=True),
+        CanaryStep(id="codex.loaded_threads", suite="codex", command="desktop_bridge_codex_app_server_loaded_threads", params={"max_items": 20}, skip_on_unavailable=True),
         CanaryStep(id="codex.remote_control_status", suite="codex", command="desktop_bridge_codex_app_server_remote_control_status", skip_on_unavailable=True),
     ]
 
@@ -624,7 +626,8 @@ def _primitive_steps() -> list[CanaryStep]:
 
 def _desktop_scenario_steps() -> list[CanaryStep]:
     return [
-        CanaryStep(id="desktop_scenario.browser_open", suite="desktop_scenario", lane="scenario", command="desktop_browser_action", params={"action": "open_url", "url": "https://example.com", "dry_run": False}),
+        CanaryStep(id="desktop_scenario.initial_see", suite="desktop_scenario", lane="scenario", command="desktop_see", params={"max_chars": 4000, "max_nodes": 200}, requires_visual_evidence=True),
+        CanaryStep(id="desktop_scenario.browser_open", suite="desktop_scenario", lane="scenario", command="desktop_browser_action", params={"action": "open_url", "url": "https://example.com", "dry_run": False}, assert_from_step="desktop_scenario.initial_see"),
         CanaryStep(id="desktop_scenario.see_browser", suite="desktop_scenario", lane="scenario", command="desktop_see", params={"max_chars": 4000, "max_nodes": 200}, requires_visual_evidence=True, visual_assert={"expected_visible_text": "Example"}),
         CanaryStep(id="desktop_scenario.escape", suite="desktop_scenario", lane="scenario", command="desktop_hotkey", params={"keys": "escape", "dry_run": False}, assert_from_step="desktop_scenario.see_browser"),
         CanaryStep(id="desktop_scenario.menu_probe", suite="desktop_scenario", lane="scenario", command="desktop_menu", params={"menu_path": "Window", "dry_run": True}, skip_on_unavailable=True, assert_from_step="desktop_scenario.see_browser"),
@@ -634,7 +637,8 @@ def _desktop_scenario_steps() -> list[CanaryStep]:
 def _iphone_scenario_steps() -> list[CanaryStep]:
     return [
         CanaryStep(id="iphone_scenario.focus", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_focus", params={"dry_run": False}, skip_on_unavailable=True),
-        CanaryStep(id="iphone_scenario.open_calculator", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True),
+        CanaryStep(id="iphone_scenario.pre_open_state", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True),
+        CanaryStep(id="iphone_scenario.open_calculator", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.pre_open_state"),
         CanaryStep(id="iphone_scenario.see_calculator", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"expected_visible_text": "Calculator"}),
         CanaryStep(id="iphone_scenario.calculator_entry", suite="iphone_scenario", lane="scenario", command="iphone_type", params={"text": "1+1+1=", "dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_calculator"),
         CanaryStep(id="iphone_scenario.see_result", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"allowed_states": ["Calculator", "3"]}),

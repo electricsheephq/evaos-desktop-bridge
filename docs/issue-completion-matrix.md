@@ -23,3 +23,19 @@ evaos-desktop-bridge codex --help
 ```
 
 Manual macOS checks remain optional and depend on Codex Desktop being running/frontmost with TCC permissions granted.
+
+## 0.6.5 Deep Release Delta
+
+Milestone: `Codex Desktop App-Server Control`
+
+| Area | Status | Evidence |
+| --- | --- | --- |
+| Fresh app-server protocol handshake | Implemented | `CodexJsonRpcClient` sends `initialize`, waits for result, sends `initialized`, preserves notifications and empty results |
+| Transport support | Implemented | stdio default, explicit loopback websocket, explicit proxy; non-loopback websocket URLs are rejected |
+| Read-only connection status | Implemented | `codex connections status --json` reports Desktop CLI, app-server handshake, daemon, control sockets, websocket, live notifications, and safety flags |
+| Loaded threads/live notifications | Implemented, live acceptance pending | `loaded-threads` and `subscribe` commands with caps/redaction; issue #136 still requires a non-empty `thread/loaded/list` result from a visible Codex Desktop thread plus streamed turn events |
+| Guarded remote control | Withheld from public surface | `turn/start`, `turn/steer`, and `turn/interrupt` remain forbidden and CLI/OpenClaw tools are not registered until #136 passes |
+| #136 live Codex controller gate | Blocked by local Codex loaded-thread state | Current Codex CLI 0.133.0 proxy smoke returned `thread/loaded/list` count 0 even after remote-control daemon connection, so live controller tools remain unmerged |
+| OpenClaw wrapper tools | Implemented status/readiness slice | fixed named tools for connections, live status, loaded threads, and read-only app-server status; still no generic app-server RPC or live controller passthrough |
+| Workbench status formatter | Implemented | Workbench reads `codex connections status` and the current `remote_control_command`, `daemon`, and `control_sockets` shape |
+| 0.6.5 release canary | Partial, evidence retained | Connector/OpenClaw/Hermes all-surface canaries reached 33/44 before harness fix; desktop scenario rerun passed 5/5; iPhone Calculator launch remains a tuning issue; kill-switch final passed 3/3; QA canaries are not a substitute for the #136 live Codex controller acceptance |

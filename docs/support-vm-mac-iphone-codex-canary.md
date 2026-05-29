@@ -138,26 +138,28 @@ one-off curls. It stores pass/fail/skipped rows, audit ids, engine provenance,
 snapshot ids, and screenshot evidence under the Lexar QA run folder:
 
 ```bash
+export VERSION_UNDER_TEST="<exact-version-build>"
+
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 ```
 
 Run the kill-switch suite once at the end of the certification pass, after the
@@ -170,7 +172,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --surface connector \
   --suite kill_switch \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 ```
 
 See `docs/evaos-workbench-qa-canary.md` for optional real-world app scenarios

@@ -53,6 +53,9 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_app_server_status",
         "desktop_bridge_codex_app_server_remote_control_status",
         "desktop_bridge_codex_app_server_threads",
+        "desktop_bridge_codex_connections_status",
+        "desktop_bridge_codex_app_server_loaded_threads",
+        "desktop_bridge_codex_live_status",
         "evaos_provider_profiles",
         "evaos_provider_active_profile",
         "evaos_provider_complete_auth",
@@ -110,10 +113,10 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_click",
         "desktop_bridge_shell",
         "desktop_bridge_exec",
+        "desktop_bridge_codex_app_server_rpc",
         "desktop_bridge_codex_remote_start_turn",
         "desktop_bridge_codex_remote_steer_turn",
         "desktop_bridge_codex_remote_interrupt_turn",
-        "desktop_bridge_codex_app_server_rpc",
         "customer_mac_screen_sharing_enable",
     ]
     for tool_name in forbidden_tool_names:
@@ -144,6 +147,9 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "customerMacControlStart" in source
     assert "customerMacIphoneMirroringOpenApp" in source
     assert "customerMacIphoneMirroringSendApprovedMessage" in source
+    assert "codexRemoteStartTurn" not in source
+    assert "codexRemoteSteerTurn" not in source
+    assert "codexRemoteInterruptTurn" not in source
     assert "evaosProviderProfiles" in source
     assert "evaosProviderActiveProfile" in source
     assert "evaosSharedBrowserGuidance" in source
@@ -972,8 +978,17 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
     assert "timeoutBehavior: \"deny\"" in source
     assert "allowedDecisions: [\"allow-once\", \"deny\"]" in source
     assert "approval_audit_id" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
+    assert "source_audit_id" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
     assert "requireApproval: true" not in source
     assert "before_tool_call" in (PLUGIN / "index.ts").read_text(encoding="utf-8")
+
+
+def test_openclaw_codex_live_status_timeout_exceeds_subscription_cap() -> None:
+    source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
+
+    assert 'command === "codexLiveStatus"' in source
+    assert "return 35_000;" in source
+    assert "clampInt(params.duration_ms, 1000, 1, 30000)" in source
 
 
 def test_launch_agent_uses_launchd_logging_and_loopback_connector() -> None:

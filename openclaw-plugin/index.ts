@@ -159,6 +159,7 @@ function readOnlyTools(): ToolDefinition[] {
       },
     ),
     tool("desktop_bridge_codex_app_server_status", "Read Codex app-server availability and read-only method allowlist.", "codexAppServerStatus"),
+    tool("desktop_bridge_codex_connections_status", "Read Codex Desktop app-server, daemon, websocket, remote-control, and notification readiness.", "codexConnectionsStatus"),
     tool("desktop_bridge_codex_app_server_remote_control_status", "Read Codex native remote-control readiness without enabling or mutating it.", "codexAppServerRemoteControlStatus"),
     tool(
       "desktop_bridge_codex_app_server_threads",
@@ -169,6 +170,32 @@ function readOnlyTools(): ToolDefinition[] {
         additionalProperties: false,
         properties: {
           max_items: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+        },
+      },
+    ),
+    tool(
+      "desktop_bridge_codex_app_server_loaded_threads",
+      "Read loaded Codex app-server thread ids for readiness diagnostics.",
+      "codexAppServerLoadedThreads",
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          max_items: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+        },
+      },
+    ),
+    tool(
+      "desktop_bridge_codex_live_status",
+      "Read buffered Codex app-server live notifications for one loaded thread.",
+      "codexLiveStatus",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["thread_id"],
+        properties: {
+          thread_id: { type: "string", minLength: 1, maxLength: 240 },
+          duration_ms: { type: "integer", minimum: 1, maximum: 30000, default: 1000 },
         },
       },
     ),

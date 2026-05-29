@@ -11,6 +11,7 @@ const FIXED_COMMANDS = {
     latest: ["latest", "--json"],
     codexFrontmost: ["codex", "frontmost", "--json"],
     codexWindows: ["codex", "windows", "--json"],
+    codexConnectionsStatus: ["codex", "connections", "status", "--json"],
     codexAppServerStatus: ["codex", "app-server", "status", "--json"],
     codexAppServerRemoteControlStatus: ["codex", "app-server", "remote-control-status", "--json"],
     customerMacStatus: ["customer-mac", "status", "--json"],
@@ -81,6 +82,21 @@ export function buildBridgeArgv(command, params = {}) {
     }
     if (command === "codexAppServerThreads") {
         return ["codex", "app-server", "threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
+    }
+    if (command === "codexAppServerLoadedThreads") {
+        return ["codex", "app-server", "loaded-threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
+    }
+    if (command === "codexLiveStatus") {
+        return [
+            "codex",
+            "app-server",
+            "subscribe",
+            "--json",
+            "--thread-id",
+            requiredString(params.thread_id, "thread_id"),
+            "--duration-ms",
+            String(clampInt(params.duration_ms, 1000, 1, 30000)),
+        ];
     }
     if (command === "customerMacSnapshot") {
         return ["customer-mac", "snapshot", "--json", "--max-chars", String(clampInt(params.max_chars, 4000, 1, 20000))];
@@ -929,6 +945,9 @@ async function runRemoteBridge(remoteURL, command, params) {
     }
 }
 function timeoutForCommand(command) {
+    if (command === "codexLiveStatus") {
+        return 35_000;
+    }
     if (command === "desktopSee" || command === "iphoneSee" || command === "customerMacSnapshot" || command === "customerMacAxTree") {
         return 60_000;
     }

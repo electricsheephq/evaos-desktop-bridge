@@ -213,7 +213,7 @@ def test_report_redacts_tokens_contacts_and_real_world_text(tmp_path: Path, monk
         artifact_dir=tmp_path,
         run_id="qa-test",
         started_at="2026-05-23T00:00:00Z",
-        version_under_test="0.6.2",
+        version_under_test="candidate-version",
         surface="connector",
         connector_url="http://100.64.10.12:8765",
         results=[],
@@ -339,6 +339,26 @@ def test_scenario_catalog_is_explicit_and_real_world_config_is_local_only() -> N
     assert any(step.lane == "primitive" for step in all_steps)
     assert any(step.lane == "scenario" for step in all_steps)
     assert all(step.id and step.command for step in all_steps)
+    for step in all_steps:
+        if step.lane == "scenario" and step.command in {
+            "desktop_browser_action",
+            "desktop_click",
+            "desktop_drag",
+            "desktop_focus_app",
+            "desktop_hotkey",
+            "desktop_menu",
+            "desktop_scroll",
+            "desktop_type",
+            "desktop_window",
+            "iphone_swipe",
+            "iphone_tap",
+            "iphone_type",
+            "customer_mac_iphone_mirroring_app_switcher",
+            "customer_mac_iphone_mirroring_home",
+            "customer_mac_iphone_mirroring_open_app",
+            "customer_mac_iphone_mirroring_spotlight",
+        }:
+            assert step.assert_from_step is not None
     assert classify_status(envelope("desktop_see")) == "passed"
     assert classify_status(envelope("iphone_see", ok=False, errors=[{"code": "not_found", "message": "missing", "guidance": "test"}]), skip_on_unavailable=True) == "skipped"
 
@@ -513,7 +533,7 @@ def test_cli_runs_readiness_suite_and_writes_reports(tmp_path: Path, monkeypatch
     assert (tmp_path / "qa-report.json").exists()
     assert (tmp_path / "qa-report.md").exists()
     report = json.loads((tmp_path / "qa-report.json").read_text(encoding="utf-8"))
-    assert report["version_under_test"] == "0.6.2"
+    assert report["version_under_test"] == "local-dev"
 
 
 def test_cli_returns_nonzero_when_required_suite_skips(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:

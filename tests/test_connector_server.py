@@ -35,6 +35,7 @@ def test_connector_builds_fixed_status_argv() -> None:
     assert build_bridge_argv("customerMacStatus") == ["customer-mac", "status", "--json"]
     assert build_bridge_argv("customerMacIphoneMirroringStatus") == ["customer-mac", "iphone-mirroring", "status", "--json"]
     assert build_bridge_argv("codexAppServerRemoteControlStatus") == ["codex", "app-server", "remote-control-status", "--json"]
+    assert build_bridge_argv("codexConnectionsStatus") == ["codex", "connections", "status", "--json"]
 
 
 def test_connector_accepts_openclaw_tool_name_aliases() -> None:
@@ -53,6 +54,33 @@ def test_connector_accepts_openclaw_tool_name_aliases() -> None:
         "--max-nodes",
         "40",
     ]
+
+
+def test_connector_builds_codex_read_only_app_server_argv() -> None:
+    assert build_bridge_argv("codexAppServerLoadedThreads", {"max_items": 3}) == [
+        "codex",
+        "app-server",
+        "loaded-threads",
+        "--json",
+        "--max-items",
+        "3",
+    ]
+    assert build_bridge_argv("codexLiveStatus", {"thread_id": "thread-1", "duration_ms": 25}) == [
+        "codex",
+        "app-server",
+        "subscribe",
+        "--json",
+        "--thread-id",
+        "thread-1",
+        "--duration-ms",
+        "25",
+    ]
+    try:
+        build_bridge_argv("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue"})
+    except ValueError as exc:
+        assert "Unsupported connector command" in str(exc)
+    else:
+        raise AssertionError("expected Codex remote start to stay unexposed")
     assert build_bridge_argv("iphone_swipe", {"direction": "left", "dry_run": False}) == [
         "customer-mac",
         "iphone-mirroring",
@@ -257,6 +285,49 @@ def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tm
     ) == "approval_audit_id was not found in the local audit log."
 
 
+def test_connector_rejects_removed_codex_remote_tool_before_runner(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[int, str]:
+        calls.append(argv)
+        return 0, json.dumps({"ok": True})
+
+    handler = _make_handler(token="secret-token", command_runner=runner, state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/commands",
+            body=json.dumps(
+                {
+                    "command": "desktop_bridge_codex_remote_start_turn",
+                    "params": {
+                        "thread_id": "thread-1",
+                        "message": "continue",
+                        "dry_run": False,
+                        "confirm": True,
+                        "source_audit_id": "audit-forged",
+                    },
+                }
+            ),
+            headers={"Content-Type": "application/json", "Authorization": "Bearer secret-token"},
+        )
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 400
+        assert calls == []
+        assert payload["target"] == "desktop"
+        assert payload["errors"][0]["code"] == "connector_bad_request"
+        assert "Unsupported connector command" in payload["errors"][0]["message"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
 def test_connector_token_file_must_exist_when_configured(tmp_path: Path) -> None:
     try:
         read_token(str(tmp_path / "missing.token"))
@@ -307,6 +378,35 @@ def test_connector_rejects_post_without_token_even_on_loopback(tmp_path: Path) -
         )
         response = conn.getresponse()
         assert response.status == 401
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
+def test_connector_removed_codex_remote_rejection_is_bad_request(tmp_path: Path) -> None:
+    handler = _make_handler(token="secret-token", command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/commands",
+            body=json.dumps(
+                {
+                    "command": "desktop_bridge_codex_remote_start_turn",
+                    "params": {"thread_id": "thread-1", "message": "continue", "dry_run": False},
+                }
+            ),
+            headers={"Content-Type": "application/json", "Authorization": "Bearer secret-token"},
+        )
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 400
+        assert payload["target"] == "desktop"
+        assert payload["errors"][0]["code"] == "connector_bad_request"
     finally:
         server.shutdown()
         thread.join(timeout=2)

@@ -21,6 +21,9 @@ Read-only tools:
 - `desktop_bridge_codex_app_server_status`: Codex app-server availability and read allowlist.
 - `desktop_bridge_codex_app_server_remote_control_status`: Codex native remote-control readiness probe; no enabling or mutation.
 - `desktop_bridge_codex_app_server_threads`: capped app-server thread summaries through the read allowlist.
+- `desktop_bridge_codex_connections_status`: Codex Desktop, app-server, daemon, websocket, remote-control, and notification readiness.
+- `desktop_bridge_codex_app_server_loaded_threads`: loaded Codex Desktop thread ids eligible for controller actions.
+- `desktop_bridge_codex_live_status`: short live-notification read for one loaded thread.
 - `customer_mac_status`: paired Mac, permission, iPhone Mirroring, and Screen Sharing readiness.
 - `customer_mac_capabilities`: supported customer Mac targets and forbidden actions.
 - `desktop_control_status`: current Full Access / Ask Permission session state.
@@ -73,8 +76,9 @@ No plugin tool exposes arbitrary Codex app-server RPCs, hidden shell, session
 database reads, Screen Sharing enablement, public VNC/SSH/CDP, or arbitrary
 shell commands. The only Codex prompt-like fallback is
 `desktop_bridge_codex_continue_thread`, which is support-only, fixed to exact
-`continue`, dry-run/approval-gated, and should be used only when native Codex
-remote-control is unavailable.
+`continue`, dry-run/approval-gated, and should be used only as a recovery
+canary. Native Codex controller tools are intentionally withheld until issue
+#136 proves a visible Desktop thread is present in `thread/loaded/list`.
 
 ## Runtime Contract
 

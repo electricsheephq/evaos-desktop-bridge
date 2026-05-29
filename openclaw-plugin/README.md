@@ -29,6 +29,9 @@ use the Workbench connector's customer-granted control session:
 - `desktop_bridge_codex_app_server_status`
 - `desktop_bridge_codex_app_server_remote_control_status`
 - `desktop_bridge_codex_app_server_threads`
+- `desktop_bridge_codex_connections_status`
+- `desktop_bridge_codex_app_server_loaded_threads`
+- `desktop_bridge_codex_live_status`
 - `desktop_bridge_codex_continue_thread`
 - `evaos_provider_profiles`
 - `evaos_provider_active_profile`
@@ -78,10 +81,12 @@ use the Workbench connector's customer-granted control session:
 - `customer_mac_screen_sharing_status`
 
 The plugin exposes a real computer-use surface for the paired customer Mac and
-iPhone Mirroring, but not a generic shell, hidden AppleScript passthrough,
-public VNC/SSH, mutation Codex app-server RPCs, session database access, or
-Screen Sharing enablement. Approval is enforced by connector control mode, not
-by hardcoded per-action prompts.
+iPhone Mirroring, plus named guarded Codex Desktop app-server controller tools,
+but not a generic shell, hidden AppleScript passthrough, public VNC/SSH,
+generic Codex app-server RPC passthrough, session database access, or Screen
+Sharing enablement. Codex controller live mode requires `confirm:true` and a
+`source_audit_id`; customer Mac/iPhone approval is enforced by connector control
+mode, not by hardcoded per-action prompts.
 
 ## Local Setup
 
