@@ -76,6 +76,22 @@ python3 -m pytest tests/test_cli.py tests/test_openclaw_plugin.py -q
 git diff --check
 ```
 
+## Capability Manifest Contract
+
+Milestone: `#143 P0 Epic: M2 Capability Manifest`
+
+| Issue | Acceptance | Implemented |
+| --- | --- | --- |
+| `#143` Capability Manifest contract slice | Define signed manifest shape, verify HS256 locally, fail closed on missing/invalid tool grants, expose only safe summaries to Workbench/agents, and preserve existing OpenClaw/Hermes approval seams for follow-up runtime plugins. | `src/evaos_desktop_bridge/capability_manifest.py` and `WorkbenchCapabilityManifestVerifier` verify the shared JWT contract with issuer/audience/expiry/signature checks. Missing tools return `denied`; summaries contain agent/owner/expiry/approval channel/budget/grouped tools only. `WorkbenchCapabilityManifestStore` caches signed manifest tokens in the reserved Workbench Keychain service. `docs/capability-manifest.md` maps OpenClaw/Hermes/Workbench follow-up slices without adding a live approval or broker surface yet. |
+
+Verification:
+
+```bash
+python3 -m pytest tests/test_capability_manifest.py -q
+cd apps/eva-desktop-mac
+swift run EvaDesktopCoreSmoke
+```
+
 ## Workbench OpenDesign Gateway
 
 Milestone: `Eva Desktop Workbench MVP`

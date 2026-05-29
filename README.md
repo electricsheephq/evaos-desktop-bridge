@@ -46,6 +46,7 @@ Architecture and sprint docs:
 - [Customer Mac Connector V1](docs/customer-mac-connector.md)
 - [Desktop Control Engine V2](docs/desktop-control-engine-v2.md)
 - [OpenDesign Workbench Gateway](docs/opendesign-gateway.md)
+- [evaOS Capability Manifest Contract](docs/capability-manifest.md)
 - [Support VM Mac/iPhone/Codex Canary Runbook](docs/support-vm-mac-iphone-codex-canary.md)
 
 ## Architecture

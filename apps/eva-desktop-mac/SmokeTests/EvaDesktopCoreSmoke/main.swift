@@ -1,4 +1,5 @@
 import EvaDesktopCore
+import CryptoKit
 import Foundation
 
 let resolver = RuntimeURLResolver()
@@ -63,6 +64,83 @@ precondition(WorkbenchProviderCatalog.defaultStates.map(\.key) == providerCatalo
 precondition(WorkbenchProviderCatalog.defaultStates.allSatisfy { !$0.rawSecretsStoredInWorkbench })
 precondition(WorkbenchProviderCatalog.defaultStates.first { $0.key == .openAICodex }?.status == .needsLogin)
 precondition(WorkbenchProviderCatalog.defaultStates.filter { $0.key != .openAICodex }.allSatisfy { $0.status == .planned })
+
+let manifestPayload = """
+{
+  "agent_id": "email-sorter-2026-05",
+  "owner_id": "andrew-main",
+  "issued_at": "2026-05-29T18:00:00Z",
+  "expires_at": "2026-05-30T18:00:00Z",
+  "grants": {
+    "gmail.read": "allowed",
+    "gmail.send": "requires_approval",
+    "drive.write": "denied"
+  },
+  "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 },
+  "approval_channel": "evaos://approvals/email-sorter-2026-05",
+  "iss": "evaos-broker",
+  "aud": "evaos-runtime"
+}
+"""
+let manifestSecret = Data("capability-manifest-test-secret".utf8)
+let manifestJWT = signedHS256JWT(payloadJSON: manifestPayload, secret: manifestSecret)
+let verifiedManifest = try WorkbenchCapabilityManifestVerifier.verifyHS256JWT(
+    manifestJWT,
+    secret: manifestSecret,
+    now: ISO8601DateFormatter().date(from: "2026-05-29T19:00:00Z")!
+)
+precondition(verifiedManifest.agentID == "email-sorter-2026-05")
+precondition(verifiedManifest.ownerID == "andrew-main")
+precondition(verifiedManifest.grants["gmail.read"] == .allowed)
+precondition(verifiedManifest.grants["gmail.send"] == .requiresApproval)
+precondition(verifiedManifest.grants["drive.write"] == .denied)
+precondition(verifiedManifest.decision(for: "unknown.tool") == .denied)
+precondition(verifiedManifest.budget.tokensPerDay == 200000)
+precondition(verifiedManifest.budget.dollarsPerDay == 5.0)
+precondition(verifiedManifest.safeSummary.grants[.requiresApproval] == ["gmail.send"])
+precondition(verifiedManifest.safeSummary.grants[.allowed] == ["gmail.read"])
+precondition(verifiedManifest.safeSummary.grants[.denied] == ["drive.write"])
+precondition(verifiedManifest.safeSummary.approvalChannel == "evaos://approvals/email-sorter-2026-05")
+do {
+    var invalidManifestParts = manifestJWT.split(separator: ".").map(String.init)
+    invalidManifestParts[2] = base64URLEncode(Data("bad-signature".utf8))
+    _ = try WorkbenchCapabilityManifestVerifier.verifyHS256JWT(
+        invalidManifestParts.joined(separator: "."),
+        secret: manifestSecret,
+        now: ISO8601DateFormatter().date(from: "2026-05-29T19:00:00Z")!
+    )
+    preconditionFailure("invalid capability manifest signature should fail")
+} catch WorkbenchCapabilityManifestError.invalidSignature {
+    // Expected.
+}
+let blankClaimPayload = manifestPayload.replacingOccurrences(
+    of: "\"approval_channel\": \"evaos://approvals/email-sorter-2026-05\"",
+    with: "\"approval_channel\": \"   \""
+)
+do {
+    _ = try WorkbenchCapabilityManifestVerifier.verifyHS256JWT(
+        signedHS256JWT(payloadJSON: blankClaimPayload, secret: manifestSecret),
+        secret: manifestSecret,
+        now: ISO8601DateFormatter().date(from: "2026-05-29T19:00:00Z")!
+    )
+    preconditionFailure("blank capability manifest claims should fail")
+} catch WorkbenchCapabilityManifestError.invalidClaims {
+    // Expected.
+}
+let capabilityStore = WorkbenchCapabilityManifestStore(service: "com.electricsheephq.EvaDesktop.capabilities.smoke.\(UUID().uuidString)")
+precondition(capabilityStore.storagePointer().contains("capability-manifest"))
+try capabilityStore.saveToken(manifestJWT)
+let cachedManifestToken = try capabilityStore.loadToken(allowUserInteraction: false)
+precondition(cachedManifestToken == manifestJWT)
+let cachedManifest = try capabilityStore.loadVerifiedManifest(
+    secret: manifestSecret,
+    now: ISO8601DateFormatter().date(from: "2026-05-29T19:00:00Z")!,
+    allowUserInteraction: false
+)
+precondition(cachedManifest?.agentID == "email-sorter-2026-05")
+try capabilityStore.clear(allowUserInteraction: false)
+let clearedManifestToken = try capabilityStore.loadToken(allowUserInteraction: false)
+precondition(clearedManifestToken == nil)
 
 precondition(resolver.sanitizedCustomerId(" Jackie David ") == "jackie-david")
 precondition(resolver.sanitizedCustomerId("David_Poku!") == "david-poku")
@@ -574,5 +652,22 @@ precondition(WorkbenchProviderOAuthCallback.isOAuthComplete(URL(string: "evaos:/
 precondition(WorkbenchProviderOAuthCallback.isOAuthComplete(URL(string: "EVAOS://OAUTH-COMPLETE")!))
 precondition(!WorkbenchProviderOAuthCallback.isOAuthComplete(callbackURL))
 precondition(fragmentCallbackSession.expiresAt != nil)
+
+func signedHS256JWT(payloadJSON: String, secret: Data) -> String {
+    let headerJSON = #"{"alg":"HS256","typ":"JWT"}"#
+    let encodedHeader = base64URLEncode(Data(headerJSON.utf8))
+    let encodedPayload = base64URLEncode(Data(payloadJSON.utf8))
+    let signingInput = "\(encodedHeader).\(encodedPayload)"
+    let key = SymmetricKey(data: secret)
+    let signature = HMAC<SHA256>.authenticationCode(for: Data(signingInput.utf8), using: key)
+    return "\(signingInput).\(base64URLEncode(Data(signature)))"
+}
+
+func base64URLEncode(_ data: Data) -> String {
+    data.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+}
 
 print("EvaDesktopCoreSmoke passed")
