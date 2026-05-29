@@ -38,7 +38,7 @@ jobs:
           build-mode: manual
 
       - name: Build Eva Desktop for CodeQL
-        run: swift build --package-path apps/eva-desktop-mac --arch arm64
+        run: swift build --package-path apps/eva-desktop-mac --product EvaDesktop --arch arm64
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4

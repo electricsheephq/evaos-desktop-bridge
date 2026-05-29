@@ -33,4 +33,4 @@ Expected migration state: `not-configured`.
 
 ## Rationale
 
-GitHub's Swift CodeQL analysis uses macOS runners. GitHub recommends building only the code you want to analyze because GitHub-hosted macOS runners cost more than Linux and Windows runners. Swift CodeQL supports `autobuild` or `manual`, and `swift build --arch arm64` is a supported targeted build pattern. This repo's Swift app lives under `apps/eva-desktop-mac`, so the advanced Swift workflow builds only that package for one architecture.
+GitHub's Swift CodeQL analysis uses macOS runners. GitHub recommends building only the code you want to analyze because GitHub-hosted macOS runners cost more than Linux and Windows runners. Swift CodeQL supports `autobuild` or `manual`, and `swift build --arch arm64` is a supported targeted build pattern. This repo's Swift app lives under `apps/eva-desktop-mac`, so the advanced Swift workflow builds the `EvaDesktop` product for one architecture.
