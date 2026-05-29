@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: eva-desktop-workbench-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   bridge-python:
     runs-on: macos-15

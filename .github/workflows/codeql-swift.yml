@@ -1,0 +1,46 @@
+name: CodeQL Swift
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/codeql-swift.yml"
+      - ".github/workflows/eva-desktop-workbench.yml"
+      - "apps/eva-desktop-mac/**"
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "47 10 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-swift-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+  security-events: write
+
+jobs:
+  analyze-swift:
+    name: Analyze (swift)
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+
+      - name: Build Eva Desktop for CodeQL
+        run: swift build --package-path apps/eva-desktop-mac --arch arm64
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:swift
