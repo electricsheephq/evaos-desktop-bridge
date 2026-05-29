@@ -118,8 +118,9 @@ def test_issue130_invariants_require_policy_denial_reason() -> None:
 def test_issue130_cursor_check_allows_starting_at_action_point() -> None:
     report = run_issue130_invariants(ScriptedIssue130Surface(cursor_starts_at_action=True))
 
-    failed = {check.id: check for check in report.checks if check.status == "failed"}
-    assert "cursor_not_warped" not in failed
+    statuses = {check.id: check.status for check in report.checks}
+    assert report.ok is True
+    assert statuses.get("cursor_not_warped") == "passed"
 
 
 def test_issue130_invariants_catch_sensitive_observation_leak() -> None:
