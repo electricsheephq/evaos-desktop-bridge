@@ -29,7 +29,9 @@ control. Full Access mode allows continuous visible Mac and iPhone operation
 through the new `desktop_*` and `iphone_*` tools. Ask Permission mode uses the
 same control surface but asks again for risky clicks, taps, hotkeys, typing,
 sends, and other high-impact actions. Legacy Codex/message fallback commands
-remain dry-run/approval gated.
+remain dry-run/approval gated. Sensitive apps such as Messages, Mail, Wallet,
+Passwords, Camera, and System Settings stay blocked in every mode; `desktop_see`
+must fail before Peekaboo or fallback capture can observe them.
 
 ## Local Connector Server
 
@@ -147,6 +149,10 @@ Read tools:
 - `customer_mac_screen_sharing_status`
 - `desktop_bridge_audit_tail`
 
+`desktop_see`, `customer_mac_snapshot`, and `customer_mac_ax_tree` refuse to
+capture when a sensitive Mac app is frontmost. This block happens before
+Peekaboo `see`, `screencapture`, or Accessibility tree collection runs.
+
 Control/session actions:
 
 - `desktop_control_start` with `mode=full-access` or `mode=ask-permission`;
@@ -180,6 +186,9 @@ Rules:
 - The kill switch immediately blocks future live connector commands. A paired
   VM cannot clear the kill switch; the customer must start a new session from
   the local Workbench app.
+- Sensitive Mac apps are blocked for read tools and live desktop control even
+  during Full Access. Move focus to a non-sensitive app before observing or
+  acting.
 - Arbitrary shell, hidden AppleScript passthrough, public VNC/SSH/CDP,
   Screen Sharing enablement, and app-server mutation passthrough are blocked.
 - Legacy guarded actions still support dry-run/approval for compatibility.

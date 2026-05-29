@@ -330,6 +330,9 @@ Live focus and Accessibility-tree reads require Accessibility permission. Screen
 - Coordinate fallback is allowed only through the audited `desktop_*` /
   `iphone_*` connector tools during a customer-granted control session; no
   arbitrary AppleScript passthrough.
+- Sensitive apps such as Messages, Mail, Wallet, Passwords, Camera, and System
+  Settings are blocked before `desktop_see`, snapshot/AX observation, and live
+  desktop control can run, even in Full Access mode.
 - No Codex session database reads.
 - No token, auth-file, or full home-path exposure.
 - Full Access mode permits live action without per-action approval; Ask

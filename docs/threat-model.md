@@ -39,6 +39,7 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 - 2026-05-20T00:00:00Z - Added support-VM-only Codex remote-control readiness probe plus iPhone Mirroring gesture/message canary boundary.
 - 2026-05-21T00:00:00Z - Promoted named iPhone gestures/messages from support canary to customer beta under the same dry-run/approval/audit contract.
 - 2026-05-22T00:00:00Z - Added Desktop Control Engine V2 Full Access / Ask Permission modes, Peekaboo-first desktop tooling, and local-user kill-switch reset semantics.
+- 2026-05-29T00:00:00Z - Tightened sensitive-app denylist enforcement so Peekaboo `desktop_see`, fallback snapshot/AX observation, and live desktop control fail before observing or acting on sensitive Mac apps, including during Full Access.
 - 2026-05-02T00:00:00Z - Initial MVP threat model for read-only Codex Desktop observation.
 
 ## Assets
@@ -114,7 +115,7 @@ The MVP must not:
 | Cross-customer Mac exposure | Connector is bound locally by default; paired-VM mode requires Headscale ACLs and a connector token. |
 | Accidental live control | Live desktop/phone tools require an active Workbench control session; kill switch blocks future live commands. |
 | Accidental broad iPhone control | iPhone actions operate through the visible iPhone Mirroring window and are governed by Full Access / Ask Permission mode. |
-| Sensitive app mutation | Sensitive Mac/iPhone app names and dangerous visible labels are blocked before action execution. |
+| Sensitive app observation or mutation | Sensitive Mac/iPhone app names and dangerous visible labels are blocked before observation or action execution; Full Access removes per-action approval but does not disable the sensitive-app denylist. |
 | Unapproved real-world messages | `send-approved-message` requires exact same-turn recipient/context and text, then presses only an exact visible Send label with audit evidence. |
 
 ## Audit Log

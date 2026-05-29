@@ -19,7 +19,8 @@ No public VNC, SSH, CDP, or raw Mac port is exposed.
 
 - `Full Access`: live `desktop_*` and `iphone_*` tools can click, type, scroll,
   drag, use hotkeys, focus apps, operate browser windows, and control iPhone
-  Mirroring without per-action prompts.
+  Mirroring without per-action prompts, except sensitive Mac/iPhone apps remain
+  blocked.
 - `Ask Permission`: same control surface, but risky clicks, taps, hotkeys,
   typing, sends, and other high-impact actions require a matching approval audit
   id.
@@ -60,6 +61,8 @@ OpenClaw exposes these first-class tools:
 bytes when small enough, active app/window context, and clickable elements with
 labels and bounds. `desktop_click` and `iphone_tap` can target an `element_id`
 from that latest snapshot, a unique `target_label`, or explicit coordinates.
+`desktop_see` refuses sensitive frontmost apps before invoking Peekaboo or
+fallback screenshot/AX capture.
 
 Hermes should call the same connector command keys through its existing wrapper
 instead of creating a second backend.
@@ -85,5 +88,7 @@ is active, stop and tell the customer they need to start a new session.
 - Full Access mode does not require per-action approval.
 - Ask Permission mode gates risky clicks, taps, hotkeys, typing, sends, and
   other high-impact actions.
+- Sensitive-app denylist holds across Full Access and Ask Permission for
+  observation and live desktop control.
 - Kill switch blocks live desktop and iPhone commands.
 - OpenClaw and Hermes use the same command contract.
