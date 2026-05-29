@@ -31,6 +31,7 @@ final class WorkbenchModel: ObservableObject {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
             providerHubStatusText = "Unchecked"
             sharedBrowserStatusText = "Unchecked"
+            resetApprovalCenterState(statusText: "Unchecked")
             webViewRefreshToken = UUID()
         }
     }
@@ -92,6 +93,9 @@ final class WorkbenchModel: ObservableObject {
     @Published var sessionRecords: [WorkbenchSessionRecord] = []
     @Published var sessionCenterStatusText = "Unchecked"
     @Published var isRefreshingSessionCenter = false
+    @Published var approvalRequests: [WorkbenchApprovalRequest] = []
+    @Published var approvalCenterStatusText = "Unchecked"
+    @Published var isRefreshingApprovalCenter = false
     let featureFlags: WorkbenchFeatureFlags
 
     let webViews = WebViewStore()
@@ -520,6 +524,9 @@ final class WorkbenchModel: ObservableObject {
         if featureFlags.isEnabled(.sessionCenter) {
             await refreshSessionCenterState()
         }
+        if featureFlags.isEnabled(.approvalCenter) {
+            await refreshApprovalCenterState()
+        }
     }
 
     func refreshProviderProfiles() async {
@@ -771,6 +778,22 @@ final class WorkbenchModel: ObservableObject {
         } else {
             sessionCenterStatusText = "Ready"
         }
+    }
+
+    func refreshApprovalCenterState() async {
+        guard isSignedIn else {
+            resetApprovalCenterState(statusText: "Sign in first")
+            return
+        }
+        guard !isRefreshingApprovalCenter else { return }
+        isRefreshingApprovalCenter = true
+        defer { isRefreshingApprovalCenter = false }
+
+        // Broker pending-approval endpoints are tracked by issue #144. This
+        // slice keeps Workbench read-only and renders only locally supplied
+        // approval request models until that backend path exists.
+        approvalRequests = []
+        approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
     }
 
     func refreshBridgeStatus() {
@@ -1335,6 +1358,7 @@ final class WorkbenchModel: ObservableObject {
         try? keychain.clear(allowUserInteraction: allowKeychainInteraction)
         session = nil
         resetSessionCenterState(statusText: "Sign in first")
+        resetApprovalCenterState(statusText: "Sign in first")
         customerTargets = []
         sessionRoles = []
         isOperatorSession = false
@@ -1370,6 +1394,7 @@ final class WorkbenchModel: ObservableObject {
         try keychain.save(newSession)
         session = newSession
         resetSessionCenterState(statusText: "Unchecked")
+        resetApprovalCenterState(statusText: "Unchecked")
         customerTargets = []
         sessionRoles = []
         isOperatorSession = false
@@ -1402,6 +1427,12 @@ final class WorkbenchModel: ObservableObject {
         sessionRecords.removeAll()
         sessionCenterStatusText = statusText
         isRefreshingSessionCenter = false
+    }
+
+    private func resetApprovalCenterState(statusText: String) {
+        approvalRequests.removeAll()
+        approvalCenterStatusText = statusText
+        isRefreshingApprovalCenter = false
     }
 
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {

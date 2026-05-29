@@ -4,6 +4,7 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #144 Approval Center contract slice with Workbench approval request models, spoof-resistant actual-destination previews, a feature-flagged read-only Approval Center view, and smoke coverage while broker decision endpoints remain deferred.
 - Add the issue #143 Capability Manifest contract slice with Python and Workbench HS256 JWT verification, fail-closed tool-grant decisions, safe summaries, a Workbench Keychain manifest-token cache, and contract docs for OpenClaw/Hermes follow-up slices.
 - Harden the issue #65 QA canary against transient iPhone Mirroring overlays by retrying visual assertions and allowing screenshot-derived Calculator state when the iPhone surface exposes image evidence but no phone-screen AX text.
 - Add the issue #163 computer-use helper IPC auth contract skeleton with length-prefixed framing, capability-token and peer-uid authorization checks, ping-only command exposure, and tests that no live Mac/iPhone action is routed through the helper yet.

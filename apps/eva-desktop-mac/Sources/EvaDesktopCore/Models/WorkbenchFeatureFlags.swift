@@ -4,6 +4,7 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
     case providersHub = "providers_hub"
     case sharedBrowser2 = "shared_browser_2"
     case sessionCenter = "session_center"
+    case approvalCenter = "approval_center"
     case creativeStudio = "creative_studio"
 
     public var userDefaultsKey: String {
@@ -12,7 +13,7 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
 
     public var defaultValue: Bool {
         switch self {
-        case .providersHub, .sharedBrowser2, .sessionCenter, .creativeStudio:
+        case .providersHub, .sharedBrowser2, .sessionCenter, .approvalCenter, .creativeStudio:
             return false
         }
     }
@@ -54,6 +55,18 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
                 rolloutCriteria: "Runtime/session truth, queue/audit/Codex evidence, relaunch restore, dashboard parity, signed-in Workbench canary",
                 rollbackAction: "Disable flag and keep direct gateway launch paths available",
                 publicCopy: "See active Eva sessions, attention states, and where to jump back in."
+            )
+        case .approvalCenter:
+            return WorkbenchFeatureFlagDescriptor(
+                key: self,
+                dashboardEnvironmentKey: "VITE_EVAOS_APPROVAL_CENTER",
+                primaryIssue: "#144",
+                owner: "Workbench + Broker",
+                surface: "Approval Center",
+                navigationPlacement: "Workspace",
+                rolloutCriteria: "Destination preview proof, broker pending-approval endpoint, deny/allow decision canary, spoofed-recipient manual QA",
+                rollbackAction: "Disable flag and keep runtime approval decisions blocked in the broker/runtime layer",
+                publicCopy: "Review risky agent actions with the actual destination, payload preview, and risk class before anything proceeds."
             )
         case .creativeStudio:
             return WorkbenchFeatureFlagDescriptor(

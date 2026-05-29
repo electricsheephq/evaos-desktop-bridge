@@ -25,10 +25,17 @@ struct SidebarView: View {
                 }
             }
 
-            if model.featureFlags.isEnabled(.sessionCenter) {
+            if model.featureFlags.isEnabled(.sessionCenter) || model.featureFlags.isEnabled(.approvalCenter) {
                 Section("Workspace") {
-                    FeatureSidebarRow(title: "Session Center", systemImage: "rectangle.3.group.bubble.left")
-                        .tag(SidebarSelection.sessionCenter)
+                    if model.featureFlags.isEnabled(.sessionCenter) {
+                        FeatureSidebarRow(title: "Session Center", systemImage: "rectangle.3.group.bubble.left")
+                            .tag(SidebarSelection.sessionCenter)
+                    }
+
+                    if model.featureFlags.isEnabled(.approvalCenter) {
+                        FeatureSidebarRow(title: "Approval Center", systemImage: "checkmark.shield")
+                            .tag(SidebarSelection.approvalCenter)
+                    }
                 }
             }
         }

@@ -14,45 +14,54 @@ precondition(WorkbenchFeatureFlagKey.allCases.map(\.rawValue) == [
     "providers_hub",
     "shared_browser_2",
     "session_center",
+    "approval_center",
     "creative_studio"
 ])
 let featureFlags = WorkbenchFeatureFlags()
 precondition(!featureFlags.isEnabled(.providersHub))
 precondition(!featureFlags.isEnabled(.sharedBrowser2))
 precondition(!featureFlags.isEnabled(.sessionCenter))
+precondition(!featureFlags.isEnabled(.approvalCenter))
 precondition(!featureFlags.isEnabled(.creativeStudio))
 precondition(featureFlags.enabledKeys == [])
 precondition(featureFlags.storedValue(for: .creativeStudio) == false)
 precondition(featureFlags.storedValue(for: .providersHub) == false)
 precondition(featureFlags.storedValue(for: .sharedBrowser2) == false)
 precondition(featureFlags.storedValue(for: .sessionCenter) == false)
+precondition(featureFlags.storedValue(for: .approvalCenter) == false)
 precondition(WorkbenchFeatureFlags.descriptors.map(\.key) == WorkbenchFeatureFlagKey.allCases)
 precondition(WorkbenchFeatureFlags.descriptors.allSatisfy { !$0.defaultEnabled })
 precondition(WorkbenchFeatureFlags.descriptors.map(\.dashboardEnvironmentKey) == [
     "VITE_EVAOS_PROVIDERS_HUB",
     "VITE_EVAOS_SHARED_BROWSER_2",
     "VITE_EVAOS_SESSION_CENTER",
+    "VITE_EVAOS_APPROVAL_CENTER",
     "VITE_EVAOS_CREATIVE_STUDIO"
 ])
 precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.primaryIssue == "#96")
 precondition(WorkbenchFeatureFlagKey.sharedBrowser2.descriptor.primaryIssue == "#97")
 precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.primaryIssue == "#100")
+precondition(WorkbenchFeatureFlagKey.approvalCenter.descriptor.primaryIssue == "#144")
 precondition(WorkbenchFeatureFlagKey.creativeStudio.descriptor.primaryIssue == "#102")
 precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.navigationPlacement == "Settings")
 precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.navigationPlacement == "Workspace")
+precondition(WorkbenchFeatureFlagKey.approvalCenter.descriptor.navigationPlacement == "Workspace")
 precondition(WorkbenchFeatureFlagKey.creativeStudio.descriptor.navigationPlacement == "Gateways")
 precondition(WorkbenchFeatureFlagKey.sharedBrowser2.descriptor.rollbackAction.contains("base Shared Browser gateway visible"))
 precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.publicCopy.contains("without raw secrets"))
 precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.rolloutCriteria.contains("dashboard parity"))
+precondition(WorkbenchFeatureFlagKey.approvalCenter.descriptor.publicCopy.contains("actual destination"))
 
 let featureFlagDefaults = UserDefaults(suiteName: "EvaDesktopCoreSmoke.feature-flags.\(UUID().uuidString)")!
 featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.providersHub.userDefaultsKey)
 featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.sharedBrowser2.userDefaultsKey)
+featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.approvalCenter.userDefaultsKey)
 featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.creativeStudio.userDefaultsKey)
 let configuredFeatureFlags = WorkbenchFeatureFlags(userDefaults: featureFlagDefaults)
 precondition(!configuredFeatureFlags.isEnabled(.providersHub))
 precondition(configuredFeatureFlags.isEnabled(.sharedBrowser2))
 precondition(!configuredFeatureFlags.isEnabled(.sessionCenter))
+precondition(configuredFeatureFlags.isEnabled(.approvalCenter))
 precondition(!configuredFeatureFlags.isEnabled(.creativeStudio))
 let providerCatalogKeys = WorkbenchProviderCatalog.profiles.map(\.key)
 precondition(providerCatalogKeys == [.openAICodex, .googleWorkspace, .slack, .notion, .linear, .github])
@@ -64,6 +73,162 @@ precondition(WorkbenchProviderCatalog.defaultStates.map(\.key) == providerCatalo
 precondition(WorkbenchProviderCatalog.defaultStates.allSatisfy { !$0.rawSecretsStoredInWorkbench })
 precondition(WorkbenchProviderCatalog.defaultStates.first { $0.key == .openAICodex }?.status == .needsLogin)
 precondition(WorkbenchProviderCatalog.defaultStates.filter { $0.key != .openAICodex }.allSatisfy { $0.status == .planned })
+
+let emailApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-email-1",
+    ownerID: "andrew-main",
+    agentID: "email-sorter-2026-05",
+    toolName: "gmail.send",
+    riskClass: .warning,
+    actionPayload: [
+        "display_name": "CEO <ceo@electricsheephq.com>",
+        "recipient_email": "attacker@evil.example",
+        "subject": "Wire instructions",
+        "body": String(repeating: "Confirm destination before sending. ", count: 20)
+    ],
+    createdAt: "2026-05-29T21:20:00Z",
+    sourcePointer: "approval:approval-email-1"
+)
+precondition(emailApproval.destinationPreview.kind == .emailRecipient)
+precondition(emailApproval.destinationPreview.primary == "attacker@evil.example")
+precondition(!emailApproval.destinationPreview.primary.contains("ceo@electricsheephq.com"))
+precondition(emailApproval.destinationPreview.secondary == "Wire instructions")
+precondition(emailApproval.destinationPreview.bodyExcerpt?.count == 220)
+precondition(emailApproval.isActionable)
+precondition(emailApproval.attentionState == .needsAttention)
+precondition(emailApproval.availableDecisions == [.allowOnce, .allowAlways, .deny])
+
+let malformedApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-email-2",
+    ownerID: "andrew-main",
+    agentID: "email-sorter-2026-05",
+    toolName: "gmail.send",
+    riskClass: .critical,
+    actionPayload: ["display_name": "Trusted CFO"],
+    createdAt: "2026-05-29T21:21:00Z",
+    sourcePointer: "approval:approval-email-2"
+)
+precondition(malformedApproval.destinationPreview.kind == .missingDestination)
+precondition(!malformedApproval.isActionable)
+precondition(malformedApproval.nextAction.contains("missing actual destination"))
+
+let ambiguousRecipientApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-email-ambiguous",
+    ownerID: "andrew-main",
+    agentID: "email-sorter-2026-05",
+    toolName: "gmail.send",
+    riskClass: .critical,
+    actionPayload: ["to": "Trusted CFO", "recipient": "CEO <ceo@electricsheephq.com>"],
+    createdAt: "2026-05-29T21:21:30Z",
+    sourcePointer: "approval:approval-email-ambiguous"
+)
+precondition(ambiguousRecipientApproval.destinationPreview.kind == .missingDestination)
+precondition(!ambiguousRecipientApproval.isActionable)
+
+let urlApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-1",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.fetch",
+    riskClass: .info,
+    actionPayload: [
+        "display_url": "https://electricsheephq.com",
+        "url": "https://evil.example/login?next=/oauth"
+    ],
+    createdAt: "2026-05-29T21:22:00Z",
+    sourcePointer: "approval:approval-url-1"
+)
+precondition(urlApproval.destinationPreview.kind == .url)
+precondition(urlApproval.destinationPreview.primary == "https://evil.example/login?next=/oauth")
+precondition(urlApproval.destinationPreview.secondary == "evil.example")
+
+let credentialURLApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-credentials",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.fetch",
+    riskClass: .critical,
+    actionPayload: ["url": "https://trusted.example@evil.example/login"],
+    createdAt: "2026-05-29T21:22:15Z",
+    sourcePointer: "approval:approval-url-credentials"
+)
+precondition(credentialURLApproval.destinationPreview.kind == .url)
+precondition(credentialURLApproval.destinationPreview.secondary == "evil.example")
+precondition(credentialURLApproval.destinationPreview.warning?.contains("embedded credentials") == true)
+
+let malformedURLApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-2",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.fetch",
+    riskClass: .critical,
+    actionPayload: ["url": "/login?next=/oauth"],
+    createdAt: "2026-05-29T21:22:30Z",
+    sourcePointer: "approval:approval-url-2"
+)
+precondition(malformedURLApproval.destinationPreview.kind == .missingDestination)
+precondition(!malformedURLApproval.isActionable)
+
+let curlToolApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-curl-1",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "curl.status",
+    riskClass: .info,
+    actionPayload: ["url": "https://evil.example/status"],
+    createdAt: "2026-05-29T21:22:45Z",
+    sourcePointer: "approval:approval-curl-1"
+)
+precondition(curlToolApproval.destinationPreview.kind == .missingDestination)
+
+precondition(WorkbenchApprovalCenterSummary.statusText(for: [emailApproval, urlApproval]) == "2 pending approvals")
+precondition(WorkbenchApprovalCenterSummary.statusText(for: []) == "No pending approvals")
+
+let brokerShapedApprovalJSON = """
+{
+  "id": "approval-broker-1",
+  "owner_id": "andrew-main",
+  "agent_id": "email-sorter-2026-05",
+  "tool_name": "gmail.send",
+  "risk_class": "warning",
+  "action_payload": {
+    "recipient_email": "outside@example.com",
+    "subject": "Broker-shaped request"
+  },
+  "created_at": "2026-05-29T21:23:00Z",
+  "source_pointer": "approval:approval-broker-1",
+  "audit_id": "audit-approval-broker-1"
+}
+"""
+let brokerShapedApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(brokerShapedApprovalJSON.utf8))
+precondition(brokerShapedApproval.destinationPreview.kind == .emailRecipient)
+precondition(brokerShapedApproval.destinationPreview.primary == "outside@example.com")
+precondition(brokerShapedApproval.auditId == "audit-approval-broker-1")
+
+let spoofedPreviewJSON = """
+{
+  "id": "approval-spoofed-preview",
+  "owner_id": "andrew-main",
+  "agent_id": "email-sorter-2026-05",
+  "tool_name": "gmail.send",
+  "risk_class": "warning",
+  "action_payload": {
+    "recipient_email": "outside@example.com",
+    "subject": "Broker-shaped request"
+  },
+  "destination_preview": {
+    "kind": "email_recipient",
+    "primary": "Trusted CFO",
+    "secondary": "Safe-looking subject"
+  },
+  "created_at": "2026-05-29T21:24:00Z",
+  "source_pointer": "approval:approval-spoofed-preview"
+}
+"""
+let spoofedPreviewApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(spoofedPreviewJSON.utf8))
+precondition(spoofedPreviewApproval.destinationPreview.kind == .emailRecipient)
+precondition(spoofedPreviewApproval.destinationPreview.primary == "outside@example.com")
+precondition(spoofedPreviewApproval.destinationPreview.secondary == "Broker-shaped request")
 
 let manifestPayload = """
 {
@@ -170,9 +335,16 @@ precondition(!contentViewSource.contains("case .sharedBrowser2"))
 precondition(!contentViewSource.contains("CreativeStudioPlaceholderView"))
 precondition(contentViewSource.contains("model.runtimeNavigationRequest"))
 precondition(contentViewSource.contains("sidebarSelection = .runtime(request.runtime)"))
+precondition(contentViewSource.contains("case .approvalCenter"))
 let osViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
 precondition(!osViewsSource.contains("struct SharedBrowser2View"))
 precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
+precondition(osViewsSource.contains("struct ApprovalCenterView"))
+precondition(osViewsSource.contains("Decision submission is deferred"))
+precondition(osViewsSource.contains("Display names and summaries alone are not enough"))
+let noPendingTintIndex = osViewsSource.range(of: "model.approvalCenterStatusText == \"No pending approvals\"")!.lowerBound
+let pendingTintIndex = osViewsSource.range(of: "model.approvalCenterStatusText.contains(\"pending\")")!.lowerBound
+precondition(noPendingTintIndex < pendingTintIndex)
 precondition(osViewsSource.contains("model.sessionRecords"))
 precondition(!osViewsSource.contains("model.runtimeURLs[runtime.key] == nil ? \"Ready to open\" : \"Loaded\""))
 precondition(osViewsSource.contains("Needs verification"))
@@ -183,6 +355,7 @@ precondition(osViewsSource.contains("WorkbenchSurface(title: \"Providers\""))
 precondition(osViewsSource.contains("Connect provider accounts in the Shared Browser"))
 precondition(osViewsSource.contains("OpenClaw Grant"))
 let sidebarSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/SidebarView.swift", encoding: .utf8)
+precondition(sidebarSource.contains("Approval Center"))
 precondition(!sidebarSource.contains("Preview"))
 precondition(!sidebarSource.contains("Shared Browser 2.0"))
 precondition(!sidebarSource.contains("Providers & Auth Hub"))
@@ -245,6 +418,7 @@ precondition(workbenchModelSource.contains("configuration.websiteDataStore = .no
 precondition(workbenchModelSource.contains("resetRuntimeWebViewIfNeeded(runtime, customerId: targetCustomerId)"))
 precondition(workbenchModelSource.contains("func reset(runtime: RuntimeKey, customerId: String)"))
 precondition(workbenchModelSource.contains("webView.removeFromSuperview()"))
+precondition(workbenchModelSource.contains("resetApprovalCenterState(statusText: \"Unchecked\")"))
 precondition(workbenchModelSource.contains("bridgeKey([\"queue\", \"list\", \"--json\", \"--limit\", \"10\"])"))
 precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"status\", \"--json\"])"))
 precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"threads\", \"--json\", \"--max-items\", \"5\"])"))
