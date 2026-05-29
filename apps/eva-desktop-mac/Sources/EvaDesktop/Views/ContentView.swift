@@ -22,6 +22,8 @@ struct ContentView: View {
                     model.selectedRuntime = runtime
                     model.loadSelectedRuntime()
                 }
+            case .approvalCenter:
+                ApprovalCenterView(model: model)
             case .none:
                 Text("Choose a runtime")
                     .foregroundStyle(.secondary)
@@ -60,4 +62,5 @@ enum SidebarSelection: Hashable {
     case bridge
     case providersHub
     case sessionCenter
+    case approvalCenter
 }

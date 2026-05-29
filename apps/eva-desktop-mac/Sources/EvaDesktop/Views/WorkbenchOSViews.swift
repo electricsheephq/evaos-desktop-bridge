@@ -132,6 +132,58 @@ struct SessionCenterView: View {
     }
 }
 
+struct ApprovalCenterView: View {
+    @ObservedObject var model: WorkbenchModel
+
+    var body: some View {
+        WorkbenchSurface(title: "Approval Center", subtitle: "Review risky agent actions with the actual destination, payload preview, and risk class before a runtime proceeds.") {
+            HStack(spacing: 10) {
+                StatusPill(title: model.approvalCenterStatusText, systemImage: "checkmark.shield", tint: approvalTint)
+                Spacer()
+                Button {
+                    Task {
+                        await model.refreshApprovalCenterState()
+                    }
+                } label: {
+                    Label(model.isRefreshingApprovalCenter ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.isSignedIn || model.isRefreshingApprovalCenter)
+            }
+
+            if model.approvalRequests.isEmpty {
+                WorkbenchInfoPanel(
+                    title: "No Pending Approvals",
+                    systemImage: "checkmark.seal",
+                    detail: "The Workbench destination-preview contract is ready. Live broker pending-approval fetch and decision submission remain gated behind issue #144."
+                )
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
+                    ForEach(model.approvalRequests) { request in
+                        ApprovalRequestCard(request: request)
+                    }
+                }
+            }
+
+            WorkbenchInfoPanel(
+                title: "Destination Preview",
+                systemImage: "eye",
+                detail: "Approval rows must show the real recipient, URL, file path, payment target, secret name, budget, or permission scope. Display names and summaries alone are not enough."
+            )
+        }
+    }
+
+    private var approvalTint: Color {
+        if model.approvalCenterStatusText == "No pending approvals" {
+            return .electricSheepSuccess
+        }
+        if model.approvalCenterStatusText.contains("pending") {
+            return .electricSheepDanger
+        }
+        return .electricSheepGoldSoft
+    }
+}
+
 private struct WorkbenchSurface<Content: View>: View {
     let title: String
     let subtitle: String
@@ -158,6 +210,110 @@ private struct WorkbenchSurface<Content: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.electricSheepCanvas)
         .tint(Color.electricSheepGoldSoft)
+    }
+}
+
+private struct ApprovalRequestCard: View {
+    let request: WorkbenchApprovalRequest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                RuntimeIconBadge(systemImage: "checkmark.shield", tint: tint)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(request.toolName)
+                        .font(.headline)
+                        .foregroundStyle(Color.electricSheepPrimaryText)
+                    Text(request.agentID)
+                        .font(.caption)
+                        .foregroundStyle(Color.electricSheepMutedText)
+                }
+                Spacer()
+                StatusPill(title: request.riskClass.rawValue, systemImage: riskIcon, tint: tint)
+            }
+
+            VStack(alignment: .leading, spacing: 7) {
+                Label(request.destinationPreview.kind.rawValue, systemImage: request.isActionable ? "scope" : "exclamationmark.triangle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+                Text(request.destinationPreview.primary)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(Color.electricSheepPrimaryText)
+                    .textSelection(.enabled)
+                if let secondary = request.destinationPreview.secondary {
+                    Text(secondary)
+                        .font(.callout)
+                        .foregroundStyle(Color.electricSheepSecondaryText)
+                        .textSelection(.enabled)
+                }
+                if let bodyExcerpt = request.destinationPreview.bodyExcerpt {
+                    Text(bodyExcerpt)
+                        .font(.caption)
+                        .foregroundStyle(Color.electricSheepSecondaryText)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                }
+                if let warning = request.destinationPreview.warning {
+                    Text(warning)
+                        .font(.caption)
+                        .foregroundStyle(Color.electricSheepDanger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Text(request.nextAction)
+                .font(.caption)
+                .foregroundStyle(Color.electricSheepSecondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                ForEach(request.availableDecisions, id: \.self) { decision in
+                    Button(decision.displayText) {}
+                        .buttonStyle(.bordered)
+                        .disabled(true)
+                        .help("Decision submission is deferred until the broker Approval Center endpoint lands.")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(request.sourcePointer)
+                Text(request.createdAt)
+                if let auditId = request.auditId {
+                    Text(auditId)
+                }
+            }
+            .font(.caption2.monospaced())
+            .foregroundStyle(Color.electricSheepMutedText)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.electricSheepLineWarm, lineWidth: 1)
+        )
+    }
+
+    private var tint: Color {
+        switch request.riskClass {
+        case .critical:
+            return .electricSheepDanger
+        case .warning:
+            return .electricSheepGoldSoft
+        case .info:
+            return .electricSheepCyan
+        }
+    }
+
+    private var riskIcon: String {
+        switch request.riskClass {
+        case .critical:
+            return "exclamationmark.octagon"
+        case .warning:
+            return "exclamationmark.triangle"
+        case .info:
+            return "info.circle"
+        }
     }
 }
 

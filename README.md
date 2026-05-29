@@ -47,6 +47,7 @@ Architecture and sprint docs:
 - [Desktop Control Engine V2](docs/desktop-control-engine-v2.md)
 - [OpenDesign Workbench Gateway](docs/opendesign-gateway.md)
 - [evaOS Capability Manifest Contract](docs/capability-manifest.md)
+- [evaOS Approval Center Contract](docs/approval-center-contract.md)
 - [Support VM Mac/iPhone/Codex Canary Runbook](docs/support-vm-mac-iphone-codex-canary.md)
 
 ## Architecture
