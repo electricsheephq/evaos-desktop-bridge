@@ -4,6 +4,11 @@ public enum WorkbenchProviderKey: String, CaseIterable, Codable, Identifiable, S
     case openAICodex = "openai_codex"
     case openClaw = "openclaw"
     case hermes = "hermes"
+    case googleWorkspace = "google_workspace"
+    case slack = "slack"
+    case notion = "notion"
+    case linear = "linear"
+    case github = "github"
 
     public var id: String { rawValue }
 }
@@ -177,6 +182,41 @@ public enum WorkbenchProviderCatalog {
             subtitle: "Connect once, then broker account availability to evaOS agents without storing raw provider secrets in Workbench.",
             readiness: .needsLogin,
             capabilities: ["Codex remote control readiness", "OpenAI profile status", "OpenClaw VM grant metadata"]
+        ),
+        WorkbenchProviderProfile(
+            key: .googleWorkspace,
+            title: "Google Workspace",
+            subtitle: "Prepare Gmail, Calendar, and Drive access through the brokered Shared Browser handoff.",
+            readiness: .planned,
+            capabilities: ["Gmail context", "Calendar scheduling", "Drive files"]
+        ),
+        WorkbenchProviderProfile(
+            key: .slack,
+            title: "Slack",
+            subtitle: "Prepare workspace messaging access for approved agent workflows.",
+            readiness: .planned,
+            capabilities: ["Channel search", "Thread context", "Message drafting"]
+        ),
+        WorkbenchProviderProfile(
+            key: .notion,
+            title: "Notion",
+            subtitle: "Prepare workspace docs and operating-system knowledge access through brokered OAuth.",
+            readiness: .planned,
+            capabilities: ["Database lookup", "Page context", "Roadmap evidence"]
+        ),
+        WorkbenchProviderProfile(
+            key: .linear,
+            title: "Linear",
+            subtitle: "Prepare issue, milestone, and product-roadmap access for agent handoffs.",
+            readiness: .planned,
+            capabilities: ["Issue triage", "Milestone state", "Roadmap updates"]
+        ),
+        WorkbenchProviderProfile(
+            key: .github,
+            title: "GitHub",
+            subtitle: "Prepare repository, pull request, and CI access through brokered provider grants.",
+            readiness: .planned,
+            capabilities: ["Repository context", "Pull requests", "CI status"]
         )
     ]
 
@@ -197,5 +237,30 @@ public enum WorkbenchProviderCatalog {
             }(),
             capabilities: profile.capabilities
         )
+    }
+
+    public static func profile(for key: WorkbenchProviderKey) -> WorkbenchProviderProfile? {
+        profiles.first { $0.key == key }
+    }
+
+    public static func visibleStates(from brokerProfiles: [WorkbenchProviderProfileState]) -> [WorkbenchProviderProfileState] {
+        let knownKeys = Set(profiles.map(\.key))
+        let brokerByKey = brokerProfiles
+            .filter { knownKeys.contains($0.key) }
+            .reduce(into: [WorkbenchProviderKey: WorkbenchProviderProfileState]()) { statesByKey, state in
+                statesByKey[state.key] = state
+            }
+        return defaultStates.map { defaultState in
+            brokerByKey[defaultState.key] ?? defaultState
+        }
+    }
+}
+
+public enum WorkbenchProviderOAuthCallback {
+    public static func isOAuthComplete(_ callbackURL: URL) -> Bool {
+        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        return components.scheme == "evaos" && components.host == "oauth-complete"
     }
 }
