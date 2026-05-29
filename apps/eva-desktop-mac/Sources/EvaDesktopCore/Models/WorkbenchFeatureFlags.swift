@@ -2,6 +2,7 @@ import Foundation
 
 public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
     case providersHub = "providers_hub"
+    case sharedBrowser2 = "shared_browser_2"
     case sessionCenter = "session_center"
     case creativeStudio = "creative_studio"
 
@@ -11,9 +12,98 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
 
     public var defaultValue: Bool {
         switch self {
-        case .providersHub, .sessionCenter, .creativeStudio:
+        case .providersHub, .sharedBrowser2, .sessionCenter, .creativeStudio:
             return false
         }
+    }
+
+    public var descriptor: WorkbenchFeatureFlagDescriptor {
+        switch self {
+        case .providersHub:
+            return WorkbenchFeatureFlagDescriptor(
+                key: self,
+                dashboardEnvironmentKey: "VITE_EVAOS_PROVIDERS_HUB",
+                primaryIssue: "#96",
+                owner: "Workbench + Broker",
+                surface: "Providers",
+                navigationPlacement: "Settings",
+                rolloutCriteria: "Broker provider-profile proof, provider connect/revoke canary, OpenClaw/Hermes grant discovery, rollback runbook",
+                rollbackAction: "Disable flag and keep existing gateway tabs unchanged",
+                publicCopy: "Connect provider accounts once so Eva agents can reuse brokered access without raw secrets in Workbench."
+            )
+        case .sharedBrowser2:
+            return WorkbenchFeatureFlagDescriptor(
+                key: self,
+                dashboardEnvironmentKey: "VITE_EVAOS_SHARED_BROWSER_2",
+                primaryIssue: "#97",
+                owner: "Workbench + Dashboard + ws-proxy",
+                surface: "Shared Browser",
+                navigationPlacement: "Gateway metadata",
+                rolloutCriteria: "Runtime-status health proof, KasmVNC/noVNC canary, provider handoff canary, customer rollback proof",
+                rollbackAction: "Hide enhanced metadata while leaving the base Shared Browser gateway visible",
+                publicCopy: "Use one shared VM browser for sign-in, CAPTCHA, and collaborative web tasks."
+            )
+        case .sessionCenter:
+            return WorkbenchFeatureFlagDescriptor(
+                key: self,
+                dashboardEnvironmentKey: "VITE_EVAOS_SESSION_CENTER",
+                primaryIssue: "#100",
+                owner: "Workbench + Dashboard",
+                surface: "Session Center",
+                navigationPlacement: "Workspace",
+                rolloutCriteria: "Runtime/session truth, queue/audit/Codex evidence, relaunch restore, dashboard parity, signed-in Workbench canary",
+                rollbackAction: "Disable flag and keep direct gateway launch paths available",
+                publicCopy: "See active Eva sessions, attention states, and where to jump back in."
+            )
+        case .creativeStudio:
+            return WorkbenchFeatureFlagDescriptor(
+                key: self,
+                dashboardEnvironmentKey: "VITE_EVAOS_CREATIVE_STUDIO",
+                primaryIssue: "#102",
+                owner: "Workbench + Creative Studio",
+                surface: "Creative Studio",
+                navigationPlacement: "Gateways",
+                rolloutCriteria: "Hosted ComfyUI path, login/degraded-state proof, support canary, no local GPU dependency",
+                rollbackAction: "Disable flag and remove Creative Studio from the gateway list",
+                publicCopy: "Open the hosted creative workflow studio from Workbench."
+            )
+        }
+    }
+}
+
+public struct WorkbenchFeatureFlagDescriptor: Equatable, Sendable {
+    public let key: WorkbenchFeatureFlagKey
+    public let dashboardEnvironmentKey: String
+    public let primaryIssue: String
+    public let owner: String
+    public let surface: String
+    public let navigationPlacement: String
+    public let defaultEnabled: Bool
+    public let rolloutCriteria: String
+    public let rollbackAction: String
+    public let publicCopy: String
+
+    public init(
+        key: WorkbenchFeatureFlagKey,
+        dashboardEnvironmentKey: String,
+        primaryIssue: String,
+        owner: String,
+        surface: String,
+        navigationPlacement: String,
+        rolloutCriteria: String,
+        rollbackAction: String,
+        publicCopy: String
+    ) {
+        self.key = key
+        self.dashboardEnvironmentKey = dashboardEnvironmentKey
+        self.primaryIssue = primaryIssue
+        self.owner = owner
+        self.surface = surface
+        self.navigationPlacement = navigationPlacement
+        self.defaultEnabled = key.defaultValue
+        self.rolloutCriteria = rolloutCriteria
+        self.rollbackAction = rollbackAction
+        self.publicCopy = publicCopy
     }
 }
 
@@ -46,5 +136,9 @@ public struct WorkbenchFeatureFlags: Equatable, Sendable {
 
     public var enabledKeys: [WorkbenchFeatureFlagKey] {
         WorkbenchFeatureFlagKey.allCases.filter(isEnabled)
+    }
+
+    public static var descriptors: [WorkbenchFeatureFlagDescriptor] {
+        WorkbenchFeatureFlagKey.allCases.map(\.descriptor)
     }
 }

@@ -11,23 +11,46 @@ precondition(AppBrand.defaultUpdateManifestURL == "https://www.electricsheephq.c
 
 precondition(WorkbenchFeatureFlagKey.allCases.map(\.rawValue) == [
     "providers_hub",
+    "shared_browser_2",
     "session_center",
     "creative_studio"
 ])
 let featureFlags = WorkbenchFeatureFlags()
 precondition(!featureFlags.isEnabled(.providersHub))
+precondition(!featureFlags.isEnabled(.sharedBrowser2))
 precondition(!featureFlags.isEnabled(.sessionCenter))
 precondition(!featureFlags.isEnabled(.creativeStudio))
 precondition(featureFlags.enabledKeys == [])
 precondition(featureFlags.storedValue(for: .creativeStudio) == false)
 precondition(featureFlags.storedValue(for: .providersHub) == false)
+precondition(featureFlags.storedValue(for: .sharedBrowser2) == false)
 precondition(featureFlags.storedValue(for: .sessionCenter) == false)
+precondition(WorkbenchFeatureFlags.descriptors.map(\.key) == WorkbenchFeatureFlagKey.allCases)
+precondition(WorkbenchFeatureFlags.descriptors.allSatisfy { !$0.defaultEnabled })
+precondition(WorkbenchFeatureFlags.descriptors.map(\.dashboardEnvironmentKey) == [
+    "VITE_EVAOS_PROVIDERS_HUB",
+    "VITE_EVAOS_SHARED_BROWSER_2",
+    "VITE_EVAOS_SESSION_CENTER",
+    "VITE_EVAOS_CREATIVE_STUDIO"
+])
+precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.primaryIssue == "#96")
+precondition(WorkbenchFeatureFlagKey.sharedBrowser2.descriptor.primaryIssue == "#97")
+precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.primaryIssue == "#100")
+precondition(WorkbenchFeatureFlagKey.creativeStudio.descriptor.primaryIssue == "#102")
+precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.navigationPlacement == "Settings")
+precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.navigationPlacement == "Workspace")
+precondition(WorkbenchFeatureFlagKey.creativeStudio.descriptor.navigationPlacement == "Gateways")
+precondition(WorkbenchFeatureFlagKey.sharedBrowser2.descriptor.rollbackAction.contains("base Shared Browser gateway visible"))
+precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.publicCopy.contains("without raw secrets"))
+precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.rolloutCriteria.contains("dashboard parity"))
 
 let featureFlagDefaults = UserDefaults(suiteName: "EvaDesktopCoreSmoke.feature-flags.\(UUID().uuidString)")!
 featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.providersHub.userDefaultsKey)
+featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.sharedBrowser2.userDefaultsKey)
 featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.creativeStudio.userDefaultsKey)
 let configuredFeatureFlags = WorkbenchFeatureFlags(userDefaults: featureFlagDefaults)
 precondition(!configuredFeatureFlags.isEnabled(.providersHub))
+precondition(configuredFeatureFlags.isEnabled(.sharedBrowser2))
 precondition(!configuredFeatureFlags.isEnabled(.sessionCenter))
 precondition(!configuredFeatureFlags.isEnabled(.creativeStudio))
 let providerCatalogKeys = WorkbenchProviderCatalog.profiles.map(\.key)
@@ -102,6 +125,17 @@ precondition(runtimeWebViewSource.contains("attached[entry.runtime] = webView"))
 precondition(runtimeWebViewSource.contains("entry.runtime == activeRuntime ? 1 : 0"))
 let customerTargetMenuSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/CustomerTargetMenu.swift", encoding: .utf8)
 precondition(customerTargetMenuSource.contains("Reset to Golden"))
+let expansionDoc = try String(contentsOfFile: "../../docs/evaos-workbench-v050-one-app-expansion.md", encoding: .utf8)
+precondition(expansionDoc.contains("| Signed out |"))
+precondition(expansionDoc.contains("| Signed in, normal customer |"))
+precondition(expansionDoc.contains("| Signed in, admin/support customer switch |"))
+precondition(expansionDoc.contains("Feature rollback disables only the new surface; direct gateway launch remains available"))
+precondition(expansionDoc.contains("Dashboard env"))
+precondition(expansionDoc.contains("Rollout criteria"))
+precondition(expansionDoc.contains("Rollback action"))
+precondition(expansionDoc.contains("Public copy"))
+precondition(expansionDoc.contains("VITE_EVAOS_SHARED_BROWSER_2"))
+precondition(expansionDoc.contains("No provider, session, or runtime truth is inferred from cached UI state"))
 let workbenchModelSource = try String(contentsOfFile: "Sources/EvaDesktop/Services/WorkbenchModel.swift", encoding: .utf8)
 precondition(!workbenchModelSource.contains("NSWorkspace.shared.open(response.connectURL)"))
 precondition(workbenchModelSource.contains("openProviderAuthHandoff(response.connectURL)"))
