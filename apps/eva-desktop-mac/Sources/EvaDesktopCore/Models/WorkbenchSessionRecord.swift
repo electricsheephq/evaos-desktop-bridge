@@ -54,6 +54,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
     public let attentionState: WorkbenchMissionAttentionState
     public let lastActor: String
     public let updatedAt: String?
+    public let nextAction: String
     public let resumeRoute: WorkbenchSessionResumeRoute
     public let sourcePointer: String
     public let auditId: String?
@@ -69,6 +70,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         attentionState: WorkbenchMissionAttentionState,
         lastActor: String,
         updatedAt: String? = nil,
+        nextAction: String,
         resumeRoute: WorkbenchSessionResumeRoute,
         sourcePointer: String,
         auditId: String? = nil
@@ -83,6 +85,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         self.attentionState = attentionState
         self.lastActor = lastActor
         self.updatedAt = updatedAt
+        self.nextAction = nextAction
         self.resumeRoute = resumeRoute
         self.sourcePointer = sourcePointer
         self.auditId = auditId
@@ -99,6 +102,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         case attentionState = "attention_state"
         case lastActor = "last_actor"
         case updatedAt = "updated_at"
+        case nextAction = "next_action"
         case resumeRoute = "resume_route"
         case sourcePointer = "source_pointer"
         case auditId = "audit_id"
@@ -124,10 +128,29 @@ public enum WorkbenchSessionContract {
             attentionState: card.attentionState,
             lastActor: actor(for: surface),
             updatedAt: card.lastUpdate,
+            nextAction: card.nextAction,
             resumeRoute: resumeRoute,
             sourcePointer: card.sourcePointer,
             auditId: card.auditId
         )
+    }
+
+    public static func records(
+        from cards: [WorkbenchMissionCard],
+        customerId: String? = nil
+    ) -> [WorkbenchSessionRecord] {
+        cards.map { record(from: $0, customerId: customerId) }
+    }
+
+    public static func brokerRuntimeToOpen(for record: WorkbenchSessionRecord) -> RuntimeKey? {
+        guard record.surface == .broker, record.resumeRoute.kind == .brokerRuntime else {
+            return nil
+        }
+        let runtime = record.resumeRoute.runtime ?? record.runtime
+        guard let runtime, RuntimeDefinition.isBrokeredRuntime(runtime) else {
+            return nil
+        }
+        return runtime
     }
 
     private static func sessionSurface(_ rawSurface: String) -> WorkbenchSessionSurface {
@@ -155,7 +178,7 @@ public enum WorkbenchSessionContract {
         for card: WorkbenchMissionCard,
         surface: WorkbenchSessionSurface
     ) -> WorkbenchSessionResumeRoute {
-        if let runtime = card.runtime {
+        if surface == .broker, let runtime = card.runtime, RuntimeDefinition.isBrokeredRuntime(runtime) {
             return WorkbenchSessionResumeRoute(
                 kind: .brokerRuntime,
                 runtime: runtime,

@@ -95,7 +95,7 @@ precondition(contentViewSource.contains("sidebarSelection = .runtime(request.run
 let osViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
 precondition(!osViewsSource.contains("struct SharedBrowser2View"))
 precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
-precondition(osViewsSource.contains("model.sessionMissionCards"))
+precondition(osViewsSource.contains("model.sessionRecords"))
 precondition(!osViewsSource.contains("model.runtimeURLs[runtime.key] == nil ? \"Ready to open\" : \"Loaded\""))
 precondition(osViewsSource.contains("Needs verification"))
 precondition(!osViewsSource.contains("OpenClaw and Hermes"))
@@ -137,6 +137,7 @@ precondition(expansionDoc.contains("Public copy"))
 precondition(expansionDoc.contains("VITE_EVAOS_SHARED_BROWSER_2"))
 precondition(expansionDoc.contains("No provider, session, or runtime truth is inferred from cached UI state"))
 let workbenchModelSource = try String(contentsOfFile: "Sources/EvaDesktop/Services/WorkbenchModel.swift", encoding: .utf8)
+precondition(workbenchModelSource.contains("sessionMissionCards = nextCards"))
 precondition(!workbenchModelSource.contains("NSWorkspace.shared.open(response.connectURL)"))
 precondition(workbenchModelSource.contains("openProviderAuthHandoff(response.connectURL)"))
 precondition(workbenchModelSource.contains("broker.openSharedBrowserURL("))
@@ -409,9 +410,11 @@ precondition(runtimeSessionRecord.runtime == .liveBrowser)
 precondition(runtimeSessionRecord.customerId == "david-poku")
 precondition(runtimeSessionRecord.attentionState == .active)
 precondition(runtimeSessionRecord.lastActor == "broker")
+precondition(runtimeSessionRecord.nextAction == runtimeMissionCard.nextAction)
 precondition(runtimeSessionRecord.resumeRoute.kind == .brokerRuntime)
 precondition(runtimeSessionRecord.resumeRoute.runtime == .liveBrowser)
 precondition(runtimeSessionRecord.resumeRoute.targetId == "browser")
+precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: runtimeSessionRecord) == .liveBrowser)
 
 let degradedRuntimeStatusResponse = """
 {"runtime_key":"openclaw","display_label":"evaOS (OpenClaw)","status":"degraded","health_summary":"Needs login","last_checked_at":"2026-05-23T10:00:00Z","auth_needed":true,"captcha_needed":false}
@@ -442,6 +445,33 @@ precondition(queueSessionRecord.surface == .queue)
 precondition(queueSessionRecord.lastActor == "bridge_queue")
 precondition(queueSessionRecord.resumeRoute.kind == .queueEvent)
 precondition(queueSessionRecord.resumeRoute.targetId == "queue-approval")
+precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: queueSessionRecord) == nil)
+let malformedRuntimeEvidence = WorkbenchMissionCard(
+    id: "queue-runtime-injection",
+    surface: "queue",
+    runtime: .openclaw,
+    title: "Queue Runtime Injection",
+    status: "attention",
+    attentionState: .needsAttention,
+    nextAction: "This queue record must not become a broker runtime action.",
+    sourcePointer: "queue:runtime-injection"
+)
+let malformedRuntimeRecord = WorkbenchSessionContract.record(from: malformedRuntimeEvidence)
+precondition(malformedRuntimeRecord.resumeRoute.kind == .queueEvent)
+precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: malformedRuntimeRecord) == nil)
+let nonBrokerRuntimeEvidence = WorkbenchMissionCard(
+    id: "runtime-creative-studio",
+    surface: "broker",
+    runtime: .creativeStudio,
+    title: "Creative Studio",
+    status: "external",
+    attentionState: .idle,
+    nextAction: "External runtime should not be opened through broker runtime route.",
+    sourcePointer: "broker:runtime_status:creative_studio"
+)
+let nonBrokerRuntimeRecord = WorkbenchSessionContract.record(from: nonBrokerRuntimeEvidence)
+precondition(nonBrokerRuntimeRecord.resumeRoute.kind == .evidenceOnly)
+precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: nonBrokerRuntimeRecord) == nil)
 
 let auditRaw = """
 {"ok":true,"data":{"records":[{"audit_id":"audit-ok","timestamp":"2026-05-28T01:10:00Z","command":"status","ok":true},{"audit_id":"audit-failed","timestamp":"2026-05-28T01:11:00Z","command":"codex.app_server.status","ok":false}]}}
@@ -474,6 +504,13 @@ let codexSessionRecord = WorkbenchSessionContract.record(from: codexCards[1])
 precondition(codexSessionRecord.surface == .codex)
 precondition(codexSessionRecord.resumeRoute.kind == .codexEvidence)
 precondition(codexSessionRecord.resumeRoute.targetId == "codex-threads")
+let sessionRecords = WorkbenchSessionContract.records(from: [runtimeMissionCard, queueCards[0], auditCards[0], codexCards[1]], customerId: "golden")
+precondition(sessionRecords.count == 4)
+precondition(sessionRecords[0].customerId == "golden")
+precondition(sessionRecords[0].resumeRoute.kind == .brokerRuntime)
+precondition(sessionRecords[1].resumeRoute.kind == .queueEvent)
+precondition(sessionRecords[2].resumeRoute.kind == .auditRecord)
+precondition(sessionRecords[3].resumeRoute.kind == .codexEvidence)
 
 let malformedCards = WorkbenchMissionCardDeriver.queueCards(from: "{")
 precondition(malformedCards.count == 1)
@@ -485,8 +522,15 @@ precondition(bridgeFailureSessionRecord.resumeRoute.kind == .evidenceOnly)
 let sessionContractSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Models/WorkbenchSessionRecord.swift", encoding: .utf8)
 precondition(sessionContractSource.contains("evaos.session_center.v1"))
 precondition(sessionContractSource.contains("brokerRuntime = \"broker_runtime\""))
+precondition(sessionContractSource.contains("nextAction = \"next_action\""))
 precondition(!sessionContractSource.contains("shell"))
 precondition(!sessionContractSource.contains("app-server rpc"))
+precondition(workbenchModelSource.contains("@Published var sessionRecords: [WorkbenchSessionRecord]"))
+precondition(workbenchModelSource.contains("sessionRecords = WorkbenchSessionContract.records"))
+precondition(workbenchModelSource.contains("sessionRecords.removeAll()"))
+let workbenchOSViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
+precondition(workbenchOSViewsSource.contains("ForEach(model.sessionRecords)"))
+precondition(workbenchOSViewsSource.contains("WorkbenchSessionContract.brokerRuntimeToOpen"))
 let sessionContractDoc = try String(contentsOfFile: "../../docs/session-center-agent-workspace-contract.md", encoding: .utf8)
 precondition(sessionContractDoc.contains("Canonical Session Record"))
 precondition(sessionContractDoc.contains("No Generic Control Surface"))

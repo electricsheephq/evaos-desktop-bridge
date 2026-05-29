@@ -89,6 +89,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var isRefreshingSharedBrowserStatus = false
     @Published var runtimeStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
     @Published var sessionMissionCards: [WorkbenchMissionCard] = []
+    @Published var sessionRecords: [WorkbenchSessionRecord] = []
     @Published var sessionCenterStatusText = "Unchecked"
     @Published var isRefreshingSessionCenter = false
     let featureFlags: WorkbenchFeatureFlags
@@ -762,6 +763,7 @@ final class WorkbenchModel: ObservableObject {
 
         runtimeStatuses = nextStatuses
         sessionMissionCards = nextCards
+        sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
         if nextStatuses.isEmpty && failures > 0 {
             sessionCenterStatusText = "Unavailable"
         } else if failures > 0 {
@@ -1397,6 +1399,7 @@ final class WorkbenchModel: ObservableObject {
     private func resetSessionCenterState(statusText: String) {
         runtimeStatuses.removeAll()
         sessionMissionCards.removeAll()
+        sessionRecords.removeAll()
         sessionCenterStatusText = statusText
         isRefreshingSessionCenter = false
     }
