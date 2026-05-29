@@ -140,6 +140,9 @@ def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["mode"] == "full_access_control"
     assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["high_impact_in_ask_permission"] is True
     assert command_metadata("customer_mac.screen_sharing_status")["bridge_can_enable"] is False
+    assert command_metadata("customer_mac.desktop_see")["sensitive_app_block"] is True
+    assert command_metadata("customer_mac.snapshot")["sensitive_app_block"] is True
+    assert command_metadata("customer_mac.ax_tree")["sensitive_app_block"] is True
 
 
 def test_visible_thread_candidates_filter_controls_and_extract_status_project(tmp_path: Path) -> None:

@@ -105,7 +105,7 @@ COMMAND_METADATA: dict[str, dict[str, Any]] = {
     "customer_mac.control_start": {"mode": "control_session", "source": "customer_grant", "requires_permission": [], "starts_live_control": True},
     "customer_mac.control_stop": {"mode": "control_session", "source": "customer_grant", "requires_permission": [], "stops_live_control": True},
     "customer_mac.control_kill_switch": {"mode": "control_session", "source": "customer_grant", "requires_permission": [], "blocks_live_control": True},
-    "customer_mac.desktop_see": {"mode": "read_only", "source": "peekaboo_or_screen_ax", "requires_permission": ["screen_recording", "accessibility"]},
+    "customer_mac.desktop_see": {"mode": "read_only", "source": "peekaboo_or_screen_ax", "requires_permission": ["screen_recording", "accessibility"], "sensitive_app_block": True},
     "customer_mac.desktop_click": {"mode": "full_access_control", "source": "peekaboo_or_ax_quartz", "requires_permission": ["accessibility"], "requires_active_control_session": True},
     "customer_mac.desktop_type": {"mode": "full_access_control", "source": "peekaboo_or_system_events", "requires_permission": ["accessibility"], "requires_active_control_session": True, "high_impact_in_ask_permission": True},
     "customer_mac.desktop_scroll": {"mode": "full_access_control", "source": "peekaboo_or_quartz", "requires_permission": ["accessibility"], "requires_active_control_session": True},

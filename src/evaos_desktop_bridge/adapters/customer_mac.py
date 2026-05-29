@@ -480,7 +480,7 @@ except Exception as exc:
                 },
                 "engines": {"peekaboo": peekaboo, "fallbacks": ["accessibility", "quartz", "system_events"]},
                 "control_modes": {
-                    "full_access": "Customer-granted session: live clicks, typing, scrolling, dragging, app/window/menu/browser, and iPhone Mirroring actions do not require per-action approval.",
+                    "full_access": "Customer-granted session: live clicks, typing, scrolling, dragging, app/window/menu/browser, and iPhone Mirroring actions do not require per-action approval, but sensitive apps remain blocked.",
                     "ask_permission": "Same surface, but high-impact text/send-style actions require approval evidence.",
                 },
                 "forbidden": ["public_mac_ports", "hidden_shell", "credential_collection", "security_bypass"],
@@ -531,8 +531,11 @@ except Exception as exc:
         return CommandResult(ok=True, data={"killed": True, "session": session}, provenance={"source": "control_session", "kill_switch": True})
 
     def desktop_see(self, *, max_chars: int = 4000, max_nodes: int = 200) -> CommandResult:
-        peekaboo = self._peekaboo_status()
         frontmost = self._frontmost_app()
+        sensitive_block = self._sensitive_app_observation_block(frontmost=frontmost, surface="desktop_see")
+        if sensitive_block is not None:
+            return sensitive_block
+        peekaboo = self._peekaboo_status()
         warnings: list[str] = []
         if peekaboo.get("available"):
             peekaboo_seen = self._peekaboo_see(peekaboo=peekaboo, target="desktop", max_chars=max_chars, max_nodes=max_nodes)
@@ -610,6 +613,9 @@ except Exception as exc:
                     "point": self._point(x, y),
                 },
             )
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="click")
+        if sensitive_block is not None:
+            return sensitive_block
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
             if resolved_engine == "peekaboo" and resolved_peekaboo_snapshot_id and resolved_peekaboo_element_id:
@@ -665,6 +671,9 @@ except Exception as exc:
             return CommandResult(ok=False, data={"typed": False}, errors=[make_error(code="desktop_text_required", message="desktop_type requires non-empty text.", guidance="Pass exact text to type into the focused field.")])
         if dry_run:
             return CommandResult(ok=True, data={"typed": False, "would_type": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)})
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="type")
+        if sensitive_block is not None:
+            return sensitive_block
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
             result = self.runner([str(peekaboo["path"]), "paste", "--text", text, "--json", "--no-remote"], 20.0)
@@ -703,6 +712,9 @@ except Exception as exc:
         amount = max(1, min(int(amount), 5000))
         if dry_run:
             return CommandResult(ok=True, data={"scrolled": False, "would_scroll": True, "direction": direction, "amount": amount})
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="scroll")
+        if sensitive_block is not None:
+            return sensitive_block
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
             result = self.runner([str(peekaboo["path"]), "scroll", "--direction", direction, "--amount", str(amount), "--json"], 10.0)
@@ -713,6 +725,9 @@ except Exception as exc:
     def desktop_drag(self, *, from_x: int, from_y: int, to_x: int, to_y: int, dry_run: bool = False) -> CommandResult:
         if dry_run:
             return CommandResult(ok=True, data={"dragged": False, "would_drag": True, "from": self._point(from_x, from_y), "to": self._point(to_x, to_y)})
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="drag")
+        if sensitive_block is not None:
+            return sensitive_block
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
             result = self.runner(
@@ -740,6 +755,9 @@ except Exception as exc:
             return CommandResult(ok=False, data={"pressed": False}, errors=[make_error(code="desktop_hotkey_required", message="desktop_hotkey requires keys like cmd+l or cmd+shift+4.", guidance="Use a plus-delimited hotkey string.")])
         if dry_run:
             return CommandResult(ok=True, data={"pressed": False, "would_press": True, "keys": normalized})
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="hotkey")
+        if sensitive_block is not None:
+            return sensitive_block
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
             result = self.runner([str(peekaboo["path"]), "hotkey", "--keys", normalized, "--json", "--no-remote"], 10.0)
@@ -750,6 +768,8 @@ except Exception as exc:
     def desktop_focus_app(self, *, app_name: str, dry_run: bool = False) -> CommandResult:
         if not self._safe_app_name(app_name):
             return CommandResult(ok=False, data={"focused": False}, errors=[make_error(code="app_name_not_allowed", message="App name is outside the supported character set.", guidance="Use a visible macOS app name.")])
+        if self._is_sensitive_app(app_name):
+            return CommandResult(ok=False, data={"focused": False, "would_focus": dry_run, "app_name": app_name}, errors=[make_error(code="sensitive_app_blocked", message="This app is on the sensitive-app denylist.", guidance="Only request named actions against non-sensitive apps.")])
         if dry_run:
             return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
         peekaboo = self._peekaboo_status()
@@ -767,6 +787,9 @@ except Exception as exc:
             return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[make_error(code="desktop_window_action_invalid", message="desktop_window action must be focus, minimize, maximize, or close.", guidance="Use a named window action.")])
         if dry_run:
             return CommandResult(ok=True, data={"performed": False, "would_perform": True, "action": action})
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action=f"window_{action}")
+        if sensitive_block is not None:
+            return sensitive_block
         peekaboo_action = "maximize" if action == "zoom" else action
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
@@ -782,6 +805,9 @@ except Exception as exc:
             return CommandResult(ok=False, data={"performed": False}, errors=[make_error(code="desktop_menu_path_required", message="desktop_menu requires a menu path such as File > New Tab.", guidance="Use the visible app menu path.")])
         if dry_run:
             return CommandResult(ok=True, data={"performed": False, "would_perform": True, "menu_path": menu_path})
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="menu")
+        if sensitive_block is not None:
+            return sensitive_block
         peekaboo = self._peekaboo_status()
         if not peekaboo.get("available"):
             return CommandResult(ok=False, data={"performed": False, "menu_path": menu_path}, errors=[make_error(code="peekaboo_required", message="desktop_menu requires Peekaboo for reliable menu traversal.", guidance="Install Peekaboo with brew install steipete/tap/peekaboo and approve Workbench permissions.")])
@@ -914,18 +940,9 @@ except Exception as exc:
 
     def snapshot(self, *, max_chars: int) -> CommandResult:
         frontmost = self._frontmost_app()
-        if self._is_sensitive_app(frontmost) and not self._full_access_active():
-            return CommandResult(
-                ok=False,
-                data={"screenshot_path": None, "frontmost_app": redact_value(frontmost)},
-                errors=[
-                    make_error(
-                        code="sensitive_app_blocked",
-                        message="The frontmost app is on the sensitive-app denylist; screenshot capture was blocked.",
-                        guidance="Move focus to a non-sensitive app and rerun the named observation command.",
-                    )
-                ],
-            )
+        sensitive_block = self._sensitive_app_observation_block(frontmost=frontmost, surface="screenshot")
+        if sensitive_block is not None:
+            return sensitive_block
         screenshot_path = self._capture_screenshot([])
         title = self._front_window_title()
         capped_title, title_truncated = cap_text(redact_value(title), max_chars)
@@ -948,18 +965,9 @@ except Exception as exc:
 
     def ax_tree(self, *, max_nodes: int) -> CommandResult:
         frontmost = self._frontmost_app()
-        if self._is_sensitive_app(frontmost) and not self._full_access_active():
-            return CommandResult(
-                ok=False,
-                data={"nodes": [], "truncated": False, "frontmost_app": redact_value(frontmost)},
-                errors=[
-                    make_error(
-                        code="sensitive_app_blocked",
-                        message="The frontmost app is on the sensitive-app denylist; AX tree capture was blocked.",
-                        guidance="Move focus to a non-sensitive app and rerun the named observation command.",
-                    )
-                ],
-            )
+        sensitive_block = self._sensitive_app_observation_block(frontmost=frontmost, surface="ax_tree")
+        if sensitive_block is not None:
+            return sensitive_block
         if self.accessibility_checker() is False:
             return CommandResult(ok=False, data={"nodes": [], "truncated": False}, errors=[self._permission_error("accessibility", "read the Mac Accessibility tree")])
         pid = self._pid_for_app(frontmost) if frontmost else None
@@ -981,10 +989,10 @@ except Exception as exc:
     def app_focus(self, *, app_name: str, dry_run: bool = False) -> CommandResult:
         if not self._safe_app_name(app_name):
             return CommandResult(ok=False, data={"focused": False, "would_focus": dry_run}, errors=[make_error(code="app_name_not_allowed", message="App name is outside the safe named-action character set.", guidance="Use a visible macOS app name with letters, numbers, spaces, dots, underscores, plus, at-sign, slash, colon, hash, or hyphen.")])
+        if self._is_sensitive_app(app_name):
+            return CommandResult(ok=False, data={"focused": False, "would_focus": dry_run, "app_name": app_name}, errors=[make_error(code="sensitive_app_blocked", message="This app is on the sensitive-app denylist.", guidance="Only request named actions against non-sensitive apps.")])
         if dry_run:
             return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
-        if self._is_sensitive_app(app_name) and not self._full_access_active():
-            return CommandResult(ok=False, data={"focused": False, "app_name": app_name}, errors=[make_error(code="sensitive_app_blocked", message="This app is on the sensitive-app denylist.", guidance="Only request named actions against non-sensitive apps.")])
         warnings: list[str] = []
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
@@ -1103,7 +1111,7 @@ except Exception as exc:
                 target_label = "Send"
             if target_label.strip().lower() not in {"send", "send message"}:
                 return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="send_target_label_not_allowed", message="Approved message sends may only press a visible Send control.", guidance="Use target label 'Send' or 'Send message'; do not route this through arbitrary visible labels.")])
-        if action == "open_app" and (not app_name or not self._safe_app_name(app_name) or (self._is_iphone_sensitive_app(app_name) and not self._full_access_active())):
+        if action == "open_app" and (not app_name or not self._safe_app_name(app_name) or self._is_iphone_sensitive_app(app_name)):
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "app_name": app_name}, errors=[make_error(code="iphone_app_name_not_allowed", message="The requested iPhone app name is not allowed for this named action.", guidance="Use a non-sensitive app name with safe characters, for example Calculator or Notes.")])
         if action == "tap_named_target" and (not target_label or not self._safe_app_name(target_label) or (self._is_dangerous_iphone_target(target_label) and not self._full_access_active())):
             return CommandResult(ok=False, data={"performed": False, "would_perform": dry_run, "action": action, "target_label": target_label}, errors=[make_error(code="target_label_not_allowed", message="The requested visible target label is not safe.", guidance="Use an exact non-sensitive visible AX label; sends, calls, purchases, auth prompts, camera, microphone, and generic coordinates are blocked.")])
@@ -2215,6 +2223,46 @@ except Exception as exc:
             return False
         return app_name in SENSITIVE_APPS
 
+    def _sensitive_app_observation_block(self, *, frontmost: str | None, surface: str) -> CommandResult | None:
+        if not self._is_sensitive_app(frontmost):
+            return None
+        data: dict[str, Any] = {"frontmost_app": redact_value(frontmost)}
+        if surface == "screenshot":
+            data["screenshot_path"] = None
+            message = "The frontmost app is on the sensitive-app denylist; screenshot capture was blocked."
+        elif surface == "ax_tree":
+            data.update({"nodes": [], "truncated": False})
+            message = "The frontmost app is on the sensitive-app denylist; AX tree capture was blocked."
+        else:
+            data.update({"engine": None, "snapshot_id": None, "elements": []})
+            message = "The frontmost app is on the sensitive-app denylist; desktop visual observation was blocked."
+        return CommandResult(
+            ok=False,
+            data=data,
+            errors=[
+                make_error(
+                    code="sensitive_app_blocked",
+                    message=message,
+                    guidance="Move focus to a non-sensitive app and rerun the named observation command.",
+                )
+            ],
+        )
+
+    def _sensitive_app_action_block(self, *, frontmost: str | None, action: str) -> CommandResult | None:
+        if not self._is_sensitive_app(frontmost):
+            return None
+        return CommandResult(
+            ok=False,
+            data={"performed": False, "action": action, "frontmost_app": redact_value(frontmost)},
+            errors=[
+                make_error(
+                    code="sensitive_app_blocked",
+                    message="The frontmost app is on the sensitive-app denylist; live desktop control was blocked.",
+                    guidance="Move focus to a non-sensitive app and rerun the named control command.",
+                )
+            ],
+        )
+
     def _is_iphone_sensitive_app(self, app_name: str | None) -> bool:
         if not app_name:
             return False
@@ -2260,7 +2308,8 @@ except Exception as exc:
             "full_access_allows_customer_granted_control": True,
             "full_access_allows_coordinates": True,
             "full_access_allows_typing": True,
-            "full_access_allows_sensitive_apps": True,
+            "full_access_allows_sensitive_apps": False,
+            "sensitive_apps_blocked": True,
             "hidden_shell_public_ports_and_token_exfiltration_blocked": True,
             "append_only_audit_log": True,
             "kill_switch_available": True,

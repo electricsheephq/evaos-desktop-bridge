@@ -4,6 +4,7 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Fix the customer Mac sensitive-app denylist so `desktop_see` blocks before Peekaboo capture, policy metadata marks the block, and Full Access no longer advertises or performs live desktop control against sensitive frontmost apps.
 - Add post-send wait-state reporting for guarded Codex visible GUI sends: live sends can use `thread_id=current`, return `submitted_waiting`, capped read-only observations, screenshot pointers, idle/done/error/timeout state, and OpenClaw `wait_ms`/`poll_interval_ms` controls without additional typing; title-hidden sidebar rows now fail closed for live sends.
 - Add Codex Desktop visible GUI control V1: improved visible thread mapping, `codex thread-map`, guarded `codex send-visible-message`, and fixed OpenClaw plugin tools for the audited GUI fallback lane while app-server mutation stays withheld.
 - Split the Codex Desktop app-server control sprint to status/readiness only after daemon/proxy acceptance still returned `thread/loaded/list` count 0; live `start-turn`/`steer-turn`/`interrupt-turn` CLI and OpenClaw tools remain withheld pending issue #136.
