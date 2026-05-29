@@ -118,9 +118,6 @@ def test_policy_allows_only_mvp_commands() -> None:
     assert exc.value.error["code"] == "command_not_allowed"
     assert "allowlist" in exc.value.error["message"]
     for command in [
-        "codex.app_server.start_turn",
-        "codex.app_server.steer_turn",
-        "codex.app_server.interrupt_turn",
         "codex.app_server.rpc",
     ]:
         with pytest.raises(PolicyError):

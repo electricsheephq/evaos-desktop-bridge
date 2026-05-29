@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import select
+import signal
 import shutil
 import socket
 import struct
@@ -74,6 +75,12 @@ SOCKET_PATH_ENV = "EVAOS_CODEX_APP_SERVER_SOCKET"
 MESSAGE_MAX_CHARS = 8000
 SUBSCRIBE_MAX_DURATION_MS = 30_000
 SUBSCRIBE_MAX_EVENTS = 200
+APP_SERVER_TIMEOUT_SECONDS = 10.0
+APP_SERVER_CLIENT_INFO = {
+    "name": "evaos-desktop-bridge",
+    "title": "evaOS Desktop Bridge",
+    "version": "0.6.6",
+}
 NOTIFICATION_METHODS = frozenset(
     {
         "turn/started",
@@ -123,6 +130,7 @@ class LineProcessTransport:
             stderr=subprocess.DEVNULL,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
         self.timeout = timeout
 
@@ -148,13 +156,7 @@ class LineProcessTransport:
         return None
 
     def close(self) -> None:
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=1)
+        _close_process_group(self.process)
 
 
 class ProxyWebSocketProcessTransport:
@@ -167,6 +169,7 @@ class ProxyWebSocketProcessTransport:
             stderr=subprocess.DEVNULL,
             text=False,
             bufsize=0,
+            start_new_session=True,
         )
         self.timeout = timeout
         self._buffer = b""
@@ -295,13 +298,7 @@ class ProxyWebSocketProcessTransport:
             self._write_raw(_build_websocket_frame(b"", opcode=0x8))
         except (BrokenPipeError, OSError, RuntimeError):
             pass
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=1)
+        _close_process_group(self.process)
 
 
 class WebSocketTransport:
@@ -423,6 +420,41 @@ def _build_websocket_frame(payload: bytes, *, opcode: int = 0x1, mask_key: bytes
     return header + key + masked
 
 
+def _close_process_group(process: subprocess.Popen[Any]) -> None:
+    for stream in (process.stdin,):
+        try:
+            if stream is not None:
+                stream.close()
+        except Exception:
+            pass
+    if process.poll() is None:
+        _signal_process_group(process, signal.SIGTERM)
+        if process.poll() is None:
+            try:
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                _signal_process_group(process, signal.SIGKILL)
+                process.wait(timeout=1.0)
+    for stream in (process.stdout, process.stderr):
+        try:
+            if stream is not None:
+                stream.close()
+        except Exception:
+            pass
+
+
+def _signal_process_group(process: subprocess.Popen[Any], sig: signal.Signals) -> None:
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        return
+    except Exception:
+        try:
+            process.send_signal(sig)
+        except Exception:
+            pass
+
+
 class CodexJsonRpcClient:
     def __init__(self, transport_factory: Callable[[], JsonRpcTransport], *, timeout: float = 10.0) -> None:
         self.transport_factory = transport_factory
@@ -437,7 +469,7 @@ class CodexJsonRpcClient:
         init_response = self._request_raw(
             "initialize",
             {
-                "clientInfo": {"name": "evaos-desktop-bridge", "title": "evaOS Desktop Bridge", "version": "0.6.5"},
+                "clientInfo": APP_SERVER_CLIENT_INFO,
                 "capabilities": {
                     "experimentalApi": True,
                     "requestAttestation": False,
@@ -542,15 +574,29 @@ class CodexAppServerObserver:
         config = self._transport_config()
         version = self._run([config.cli, "--version"], 5.0)
         help_result = self._run([config.cli, "app-server", "--help"], 5.0)
-        available = version.returncode == 0 and help_result.returncode == 0
+        cli_available = version.returncode == 0 and help_result.returncode == 0
         warnings = list(config.warnings)
-        if not available:
+        rpc_probe: CommandResult | None = None
+        rpc_handshake_ok = False
+        if cli_available:
+            rpc_probe = self._probe_app_server(config)
+            rpc_handshake_ok = rpc_probe.ok
+            if not rpc_handshake_ok:
+                warnings.append("Codex app-server RPC handshake failed.")
+        else:
             warnings.append("Codex app-server CLI is unavailable or not executable.")
+        codex_version = redact_value(version.stdout.strip()) if version.returncode == 0 else None
         return CommandResult(
             ok=True,
             data={
-                "available": available,
-                "codex_version": redact_value(version.stdout.strip()) if version.returncode == 0 else None,
+                "available": cli_available and rpc_handshake_ok,
+                "cli_available": cli_available,
+                "rpc_handshake_ok": rpc_handshake_ok,
+                "selected_cli": {
+                    "path": redact_value(config.cli),
+                    "version": codex_version,
+                },
+                "codex_version": codex_version,
                 "transport": config.mode,
                 "websocket_url": redact_value(config.ws_url),
                 "socket_path": redact_value(config.socket_path) if config.socket_path is not None else None,
@@ -558,6 +604,11 @@ class CodexAppServerObserver:
                 "controller_methods": sorted(CONTROLLER_APP_SERVER_METHODS),
                 "forbidden_methods": sorted(FORBIDDEN_APP_SERVER_METHODS),
                 "read_only": True,
+                "rpc_probe": {
+                    "method": "initialize",
+                    "ok": rpc_handshake_ok,
+                    "errors": rpc_probe.errors if rpc_probe is not None and not rpc_probe.ok else [],
+                },
             },
             warnings=warnings,
             provenance={"source": "app_server"},
@@ -573,6 +624,7 @@ class CodexAppServerObserver:
         transport_status = self._probe_app_server(config)
         remote_status = self.request("remoteControl/status/read", {}, cli=config.cli)
         handshake_ok = transport_status.ok
+        connections_state = self._connections_state(remote_status.data if remote_status.ok else None)
         warnings = list(config.warnings)
         if remote_help.returncode != 0:
             warnings.append("Codex native remote-control command was not detected.")
@@ -601,8 +653,10 @@ class CodexAppServerObserver:
                     "supported": remote_help.returncode == 0,
                     "status": remote_status.data if remote_status.ok else None,
                     "available": remote_status.ok,
+                    "connections_state": connections_state,
                     "errors": remote_status.errors,
                 },
+                "connections_state": connections_state,
                 "remote_control_command": {
                     "supported": remote_help.returncode == 0,
                     "checked_cli": redact_value(config.cli),
@@ -642,7 +696,13 @@ class CodexAppServerObserver:
         threads = [self._safe_thread(row, index) for index, row in enumerate(raw_threads[:max_items])]
         return CommandResult(
             ok=True,
-            data={"threads": threads, "count": len(threads), "max_items": max_items, "source": "app_server"},
+            data={
+                "threads": threads,
+                "count": len(threads),
+                "max_items": max_items,
+                "source": "app_server",
+                "thread_state": "active" if threads else "idle",
+            },
             warnings=response.warnings,
             provenance={"source": "app_server", "app_server_method": "thread/list"},
         )
@@ -662,7 +722,13 @@ class CodexAppServerObserver:
         ]
         return CommandResult(
             ok=True,
-            data={"threads": threads, "count": len(threads), "max_items": max_items, "source": "app_server"},
+            data={
+                "threads": threads,
+                "count": len(threads),
+                "max_items": max_items,
+                "source": "app_server",
+                "thread_state": "active" if threads else "idle",
+            },
             warnings=response.warnings,
             provenance={"source": "app_server", "app_server_method": "thread/loaded/list"},
         )
@@ -972,11 +1038,39 @@ class CodexAppServerObserver:
             return None
         return str(redact_value(result.stdout.strip())) or None
 
+    def _stdio_rpc(self, method: str, params: dict[str, Any], *, cli: str = "codex") -> JsonRpcResponse:
+        try:
+            with self._json_rpc_client(TransportConfig(mode="stdio", cli=cli)) as client:
+                if method == "initialize":
+                    return JsonRpcResponse(ok=True, payload=client.initialize_payload, notifications=list(client.notifications))
+                return client.request(method, params)
+        except Exception as exc:
+            return JsonRpcResponse(ok=False, error=str(exc))
+
+    def _close_stdio_process(self, process: subprocess.Popen[Any] | None) -> None:
+        if process is None:
+            return
+        _close_process_group(process)
+
+    def _signal_process_group(self, process: subprocess.Popen[Any], sig: signal.Signals) -> None:
+        _signal_process_group(process, sig)
+
     def _run(self, command: list[str], timeout: float) -> RunnerResult:
         try:
             return self.runner(command, timeout)
         except FileNotFoundError as exc:
             return RunnerResult(returncode=127, stdout="", stderr=str(exc))
+
+    def _connections_state(self, payload: Any) -> str:
+        if not isinstance(payload, dict):
+            return "unavailable"
+        raw_state = payload.get("status") or payload.get("state") or payload.get("connectionState")
+        if not isinstance(raw_state, str):
+            return "unavailable"
+        normalized = raw_state.lower().replace("_", "-")
+        if normalized in {"disabled", "connecting", "connected", "errored", "unavailable"}:
+            return normalized
+        return "unavailable"
 
     def _safe_thread(self, row: Any, index: int) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -984,13 +1078,15 @@ class CodexAppServerObserver:
         title = row.get("name") or row.get("title") or row.get("thread_name") or row.get("summary") or row.get("preview") or f"Thread {index + 1}"
         capped_title, title_truncated = cap_text(str(redact_value(title)), 160)
         thread_id = row.get("id") or row.get("thread_id") or row.get("threadId")
+        updated_at = row.get("updated_at") or row.get("updatedAt")
+        status = row.get("status") or row.get("state")
         return {
             "index": index,
             "id": redact_value(thread_id),
             "title": capped_title,
             "title_truncated": title_truncated,
-            "updated_at": redact_value(row.get("updated_at") or row.get("updatedAt")),
-            "status": redact_value(row.get("status")),
+            "updated_at": None if updated_at is None else redact_value(str(updated_at)),
+            "status": redact_value(status),
             "source": "app_server",
         }
 
