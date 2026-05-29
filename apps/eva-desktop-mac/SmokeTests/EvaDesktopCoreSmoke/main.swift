@@ -368,6 +368,16 @@ let runtimeMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
 precondition(runtimeMissionCard.id == "runtime-browser")
 precondition(runtimeMissionCard.attentionState == .active)
 precondition(runtimeMissionCard.sourcePointer == "broker:runtime_status:browser")
+let runtimeSessionRecord = WorkbenchSessionContract.record(from: runtimeMissionCard, customerId: "david-poku")
+precondition(runtimeSessionRecord.schemaVersion == "evaos.session_center.v1")
+precondition(runtimeSessionRecord.surface == .broker)
+precondition(runtimeSessionRecord.runtime == .liveBrowser)
+precondition(runtimeSessionRecord.customerId == "david-poku")
+precondition(runtimeSessionRecord.attentionState == .active)
+precondition(runtimeSessionRecord.lastActor == "broker")
+precondition(runtimeSessionRecord.resumeRoute.kind == .brokerRuntime)
+precondition(runtimeSessionRecord.resumeRoute.runtime == .liveBrowser)
+precondition(runtimeSessionRecord.resumeRoute.targetId == "browser")
 
 let degradedRuntimeStatusResponse = """
 {"runtime_key":"openclaw","display_label":"evaOS (OpenClaw)","status":"degraded","health_summary":"Needs login","last_checked_at":"2026-05-23T10:00:00Z","auth_needed":true,"captcha_needed":false}
@@ -393,6 +403,11 @@ precondition(queueCards[2].attentionState == .done)
 precondition(queueCards[3].attentionState == .needsAttention)
 precondition(queueCards[4].attentionState == .idle)
 precondition(queueCards[4].sourcePointer == "queue:queue-idle")
+let queueSessionRecord = WorkbenchSessionContract.record(from: queueCards[0])
+precondition(queueSessionRecord.surface == .queue)
+precondition(queueSessionRecord.lastActor == "bridge_queue")
+precondition(queueSessionRecord.resumeRoute.kind == .queueEvent)
+precondition(queueSessionRecord.resumeRoute.targetId == "queue-approval")
 
 let auditRaw = """
 {"ok":true,"data":{"records":[{"audit_id":"audit-ok","timestamp":"2026-05-28T01:10:00Z","command":"status","ok":true},{"audit_id":"audit-failed","timestamp":"2026-05-28T01:11:00Z","command":"codex.app_server.status","ok":false}]}}
@@ -401,6 +416,10 @@ let auditCards = WorkbenchMissionCardDeriver.auditCards(from: auditRaw)
 precondition(auditCards.count == 2)
 precondition(auditCards[0].sourcePointer == "audit:audit-ok")
 precondition(auditCards[1].attentionState == .needsAttention)
+let auditSessionRecord = WorkbenchSessionContract.record(from: auditCards[0])
+precondition(auditSessionRecord.surface == .audit)
+precondition(auditSessionRecord.resumeRoute.kind == .auditRecord)
+precondition(auditSessionRecord.resumeRoute.targetId == "audit-ok")
 
 let codexStatusRaw = """
 {"ok":true,"audit_id":"audit-codex-status","data":{"available":true,"read_only":true}}
@@ -417,11 +436,27 @@ precondition(codexCards[0].attentionState == .active)
 precondition(codexCards[0].auditId == "audit-codex-status")
 precondition(codexCards[1].attentionState == .active)
 precondition(codexCards[1].sourcePointer == "bridge:codex.app_server.threads")
+let codexSessionRecord = WorkbenchSessionContract.record(from: codexCards[1])
+precondition(codexSessionRecord.surface == .codex)
+precondition(codexSessionRecord.resumeRoute.kind == .codexEvidence)
+precondition(codexSessionRecord.resumeRoute.targetId == "codex-threads")
 
 let malformedCards = WorkbenchMissionCardDeriver.queueCards(from: "{")
 precondition(malformedCards.count == 1)
 precondition(malformedCards[0].attentionState == .needsAttention)
 precondition(malformedCards[0].sourcePointer == "bridge:queue.list")
+let bridgeFailureSessionRecord = WorkbenchSessionContract.record(from: malformedCards[0])
+precondition(bridgeFailureSessionRecord.surface == .bridge)
+precondition(bridgeFailureSessionRecord.resumeRoute.kind == .evidenceOnly)
+let sessionContractSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Models/WorkbenchSessionRecord.swift", encoding: .utf8)
+precondition(sessionContractSource.contains("evaos.session_center.v1"))
+precondition(sessionContractSource.contains("brokerRuntime = \"broker_runtime\""))
+precondition(!sessionContractSource.contains("shell"))
+precondition(!sessionContractSource.contains("app-server rpc"))
+let sessionContractDoc = try String(contentsOfFile: "../../docs/session-center-agent-workspace-contract.md", encoding: .utf8)
+precondition(sessionContractDoc.contains("Canonical Session Record"))
+precondition(sessionContractDoc.contains("No Generic Control Surface"))
+precondition(sessionContractDoc.contains("broker_runtime"))
 
 let callbackURL = URL(string: "evaos://auth/callback?desktop_session=eds_test&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=admin%40100yen.org")!
 let callbackSession = try DesktopSessionCallbackParser.parse(callbackURL)
