@@ -415,6 +415,7 @@ let fragmentCallbackSession = try DesktopSessionCallbackParser.parse(fragmentCal
 precondition(fragmentCallbackSession.accessToken == "eds_fragment")
 precondition(WorkbenchProviderOAuthCallback.isOAuthComplete(URL(string: "evaos://oauth-complete?provider_key=google_workspace")!))
 precondition(WorkbenchProviderOAuthCallback.isOAuthComplete(URL(string: "evaos://oauth-complete")!))
+precondition(WorkbenchProviderOAuthCallback.isOAuthComplete(URL(string: "EVAOS://OAUTH-COMPLETE")!))
 precondition(!WorkbenchProviderOAuthCallback.isOAuthComplete(callbackURL))
 precondition(fragmentCallbackSession.expiresAt != nil)
 

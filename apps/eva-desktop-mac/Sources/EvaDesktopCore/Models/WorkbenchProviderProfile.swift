@@ -261,6 +261,7 @@ public enum WorkbenchProviderOAuthCallback {
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
             return false
         }
-        return components.scheme == "evaos" && components.host == "oauth-complete"
+        return components.scheme?.lowercased() == "evaos"
+            && components.host?.lowercased() == "oauth-complete"
     }
 }
