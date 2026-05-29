@@ -429,6 +429,10 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func handleAuthCallback(_ url: URL) {
+        if WorkbenchProviderOAuthCallback.isOAuthComplete(url) {
+            handleProviderOAuthComplete()
+            return
+        }
         do {
             let newSession = try DesktopSessionCallbackParser.parse(url)
             if session?.accessToken == newSession.accessToken {
@@ -442,6 +446,13 @@ final class WorkbenchModel: ObservableObject {
             }
         } catch {
             runtimeErrors[selectedRuntime] = "Desktop sign-in callback failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func handleProviderOAuthComplete() {
+        providerHubStatusText = "Provider sign-in complete. Refreshing..."
+        Task {
+            await refreshProviderProfiles()
         }
     }
 
@@ -561,7 +572,8 @@ final class WorkbenchModel: ObservableObject {
                     )
                 }
                 let runtimeTitle = RuntimeDefinition.definition(for: runtime).title
-                let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Sign in to OpenAI / Codex in the shared VM browser so agents can reuse that browser session, then return to Providers and refresh."
+                let providerTitle = WorkbenchProviderCatalog.profile(for: providerKey)?.title ?? "this provider"
+                let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Sign in to \(providerTitle) in the shared VM browser so agents can reuse that browser session, then return to Providers and refresh."
                 providerHubStatusText = providerAuthInstruction(
                     response.instructions,
                     runtimeTitle: runtimeTitle,
@@ -657,8 +669,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func visibleProviderProfiles(_ profiles: [WorkbenchProviderProfileState]) -> [WorkbenchProviderProfileState] {
-        let visible = profiles.filter { $0.key == .openAICodex }
-        return visible.isEmpty ? WorkbenchProviderCatalog.defaultStates : visible
+        WorkbenchProviderCatalog.visibleStates(from: profiles)
     }
 
     func refreshSharedBrowserStatus() async {
@@ -1450,6 +1461,10 @@ final class WorkbenchModel: ObservableObject {
             Task {
                 await loadRuntime(runtime, force: true)
             }
+        case .providerOAuthComplete:
+            loadingRuntimePages.remove(runtime)
+            runtimeErrors[runtime] = nil
+            handleProviderOAuthComplete()
         }
     }
 }
@@ -1465,6 +1480,7 @@ enum RuntimeNavigationEvent {
     case failed(String)
     case httpStatus(Int, URL?)
     case fallbackDetected(String)
+    case providerOAuthComplete(URL)
 }
 
 final class WebViewStore {
@@ -1530,6 +1546,22 @@ final class RuntimeNavigationObserver: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         onEvent(runtime, .started)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if
+            let url = navigationAction.request.url,
+            WorkbenchProviderOAuthCallback.isOAuthComplete(url)
+        {
+            onEvent(runtime, .providerOAuthComplete(url))
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

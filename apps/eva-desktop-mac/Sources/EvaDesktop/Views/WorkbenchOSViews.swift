@@ -268,6 +268,16 @@ private struct ProviderProfileCard: View {
             return "bubble.left.and.bubble.right"
         case .hermes:
             return "sparkles"
+        case .googleWorkspace:
+            return "envelope.fill"
+        case .slack:
+            return "message.fill"
+        case .notion:
+            return "doc.text.fill"
+        case .linear:
+            return "line.3.horizontal.decrease.circle.fill"
+        case .github:
+            return "chevron.left.forwardslash.chevron.right"
         }
     }
 

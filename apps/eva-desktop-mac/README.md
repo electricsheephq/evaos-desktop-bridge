@@ -133,6 +133,11 @@ Desktop login must return a broker-minted `desktop_session` with explicit
 expiry. Generic OAuth authorization codes or provider `access_token` values are
 not accepted as durable desktop sessions.
 
+Provider OAuth completions use the same registered `evaos` scheme with
+`evaos://oauth-complete`. That callback only refreshes broker-owned provider
+profile metadata; Workbench still does not accept, store, or inspect raw
+provider OAuth tokens.
+
 Admin and customer-service desktop sessions can request a safe customer target
 list from the broker. The app renders that as an admin-only picker in the
 gateway toolbar. Switching customers clears loaded gateway WebViews and reloads
