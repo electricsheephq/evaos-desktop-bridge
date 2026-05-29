@@ -4,6 +4,7 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Document and smoke-lock OpenDesign as a first-class brokered Workbench gateway for issues #20 and #66, including broker route, persistent WebView, runtime-status, auth, and Codex/BYOK separation contracts.
 - Expand the evaOS Workbench Provider Hub catalog beyond OpenAI/Codex with planned Google Workspace, Slack, Notion, Linear, and GitHub cards, broker-profile merging, provider OAuth completion refresh handling, and updated card icons while keeping raw provider secrets out of Workbench.
 - Add the issue #130 behavior/invariant harness with a native scratch-app fixture, local evidence reports, and probes for intended effects, focus preservation, cursor non-warping, occluded target capture, denied zero-effect behavior, and sensitive observation blocks.
 - Fix the customer Mac sensitive-app denylist so `desktop_see` blocks before Peekaboo capture, policy metadata marks the block, and Full Access no longer advertises or performs live desktop control against sensitive frontmost apps.
