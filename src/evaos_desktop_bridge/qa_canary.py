@@ -49,6 +49,12 @@ ACTION_COMMANDS = {
     "customer_mac_iphone_mirroring_open_app",
     "customer_mac_iphone_mirroring_spotlight",
 }
+VISUAL_RETRY_COMMANDS = {
+    "desktop_see",
+    "iphone_see",
+    "customer_mac_snapshot",
+    "customer_mac_ax_tree",
+}
 REAL_WORLD_ENV_KEYS = (
     "QA_BUMBLE_TEXT",
     "QA_SMS_CONTACT",
@@ -316,6 +322,7 @@ def run_steps(steps: list[CanaryStep], surface: CanarySurface) -> list[CanaryRes
             retry_attempt = 0
             while (
                 retry_attempt < step.visual_assert_retries
+                and step.command in VISUAL_RETRY_COMMANDS
                 and status == "failed"
                 and _has_visual_assertion_failure(errors)
             ):
@@ -891,7 +898,12 @@ def _image_color_ratios_from_png(artifact_path: str) -> dict[str, float] | None:
             return None
         chunk_data = raw[chunk_data_start:chunk_data_end]
         if chunk_type == b"IHDR":
-            width, height, bit_depth, color_type, _compression, _filter, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            if chunk_length != 13:
+                return None
+            try:
+                width, height, bit_depth, color_type, _compression, _filter, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            except struct.error:
+                return None
         elif chunk_type == b"IDAT":
             idat.extend(chunk_data)
         elif chunk_type == b"IEND":

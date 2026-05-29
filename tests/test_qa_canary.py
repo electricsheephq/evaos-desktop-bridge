@@ -518,6 +518,38 @@ def test_visual_assertion_retries_transient_overlay_before_scenario_action(tmp_p
     ]
 
 
+def test_visual_assertion_retry_does_not_repeat_mutating_commands(tmp_path: Path) -> None:
+    artifact = tmp_path / "iphone-frame.png"
+    artifact.write_bytes(b"fake png bytes")
+    surface = SequencedSurface(
+        [
+            visual_envelope("iphone_type", snapshot_id="snap-type", text="Wrong app", app="iPhone Mirroring"),
+            visual_envelope("iphone_type", snapshot_id="snap-type-retry", text="Calculator", app="iPhone Mirroring"),
+        ],
+        artifact_path=str(artifact),
+    )
+
+    results = run_steps(
+        [
+            CanaryStep(
+                id="iphone.type",
+                suite="iphone_scenario",
+                lane="primitive",
+                command="iphone_type",
+                requires_visual_evidence=True,
+                visual_assert={"expected_visible_text": "Calculator"},
+                visual_assert_retries=1,
+                visual_retry_delay_seconds=0,
+            )
+        ],
+        surface,
+    )
+
+    assert results[0].status == "failed"
+    assert results[0].errors[0]["code"] == "qa_visual_assertion_failed"
+    assert surface.calls == [("iphone_type", {})]
+
+
 def test_iphone_visual_assertion_can_use_artifact_state(monkeypatch: Any, tmp_path: Path) -> None:
     artifact = tmp_path / "iphone-calculator.png"
     artifact.write_bytes(b"fake png bytes")
@@ -553,6 +585,13 @@ def test_iphone_visual_assertion_can_use_artifact_state(monkeypatch: Any, tmp_pa
     )
 
     assert results[0].status == "passed"
+
+
+def test_malformed_png_artifact_state_fails_closed(tmp_path: Path) -> None:
+    artifact = tmp_path / "malformed.png"
+    artifact.write_bytes(b"\x89PNG\r\n\x1a\n" + (1).to_bytes(4, "big") + b"IHDR" + b"x" + b"\x00\x00\x00\x00")
+
+    assert qa_canary._visual_artifact_states(str(artifact)) == set()
 
 
 def test_live_cli_requires_operator_ack_for_moving_suites(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
