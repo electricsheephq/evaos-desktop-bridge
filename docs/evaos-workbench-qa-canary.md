@@ -120,7 +120,9 @@ posts to `/v1/commands`.
 - `iphone_scenario`: focuses iPhone Mirroring, captures a pre-action iPhone
   snapshot, opens Calculator only from that verified state, verifies the screen,
   enters `1+1+1=`, captures another snapshot, then navigates Home, Spotlight,
-  and App Switcher only after a verified iPhone state.
+  and App Switcher only after a verified iPhone state. The iPhone visual gate
+  may use screenshot-derived app state because iPhone Mirroring exposes the
+  phone contents as pixels, not normal Mac AX text.
 - `ask_permission`: starts Ask Permission, proves a high-impact live type is
   denied without approval, then proves the dry-run audit id can approve the
   matching action.
@@ -179,6 +181,19 @@ Known 0.6.5 release-reality result from the 2026-05-27 fresh canary:
 - Codex app-server rows failed in the installed 0.6.5 LaunchAgent because that
   packaged helper could not find `codex` on `PATH`; the source bridge now
   prefers the Codex app bundle CLI to close that gap.
+
+Known 0.6.7 release-reality result from the 2026-05-29 fresh canary:
+
+- The correctly packaged `/Applications/evaOS.app` 0.6.7 build 47 connector
+  passed Codex readiness/status and foreground Mac primitive/scenario rows.
+- The remaining iPhone rows were traced to live-run contamination and harness
+  evidence parsing, not a confirmed product-control regression: a transient
+  Spotlight/notification overlay covered one frame, and `iphone_see` returned
+  the phone contents as a screenshot artifact with only an iPhone Mirroring
+  window AX element.
+- The harness now retries transient visual assertion mismatches and can derive
+  Calculator state from the materialized screenshot artifact before allowing
+  the next live scenario action.
 
 The command timeout is per primitive command, not a task budget. A multi-minute
 agent task is expected to issue many bounded commands. Current defaults are 60s

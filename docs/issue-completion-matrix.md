@@ -55,7 +55,7 @@ Milestone: `Codex Desktop App-Server Control`
 | #136 live Codex controller gate | Blocked by local Codex loaded-thread state | Current Codex CLI 0.133.0 proxy smoke returned `thread/loaded/list` count 0 even after remote-control daemon connection, so live controller tools remain unmerged |
 | OpenClaw wrapper tools | Implemented status/readiness slice | fixed named tools for connections, live status, loaded threads, and read-only app-server status; still no generic app-server RPC or live controller passthrough |
 | Workbench status formatter | Implemented | Workbench reads `codex connections status` and the current `remote_control_command`, `daemon`, and `control_sockets` shape |
-| 0.6.5 release canary | Partial, evidence retained | Connector/OpenClaw/Hermes all-surface canaries reached 33/44 before harness fix; desktop scenario rerun passed 5/5; iPhone Calculator launch remains a tuning issue; kill-switch final passed 3/3; QA canaries are not a substitute for the #136 live Codex controller acceptance |
+| 0.6.5/0.6.7 release canary | Partial, evidence retained | 0.6.5 Connector/OpenClaw/Hermes all-surface canaries reached 33/44 before harness fixes; 0.6.7 build 47 connector canary passed Codex readiness/status and foreground Mac primitive/scenario rows. The remaining iPhone reds were reclassified as live-run contamination plus image-only evidence parsing, so the canary now retries transient visual mismatches and derives Calculator state from screenshot artifacts. QA canaries are not a substitute for the #136 live Codex controller acceptance. |
 
 ## v0.5 One-App OS Expansion Design Gate
 

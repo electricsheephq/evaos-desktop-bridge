@@ -179,9 +179,12 @@ See `docs/evaos-workbench-qa-canary.md` for optional real-world app scenarios
 and the release certification rule.
 Before running any suite with `--operator-ack-live-control`, tell the operator
 that the test may move the mouse, type, click, scroll, or operate iPhone
-Mirroring. The primitive suite proves raw control; the scenario suites prove the
-agent-style visual loop. Do not treat blind tap/swipe rows as real app-task
-certification.
+Mirroring. Do not run live-control canaries on a Mac that the operator is
+actively using unless they have explicitly yielded the screen; notifications,
+Spotlight, or manual focus changes can contaminate visual evidence and create
+false red rows. The primitive suite proves raw control; the scenario suites
+prove the agent-style visual loop. Do not treat blind tap/swipe rows as real
+app-task certification.
 
 The OpenClaw plugin reads those environment variables directly. The bridge CLI
 itself is local-first; when testing from a bare support shell, call the

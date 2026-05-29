@@ -8,11 +8,13 @@ from pathlib import Path
 from threading import Thread
 from typing import Any
 
+from evaos_desktop_bridge import qa_canary
 from evaos_desktop_bridge.qa_canary import (
     CanaryStep,
     ConnectorSurface,
     HermesSurface,
     OpenClawSurface,
+    SurfaceResponse,
     build_scenarios,
     classify_status,
     main,
@@ -116,6 +118,19 @@ def visual_envelope(command: str, *, snapshot_id: str = "snap-test", text: str =
             },
         },
     )
+
+
+class SequencedSurface:
+    def __init__(self, responses: list[dict[str, Any]], *, artifact_path: str | None = None) -> None:
+        self.responses = list(responses)
+        self.artifact_path = artifact_path
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def run(self, command: str, params: dict[str, Any]) -> SurfaceResponse:
+        self.calls.append((command, params))
+        if self.responses:
+            return SurfaceResponse.from_payload(self.responses.pop(0), artifact_path=self.artifact_path)
+        return SurfaceResponse.from_payload(envelope(command), artifact_path=self.artifact_path)
 
 
 def test_connector_surface_runs_fake_command_and_materializes_artifact(tmp_path: Path) -> None:
@@ -455,6 +470,89 @@ def test_scenario_action_runs_after_visual_assertion_passes(tmp_path: Path) -> N
 
     assert [result.status for result in results] == ["passed", "passed"]
     assert FakeConnectorHandler.seen_payloads[-1] == {"command": "iphone_tap", "params": {"snapshot_id": "snap-test", "x": 100, "y": 100, "dry_run": False}}
+
+
+def test_visual_assertion_retries_transient_overlay_before_scenario_action(tmp_path: Path) -> None:
+    artifact = tmp_path / "iphone-frame.png"
+    artifact.write_bytes(b"fake png bytes")
+    surface = SequencedSurface(
+        [
+            visual_envelope("iphone_see", snapshot_id="snap-overlay", text="Notification Center", app="iPhone Mirroring"),
+            visual_envelope("iphone_see", snapshot_id="snap-calculator", text="Calculator", app="iPhone Mirroring"),
+            envelope("iphone_tap"),
+        ],
+        artifact_path=str(artifact),
+    )
+
+    results = run_steps(
+        [
+            CanaryStep(
+                id="iphone.see_calculator",
+                suite="iphone_scenario",
+                lane="scenario",
+                command="iphone_see",
+                requires_visual_evidence=True,
+                visual_assert={"expected_visible_text": "Calculator"},
+                visual_assert_retries=1,
+                visual_retry_delay_seconds=0,
+            ),
+            CanaryStep(
+                id="iphone.tap_calculator",
+                suite="iphone_scenario",
+                lane="scenario",
+                command="iphone_tap",
+                params={"snapshot_id": "${iphone.see_calculator.snapshot_id}", "x": 100, "y": 100, "dry_run": False},
+                assert_from_step="iphone.see_calculator",
+            ),
+        ],
+        surface,
+    )
+
+    assert results[0].status == "passed"
+    assert results[0].snapshot_id == "snap-calculator"
+    assert results[1].status == "passed"
+    assert surface.calls == [
+        ("iphone_see", {}),
+        ("iphone_see", {}),
+        ("iphone_tap", {"snapshot_id": "snap-calculator", "x": 100, "y": 100, "dry_run": False}),
+    ]
+
+
+def test_iphone_visual_assertion_can_use_artifact_state(monkeypatch: Any, tmp_path: Path) -> None:
+    artifact = tmp_path / "iphone-calculator.png"
+    artifact.write_bytes(b"fake png bytes")
+    monkeypatch.setattr(qa_canary, "_visual_artifact_states", lambda _path: {"calculator", "iphone_calculator"})
+    surface = SequencedSurface(
+        [
+            envelope(
+                "iphone_see",
+                data={
+                    "engine": "peekaboo",
+                    "snapshot_id": "snap-image-only",
+                    "frontmost_app": "iPhone Mirroring",
+                    "elements": [{"element_id": "iphone-mirroring-window", "label": "iPhone Mirroring window"}],
+                    "image": {"artifact_url": "/v1/artifacts/snap-image-only.png", "snapshot_id": "snap-image-only"},
+                },
+            )
+        ],
+        artifact_path=str(artifact),
+    )
+
+    results = run_steps(
+        [
+            CanaryStep(
+                id="iphone.see_calculator",
+                suite="iphone_scenario",
+                lane="scenario",
+                command="iphone_see",
+                requires_visual_evidence=True,
+                visual_assert={"expected_visible_text": "Calculator", "expected_image_state": "iphone_calculator"},
+            )
+        ],
+        surface,
+    )
+
+    assert results[0].status == "passed"
 
 
 def test_live_cli_requires_operator_ack_for_moving_suites(tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
