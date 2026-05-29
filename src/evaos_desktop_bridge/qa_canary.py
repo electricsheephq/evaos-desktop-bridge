@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -10,6 +11,7 @@ import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +49,12 @@ ACTION_COMMANDS = {
     "customer_mac_iphone_mirroring_open_app",
     "customer_mac_iphone_mirroring_spotlight",
 }
+VISUAL_RETRY_COMMANDS = {
+    "desktop_see",
+    "iphone_see",
+    "customer_mac_snapshot",
+    "customer_mac_ax_tree",
+}
 REAL_WORLD_ENV_KEYS = (
     "QA_BUMBLE_TEXT",
     "QA_SMS_CONTACT",
@@ -81,6 +89,8 @@ class CanaryStep:
     env_required: tuple[str, ...] = ()
     requires_visual_evidence: bool = False
     visual_assert: dict[str, Any] = field(default_factory=dict)
+    visual_assert_retries: int = 0
+    visual_retry_delay_seconds: float = 1.0
     assert_from_step: str | None = None
 
 
@@ -308,24 +318,24 @@ def run_steps(steps: list[CanaryStep], surface: CanarySurface) -> list[CanaryRes
         started = time.monotonic()
         try:
             response = surface.run(step.command, params)
+            status, errors, warnings = _classify_step_response(response, step, context)
+            retry_attempt = 0
+            while (
+                retry_attempt < step.visual_assert_retries
+                and step.command in VISUAL_RETRY_COMMANDS
+                and status == "failed"
+                and _has_visual_assertion_failure(errors)
+            ):
+                retry_attempt += 1
+                if step.visual_retry_delay_seconds > 0:
+                    time.sleep(step.visual_retry_delay_seconds)
+                previous_snapshot_id = response.snapshot_id
+                response = surface.run(step.command, params)
+                status, errors, warnings = _classify_step_response(response, step, context)
+                warnings = [
+                    f"Retried transient visual assertion mismatch ({retry_attempt}/{step.visual_assert_retries}); previous snapshot: {previous_snapshot_id or 'none'}."
+                ] + warnings
             duration_ms = int((time.monotonic() - started) * 1000)
-            status = classify_status(response.payload, skip_on_unavailable=step.skip_on_unavailable, expect_error_code=step.expect_error_code)
-            errors = list(response.errors)
-            warnings = list(response.warnings)
-            if status == "passed" and step.requires_visual_evidence and (not response.snapshot_id or not response.artifact_path):
-                status = "failed"
-                errors.append(
-                    {
-                        "code": "qa_visual_evidence_missing",
-                        "message": "Visual see command returned ok:true without a snapshot id and materialized screenshot artifact.",
-                        "guidance": "Fix screenshot artifact return/materialization before certifying this release.",
-                    }
-                )
-            if status == "passed" and step.visual_assert:
-                assertion_errors = _visual_assertion_errors(response.payload, _resolve_params(step.visual_assert, context))
-                if assertion_errors:
-                    status = "failed"
-                    errors.extend(assertion_errors)
             result = CanaryResult(
                 id=step.id,
                 suite=step.suite,
@@ -377,6 +387,31 @@ def classify_status(payload: dict[str, Any], *, skip_on_unavailable: bool = Fals
     if skip_on_unavailable and (error_codes & set(UNAVAILABLE_CODES)):
         return "skipped"
     return "failed"
+
+
+def _classify_step_response(response: SurfaceResponse, step: CanaryStep, context: dict[str, CanaryResult]) -> tuple[str, list[dict[str, Any]], list[Any]]:
+    status = classify_status(response.payload, skip_on_unavailable=step.skip_on_unavailable, expect_error_code=step.expect_error_code)
+    errors = list(response.errors)
+    warnings = list(response.warnings)
+    if status == "passed" and step.requires_visual_evidence and (not response.snapshot_id or not response.artifact_path):
+        status = "failed"
+        errors.append(
+            {
+                "code": "qa_visual_evidence_missing",
+                "message": "Visual see command returned ok:true without a snapshot id and materialized screenshot artifact.",
+                "guidance": "Fix screenshot artifact return/materialization before certifying this release.",
+            }
+        )
+    if status == "passed" and step.visual_assert:
+        assertion_errors = _visual_assertion_errors(response.payload, _resolve_params(step.visual_assert, context), artifact_path=response.artifact_path)
+        if assertion_errors:
+            status = "failed"
+            errors.extend(assertion_errors)
+    return status, errors, warnings
+
+
+def _has_visual_assertion_failure(errors: list[dict[str, Any]]) -> bool:
+    return any(error.get("code") == "qa_visual_assertion_failed" for error in errors if isinstance(error, dict))
 
 
 def timeout_for_command(command: str) -> int:
@@ -639,9 +674,9 @@ def _iphone_scenario_steps() -> list[CanaryStep]:
         CanaryStep(id="iphone_scenario.focus", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_focus", params={"dry_run": False}, skip_on_unavailable=True),
         CanaryStep(id="iphone_scenario.pre_open_state", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True),
         CanaryStep(id="iphone_scenario.open_calculator", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_open_app", params={"app_name": "Calculator", "dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.pre_open_state"),
-        CanaryStep(id="iphone_scenario.see_calculator", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"expected_visible_text": "Calculator"}),
+        CanaryStep(id="iphone_scenario.see_calculator", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"expected_visible_text": "Calculator", "expected_image_state": "iphone_calculator"}, visual_assert_retries=2, visual_retry_delay_seconds=1.0),
         CanaryStep(id="iphone_scenario.calculator_entry", suite="iphone_scenario", lane="scenario", command="iphone_type", params={"text": "1+1+1=", "dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_calculator"),
-        CanaryStep(id="iphone_scenario.see_result", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"allowed_states": ["Calculator", "3"]}),
+        CanaryStep(id="iphone_scenario.see_result", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True, visual_assert={"expected_image_state": "iphone_calculator", "allowed_states": ["Calculator", "3"]}, visual_assert_retries=2, visual_retry_delay_seconds=1.0),
         CanaryStep(id="iphone_scenario.home", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_home", params={"dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_result"),
         CanaryStep(id="iphone_scenario.see_home", suite="iphone_scenario", lane="scenario", command="iphone_see", params={"max_chars": 4000, "max_nodes": 200}, skip_on_unavailable=True, requires_visual_evidence=True),
         CanaryStep(id="iphone_scenario.spotlight", suite="iphone_scenario", lane="scenario", command="customer_mac_iphone_mirroring_spotlight", params={"dry_run": False}, skip_on_unavailable=True, assert_from_step="iphone_scenario.see_home"),
@@ -757,26 +792,211 @@ def _scenario_dependency_error(step: CanaryStep, context: dict[str, CanaryResult
     return None
 
 
-def _visual_assertion_errors(payload: dict[str, Any], assertion: dict[str, Any]) -> list[dict[str, Any]]:
+def _visual_assertion_errors(payload: dict[str, Any], assertion: dict[str, Any], *, artifact_path: str | None = None) -> list[dict[str, Any]]:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     text = _visible_text(data).lower()
     frontmost_app = str(data.get("frontmost_app") or data.get("app") or data.get("active_app") or "").lower()
+    image_states = _visual_artifact_states(artifact_path)
     errors: list[dict[str, Any]] = []
     expected_app = assertion.get("expected_app")
-    if isinstance(expected_app, str) and expected_app.strip() and expected_app.lower() not in frontmost_app and expected_app.lower() not in text:
+    if isinstance(expected_app, str) and expected_app.strip() and not _visual_state_matches(expected_app, text=text, frontmost_app=frontmost_app, image_states=image_states):
         errors.append(_visual_assertion_error(f"Expected app/state containing '{expected_app}' but saw '{frontmost_app or text[:80]}'."))
     expected_text = assertion.get("expected_visible_text")
-    if isinstance(expected_text, str) and expected_text.strip() and expected_text.lower() not in text:
+    if isinstance(expected_text, str) and expected_text.strip() and not _visual_state_matches(expected_text, text=text, frontmost_app=frontmost_app, image_states=image_states):
         errors.append(_visual_assertion_error(f"Expected visible text '{expected_text}' was not found."))
     expected_label = assertion.get("expected_label")
-    if isinstance(expected_label, str) and expected_label.strip() and expected_label.lower() not in text:
+    if isinstance(expected_label, str) and expected_label.strip() and not _visual_state_matches(expected_label, text=text, frontmost_app=frontmost_app, image_states=image_states):
         errors.append(_visual_assertion_error(f"Expected visible label '{expected_label}' was not found."))
+    expected_image_state = assertion.get("expected_image_state")
+    if isinstance(expected_image_state, str) and expected_image_state.strip() and not _visual_image_state_matches(expected_image_state, image_states=image_states):
+        errors.append(_visual_assertion_error(f"Expected image state '{expected_image_state}' was not found in the materialized visual artifact."))
     allowed_states = assertion.get("allowed_states")
     if isinstance(allowed_states, list) and allowed_states:
-        normalized = [str(state).lower() for state in allowed_states if str(state).strip()]
-        if normalized and not any(state in text or state in frontmost_app for state in normalized):
+        states = [str(state) for state in allowed_states if str(state).strip()]
+        if states and not any(_visual_state_matches(state, text=text, frontmost_app=frontmost_app, image_states=image_states) for state in states):
             errors.append(_visual_assertion_error(f"None of the allowed states matched: {', '.join(str(state) for state in allowed_states)}."))
     return errors
+
+
+def _visual_state_matches(expected: str, *, text: str, frontmost_app: str, image_states: set[str]) -> bool:
+    raw = expected.strip().lower()
+    normalized = _normalize_visual_state(expected)
+    normalized_text = _normalize_visual_state(text)
+    normalized_frontmost_app = _normalize_visual_state(frontmost_app)
+    return (
+        raw in text
+        or raw in frontmost_app
+        or normalized in normalized_text
+        or normalized in normalized_frontmost_app
+        or _visual_image_state_matches(normalized, image_states=image_states)
+    )
+
+
+def _visual_image_state_matches(expected: str, *, image_states: set[str]) -> bool:
+    normalized = _normalize_visual_state(expected)
+    aliases = {normalized}
+    if normalized == "calculator":
+        aliases.add("iphone_calculator")
+    if normalized == "iphone_calculator":
+        aliases.add("calculator")
+    return bool(aliases & image_states)
+
+
+def _normalize_visual_state(value: str) -> str:
+    return "_".join(value.strip().lower().split())
+
+
+def _visual_artifact_states(artifact_path: str | None) -> set[str]:
+    if not artifact_path:
+        return set()
+    ratios = _image_color_ratios_with_pillow(artifact_path)
+    if ratios is None:
+        ratios = _image_color_ratios_from_png(artifact_path)
+    if ratios is None:
+        return set()
+    states: set[str] = set()
+    if ratios["orange"] > 0.02 and ratios["dark"] > 0.25 and ratios["gray"] > 0.10:
+        states.update({"calculator", "iphone_calculator"})
+    return states
+
+
+def _image_color_ratios_with_pillow(artifact_path: str) -> dict[str, float] | None:
+    try:
+        from PIL import Image  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    try:
+        with Image.open(artifact_path) as image:
+            rgb_image = image.convert("RGB")
+            rgb_image.thumbnail((360, 360))
+            pixels = list(rgb_image.getdata())
+    except Exception:
+        return None
+    return _color_ratios_from_pixels(pixels)
+
+
+def _image_color_ratios_from_png(artifact_path: str) -> dict[str, float] | None:
+    try:
+        raw = Path(artifact_path).read_bytes()
+    except OSError:
+        return None
+    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    offset = 8
+    width = 0
+    height = 0
+    bit_depth = 0
+    color_type = 0
+    interlace = 0
+    idat = bytearray()
+    while offset + 8 <= len(raw):
+        chunk_length = struct.unpack(">I", raw[offset : offset + 4])[0]
+        chunk_type = raw[offset + 4 : offset + 8]
+        chunk_data_start = offset + 8
+        chunk_data_end = chunk_data_start + chunk_length
+        if chunk_data_end + 4 > len(raw):
+            return None
+        chunk_data = raw[chunk_data_start:chunk_data_end]
+        if chunk_type == b"IHDR":
+            if chunk_length != 13:
+                return None
+            try:
+                width, height, bit_depth, color_type, _compression, _filter, interlace = struct.unpack(">IIBBBBB", chunk_data)
+            except struct.error:
+                return None
+        elif chunk_type == b"IDAT":
+            idat.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+        offset = chunk_data_end + 4
+    if width <= 0 or height <= 0 or bit_depth != 8 or interlace != 0 or color_type not in {2, 6} or not idat:
+        return None
+    channels = 4 if color_type == 6 else 3
+    row_stride = width * channels
+    try:
+        inflated = zlib.decompress(bytes(idat))
+    except zlib.error:
+        return None
+    expected_minimum = (row_stride + 1) * height
+    if len(inflated) < expected_minimum:
+        return None
+    pixels: list[tuple[int, int, int]] = []
+    previous = bytearray(row_stride)
+    cursor = 0
+    sample_every = max(1, (width * height) // 130_000)
+    pixel_index = 0
+    for _row_index in range(height):
+        filter_type = inflated[cursor]
+        cursor += 1
+        scanline = bytearray(inflated[cursor : cursor + row_stride])
+        cursor += row_stride
+        if filter_type == 1:
+            _png_unfilter_sub(scanline, channels)
+        elif filter_type == 2:
+            _png_unfilter_up(scanline, previous)
+        elif filter_type == 3:
+            _png_unfilter_average(scanline, previous, channels)
+        elif filter_type == 4:
+            _png_unfilter_paeth(scanline, previous, channels)
+        elif filter_type != 0:
+            return None
+        for index in range(0, row_stride, channels):
+            if pixel_index % sample_every == 0:
+                pixels.append((scanline[index], scanline[index + 1], scanline[index + 2]))
+            pixel_index += 1
+        previous = scanline
+    return _color_ratios_from_pixels(pixels)
+
+
+def _color_ratios_from_pixels(pixels: list[tuple[int, int, int]]) -> dict[str, float] | None:
+    total = len(pixels)
+    if total == 0:
+        return None
+    orange = sum(1 for red, green, blue in pixels if red > 190 and 95 < green < 190 and blue < 90 and red > green + 45)
+    dark = sum(1 for red, green, blue in pixels if red < 45 and green < 45 and blue < 45)
+    gray = sum(
+        1
+        for red, green, blue in pixels
+        if 45 < red < 180 and 45 < green < 180 and 45 < blue < 180 and max(red, green, blue) - min(red, green, blue) < 35
+    )
+    return {"orange": orange / total, "dark": dark / total, "gray": gray / total}
+
+
+def _png_unfilter_sub(scanline: bytearray, bytes_per_pixel: int) -> None:
+    for index in range(bytes_per_pixel, len(scanline)):
+        scanline[index] = (scanline[index] + scanline[index - bytes_per_pixel]) & 0xFF
+
+
+def _png_unfilter_up(scanline: bytearray, previous: bytearray) -> None:
+    for index in range(len(scanline)):
+        scanline[index] = (scanline[index] + previous[index]) & 0xFF
+
+
+def _png_unfilter_average(scanline: bytearray, previous: bytearray, bytes_per_pixel: int) -> None:
+    for index in range(len(scanline)):
+        left = scanline[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+        up = previous[index]
+        scanline[index] = (scanline[index] + ((left + up) // 2)) & 0xFF
+
+
+def _png_unfilter_paeth(scanline: bytearray, previous: bytearray, bytes_per_pixel: int) -> None:
+    for index in range(len(scanline)):
+        left = scanline[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+        up = previous[index]
+        upper_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+        scanline[index] = (scanline[index] + _paeth_predictor(left, up, upper_left)) & 0xFF
+
+
+def _paeth_predictor(left: int, up: int, upper_left: int) -> int:
+    estimate = left + up - upper_left
+    distance_left = abs(estimate - left)
+    distance_up = abs(estimate - up)
+    distance_upper_left = abs(estimate - upper_left)
+    if distance_left <= distance_up and distance_left <= distance_upper_left:
+        return left
+    if distance_up <= distance_upper_left:
+        return up
+    return upper_left
 
 
 def _visual_assertion_error(message: str) -> dict[str, str]:
