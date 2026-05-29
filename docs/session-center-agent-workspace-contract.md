@@ -21,6 +21,7 @@ Session Center is the shared place where Workbench, dashboard, and agents can ag
   "attention_state": "active",
   "last_actor": "broker",
   "updated_at": "2026-05-29T16:00:00Z",
+  "next_action": "Gateway is loaded in Workbench.",
   "resume_route": {
     "kind": "broker_runtime",
     "runtime": "browser",
@@ -44,6 +45,7 @@ Fields:
 - `attention_state`: `needs_attention`, `active`, `done`, `idle`, or `unknown`.
 - `last_actor`: source owner such as `broker`, `bridge_queue`, `desktop_bridge`, or `codex_app_server`.
 - `updated_at`: source timestamp when present.
+- `next_action`: concise human-readable next step. Readers should tolerate it missing on early `evaos.session_center.v1` records and use a local fallback.
 - `resume_route`: typed route for reconnect/open behavior.
 - `source_pointer`: provenance pointer that a support agent can use to fetch the source evidence.
 - `audit_id`: bridge audit id when one exists.

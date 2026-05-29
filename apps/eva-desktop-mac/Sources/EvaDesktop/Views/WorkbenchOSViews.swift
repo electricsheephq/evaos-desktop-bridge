@@ -74,9 +74,9 @@ struct SessionCenterView: View {
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-                ForEach(model.sessionMissionCards) { card in
-                    SessionCard(card: card, systemImage: systemImage(for: card)) {
-                        if let runtime = card.runtime {
+                ForEach(model.sessionRecords) { record in
+                    SessionRecordCard(record: record, systemImage: systemImage(for: record)) {
+                        if let runtime = WorkbenchSessionContract.brokerRuntimeToOpen(for: record) {
                             jumpToRuntime(runtime)
                         }
                     }
@@ -101,16 +101,16 @@ struct SessionCenterView: View {
         return .electricSheepGoldSoft
     }
 
-    private func systemImage(for card: WorkbenchMissionCard) -> String {
-        if let runtime = card.runtime {
+    private func systemImage(for record: WorkbenchSessionRecord) -> String {
+        if let runtime = WorkbenchSessionContract.brokerRuntimeToOpen(for: record) {
             return RuntimeDefinition.definition(for: runtime).systemImage
         }
-        switch card.surface {
-        case "queue":
+        switch record.surface {
+        case .queue:
             return "bell.badge"
-        case "audit":
+        case .audit:
             return "list.clipboard"
-        case "codex":
+        case .codex:
             return "sparkle.magnifyingglass"
         default:
             return "rectangle.3.group.bubble.left"
@@ -118,15 +118,15 @@ struct SessionCenterView: View {
     }
 
     private var sessionAttentionSummary: String {
-        if model.sessionMissionCards.isEmpty {
+        if model.sessionRecords.isEmpty {
             return "No broker session state has been loaded yet. Refresh Session Center to read gateway status."
         }
-        let attentionCount = model.sessionMissionCards.filter { $0.attentionState == .needsAttention }.count
+        let attentionCount = model.sessionRecords.filter { $0.attentionState == .needsAttention }.count
         if attentionCount == 1 {
-            return "1 mission card needs review."
+            return "1 session needs review."
         }
         if attentionCount > 1 {
-            return "\(attentionCount) mission cards need review."
+            return "\(attentionCount) sessions need review."
         }
         return "No gateway, queue, audit, or Codex attention states in the read-only evidence."
     }
@@ -328,15 +328,15 @@ private struct MetricTile: View {
     }
 }
 
-private struct SessionCard: View {
-    let card: WorkbenchMissionCard
+private struct SessionRecordCard: View {
+    let record: WorkbenchSessionRecord
     let systemImage: String
     let action: () -> Void
 
     var body: some View {
-        if card.runtime == nil {
+        if WorkbenchSessionContract.brokerRuntimeToOpen(for: record) == nil {
             content
-                .help("Read-only evidence card; no runtime jump is available.")
+                .help("Read-only evidence record; no runtime jump is available.")
         } else {
             Button(action: action) {
                 content
@@ -351,21 +351,22 @@ private struct SessionCard: View {
             HStack {
                 RuntimeIconBadge(systemImage: systemImage, tint: tint)
                 Spacer()
-                StatusPill(title: card.status, systemImage: statusIcon, tint: tint)
+                StatusPill(title: record.status, systemImage: statusIcon, tint: tint)
             }
-            Text(card.title)
+            Text(record.title)
                 .font(.headline)
                 .foregroundStyle(Color.electricSheepPrimaryText)
-            Text(card.nextAction)
+            Text(record.nextAction)
                 .font(.callout)
                 .foregroundStyle(Color.electricSheepSecondaryText)
                 .lineLimit(2)
             VStack(alignment: .leading, spacing: 4) {
-                Text(card.sourcePointer)
-                if let auditId = card.auditId {
+                Text(record.resumeRoute.kind.rawValue)
+                Text(record.sourcePointer)
+                if let auditId = record.auditId {
                     Text(auditId)
                 }
-                if let lastUpdate = card.lastUpdate {
+                if let lastUpdate = record.updatedAt {
                     Text(lastUpdate)
                 }
             }
@@ -382,7 +383,7 @@ private struct SessionCard: View {
     }
 
     private var tint: Color {
-        switch card.attentionState {
+        switch record.attentionState {
         case .active:
             return .electricSheepSuccess
         case .done:
@@ -397,7 +398,7 @@ private struct SessionCard: View {
     }
 
     private var statusIcon: String {
-        switch card.attentionState {
+        switch record.attentionState {
         case .active:
             return "checkmark.circle"
         case .done:

@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Render Session Center from typed `WorkbenchSessionRecord` values for issue #161, preserving read-only mission-card evidence while gating Jump/Open to broker runtime routes and clearing stale records on reset.
+- Harden Codex app-server stdio reads so buffered JSON-RPC responses are consumed even when the child process exits immediately after writing.
 - Replace CodeQL default setup with advanced workflows for issue #159: Linux scans cover Actions/Python/JavaScript on relevant PRs, Swift CodeQL moves to main/tag/release/scheduled/manual runs, and PR runs cancel superseded pushes.
 - Add the issue #95 v0.5 information-architecture and feature-flag design gate: typed Workbench flag descriptors now include owner, dashboard env, rollout criteria, rollback action, and public copy, and the v0.5 expansion doc maps signed-out, signed-in, admin-switch, gateway fallback, and degraded states.
 - Add the shared Session Center and Agent Workspace contract for issue #99, including `evaos.session_center.v1`, typed resume routes, Workbench/dashboard ownership rules, and smoke coverage without adding a new control surface.

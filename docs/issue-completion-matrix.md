@@ -121,10 +121,12 @@ Milestone: `P1 Session Center product contract`
 | Issue | Acceptance | Implemented |
 | --- | --- | --- |
 | `#99` Session Center and Agent Workspace product contract | Canonical session object and attention states; reconnect contract avoids guessing UI state; dashboard and Workbench can point at the same session record; no arbitrary local shell/control capability | `WorkbenchSessionRecord` and `WorkbenchSessionContract` define `evaos.session_center.v1` with typed `resume_route` values. `docs/session-center-agent-workspace-contract.md` documents canonical fields, attention mapping, Workbench/dashboard ownership, reconnect rules, and the no-generic-control boundary. `EvaDesktopCoreSmoke` covers runtime, queue, audit, Codex, malformed bridge evidence, schema version, and route derivation. |
+| `#161` Session Center typed records in Workbench | Workbench renders typed session records, keeps mission-card evidence read-only, opens only broker-runtime records, leaves queue/audit/Codex evidence records non-control, and clears stale records on sign-out/session reset. | `WorkbenchModel.refreshSessionCenterState()` now publishes `sessionRecords` from `WorkbenchSessionContract.records(...)` while preserving mission cards for compatibility. `SessionCenterView` renders `WorkbenchSessionRecord` values and gates Jump/Open through `brokerRuntimeToOpen`. Reset paths clear records alongside runtime status and mission cards. Swift smoke covers record derivation, route kinds, next-action propagation, broker-only open routing, source checks, and stale-record clearing. |
 
 Verification:
 
 ```bash
 cd apps/eva-desktop-mac
 swift run EvaDesktopCoreSmoke
+swift build
 ```
