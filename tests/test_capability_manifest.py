@@ -93,6 +93,13 @@ def test_capability_manifest_rejects_non_ascii_segments_as_manifest_errors() -> 
         verify_hs256_manifest(f"{header}.é.invalid", SECRET)
 
 
+def test_capability_manifest_rejects_malformed_base64url_segments() -> None:
+    header, payload, signature = _jwt(_payload()).split(".")
+
+    with pytest.raises(CapabilityManifestError, match="base64url segment"):
+        verify_hs256_manifest(f"{header}$.{payload}.{signature}", SECRET)
+
+
 def test_capability_manifest_rejects_invalid_claims() -> None:
     with pytest.raises(CapabilityManifestError, match="issuer"):
         verify_hs256_manifest(
@@ -109,6 +116,12 @@ def test_capability_manifest_rejects_invalid_claims() -> None:
     with pytest.raises(CapabilityManifestError, match="grant"):
         verify_hs256_manifest(
             _jwt(_payload(grants={"gmail.send": "maybe"})),
+            SECRET,
+            now=datetime(2026, 5, 29, 19, 0, tzinfo=timezone.utc),
+        )
+    with pytest.raises(CapabilityManifestError, match="grant"):
+        verify_hs256_manifest(
+            _jwt(_payload(grants={"gmail.send": []})),
             SECRET,
             now=datetime(2026, 5, 29, 19, 0, tzinfo=timezone.utc),
         )

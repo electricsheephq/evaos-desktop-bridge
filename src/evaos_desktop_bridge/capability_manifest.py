@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 CapabilityDecision = Literal["allowed", "requires_approval", "denied"]
 ALLOWED_DECISIONS: set[str] = {"allowed", "requires_approval", "denied"}
@@ -117,9 +118,9 @@ def _manifest_from_payload(payload: dict[str, Any]) -> CapabilityManifest:
     for tool_name, decision in raw_grants.items():
         if not isinstance(tool_name, str) or not tool_name.strip():
             raise CapabilityManifestError("capability manifest grant tool names must be non-empty strings")
-        if decision not in ALLOWED_DECISIONS:
+        if not isinstance(decision, str) or decision not in ALLOWED_DECISIONS:
             raise CapabilityManifestError(f"capability manifest grant decision is invalid for {tool_name}")
-        grants[tool_name.strip()] = decision
+        grants[tool_name.strip()] = cast(CapabilityDecision, decision)
     budget = _budget_from_payload(payload.get("budget"))
     if expires_at <= issued_at:
         raise CapabilityManifestError("capability manifest expires_at must be after issued_at")
@@ -175,8 +176,8 @@ def _format_utc(value: datetime) -> str:
 def _base64url_decode(value: str) -> bytes:
     try:
         padded = value + ("=" * (-len(value) % 4))
-        return base64.urlsafe_b64decode(padded.encode("ascii"))
-    except Exception as exc:
+        return base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error) as exc:
         raise CapabilityManifestError("capability manifest base64url segment is invalid") from exc
 
 
