@@ -39,3 +39,20 @@ Milestone: `Codex Desktop App-Server Control`
 | OpenClaw wrapper tools | Implemented status/readiness slice | fixed named tools for connections, live status, loaded threads, and read-only app-server status; still no generic app-server RPC or live controller passthrough |
 | Workbench status formatter | Implemented | Workbench reads `codex connections status` and the current `remote_control_command`, `daemon`, and `control_sockets` shape |
 | 0.6.5 release canary | Partial, evidence retained | Connector/OpenClaw/Hermes all-surface canaries reached 33/44 before harness fix; desktop scenario rerun passed 5/5; iPhone Calculator launch remains a tuning issue; kill-switch final passed 3/3; QA canaries are not a substitute for the #136 live Codex controller acceptance |
+
+## Workbench OpenDesign Gateway
+
+Milestone: `Eva Desktop Workbench MVP`
+
+| Issue | Acceptance | Implemented |
+| --- | --- | --- |
+| `#20` OpenDesign tab spike | Choose hosted/local/placeholder route; safe unavailable state; document expandable choice | Chosen route is the brokered `opendesign` runtime. No hard-coded hosted URL or local discovery is used. Signed-out, authorization, and broker failures use the standard gateway unavailable/error states. Contract is documented in `docs/opendesign-gateway.md`. |
+| `#66` OpenDesign first-class Workbench gateway | Brokered launch, no placeholder for eligible customers, persistent WebView, runtime health/readiness, auth parity, Codex/BYOK split | `RuntimeKey.openDesign` serializes as `opendesign`, is a brokered visible runtime, has no external fallback URL, participates in broker `runtime_status` checks, and is loaded through the persistent `RuntimeWebViewDeck`. Codex/BYOK readiness stays separate in Provider Hub/Session Center. |
+
+Verification:
+
+```bash
+cd apps/eva-desktop-mac
+swift run EvaDesktopCoreSmoke
+swift build
+```
