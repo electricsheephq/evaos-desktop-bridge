@@ -287,8 +287,8 @@ class ScratchAppProcess:
         self.process = subprocess.Popen(
             ["swift", "run", "Issue130ScratchApp", "--state", str(self.state_path), "--ready", str(self.ready_path), "--command", str(self.command_path)],
             cwd=self.package_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
         deadline = time.monotonic() + 45.0
@@ -386,7 +386,9 @@ def _check_frontmost_unchanged(before: str | None, after: str | None) -> Behavio
 def _check_cursor_not_warped(before: dict[str, int] | None, after: dict[str, int] | None, command: BehaviorCommandResult) -> BehaviorCheck:
     action_point = command.data.get("action_point") if isinstance(command.data.get("action_point"), dict) else command.data.get("point")
     distance = _point_distance(before, after)
-    warped_to_action = isinstance(action_point, dict) and after == {"x": action_point.get("x"), "y": action_point.get("y")}
+    action_xy = {"x": action_point.get("x"), "y": action_point.get("y")} if isinstance(action_point, dict) else None
+    moved = before is not None and after is not None and before != after
+    warped_to_action = bool(moved and action_xy is not None and after == action_xy)
     passed = before is not None and after is not None and distance is not None and distance <= 3 and not warped_to_action
     return _check(
         "cursor_not_warped",
@@ -413,17 +415,29 @@ def _check_occluded_capture(command: BehaviorCommandResult) -> BehaviorCheck:
 def _check_policy_denied_zero_effect(before: dict[str, Any], after: dict[str, Any], command: BehaviorCommandResult) -> BehaviorCheck:
     unchanged = before == after
     denied = command.ok is False
-    passed = unchanged and denied
+    policy_error_codes = {
+        "approval_audit_required",
+        "approval_required",
+        "control_kill_switch_active",
+        "control_session_required",
+        "permission_missing",
+        "policy_denied",
+    }
+    error_codes = set(_error_codes(command.errors))
+    denied_by_policy = bool(error_codes & policy_error_codes)
+    passed = unchanged and denied and denied_by_policy
     errors: list[dict[str, Any]] = []
     if not denied:
         errors.append(_error("issue130_denied_command_succeeded", "A policy-denied live command returned ok:true.", "Live guarded commands must fail closed without approval/control."))
+    if denied and not denied_by_policy:
+        errors.append(_error("issue130_denied_reason_unverified", "The denied command did not report a policy-denied error code.", "Assert policy-specific denial metadata to keep this invariant meaningful."))
     if not unchanged:
         errors.append(_error("issue130_denied_mutated_state", "A policy-denied live command changed scratch-app state.", "Denied operations must have zero effect."))
     return _check(
         "policy_denied_zero_effect",
         "A policy-denied operation must have zero effect on scratch-app state.",
         passed,
-        evidence={"before_state": before, "after_state": after, "command_ok": command.ok, "error_codes": _error_codes(command.errors)},
+        evidence={"before_state": before, "after_state": after, "command_ok": command.ok, "error_codes": sorted(error_codes), "denied_by_policy": denied_by_policy},
         errors=errors,
         warnings=command.warnings,
     )

@@ -16,15 +16,19 @@ class ScriptedIssue130Surface(Issue130Surface):
         self,
         *,
         mutate_denied: bool = False,
+        non_policy_denied: bool = False,
         sensitive_ok: bool = False,
         cursor_warp: bool = False,
+        cursor_starts_at_action: bool = False,
         occluded_capture_ok: bool = True,
     ) -> None:
         self.counter = 0
         self.denied_text = ""
         self.mutate_denied = mutate_denied
+        self.non_policy_denied = non_policy_denied
         self.sensitive_ok = sensitive_ok
         self.cursor_warp = cursor_warp
+        self.cursor_starts_at_action = cursor_starts_at_action
         self.occluded_capture_ok = occluded_capture_ok
 
     def open_scratch_app(self) -> None:
@@ -40,6 +44,8 @@ class ScriptedIssue130Surface(Issue130Surface):
         return "Issue130ScratchApp"
 
     def cursor_position(self) -> dict[str, int] | None:
+        if self.cursor_starts_at_action:
+            return {"x": 640, "y": 480}
         if self.cursor_warp:
             return {"x": 640, "y": 480}
         return {"x": 12, "y": 34}
@@ -51,10 +57,11 @@ class ScriptedIssue130Surface(Issue130Surface):
     def perform_denied_text(self) -> BehaviorCommandResult:
         if self.mutate_denied:
             self.denied_text = "ISSUE130_DENIED_MUTATION"
+        code = "runtime_failure" if self.non_policy_denied else "approval_audit_required"
         return BehaviorCommandResult(
             ok=False,
             data={},
-            errors=[{"code": "approval_audit_required", "message": "dry-run audit required"}],
+            errors=[{"code": code, "message": "dry-run audit required"}],
         )
 
     def capture_occluded_target(self) -> BehaviorCommandResult:
@@ -97,6 +104,22 @@ def test_issue130_invariants_catch_denied_mutation() -> None:
     assert report.ok is False
     assert "policy_denied_zero_effect" in failed
     assert failed["policy_denied_zero_effect"].errors[0]["code"] == "issue130_denied_mutated_state"
+
+
+def test_issue130_invariants_require_policy_denial_reason() -> None:
+    report = run_issue130_invariants(ScriptedIssue130Surface(non_policy_denied=True))
+
+    failed = {check.id: check for check in report.checks if check.status == "failed"}
+    assert report.ok is False
+    assert "policy_denied_zero_effect" in failed
+    assert failed["policy_denied_zero_effect"].errors[0]["code"] == "issue130_denied_reason_unverified"
+
+
+def test_issue130_cursor_check_allows_starting_at_action_point() -> None:
+    report = run_issue130_invariants(ScriptedIssue130Surface(cursor_starts_at_action=True))
+
+    failed = {check.id: check for check in report.checks if check.status == "failed"}
+    assert "cursor_not_warped" not in failed
 
 
 def test_issue130_invariants_catch_sensitive_observation_leak() -> None:
