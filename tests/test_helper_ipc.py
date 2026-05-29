@@ -54,6 +54,47 @@ def test_helper_ipc_rejects_wrong_schema_version() -> None:
     assert exc.value.code == "helper_ipc_bad_schema"
 
 
+@pytest.mark.parametrize("expected_uid", [None, -1, "501", True])
+def test_helper_ipc_rejects_missing_or_invalid_expected_uid(expected_uid: object) -> None:
+    token = "correct-token"
+    request = build_helper_request(command="ping", token=token, request_id="req-uid")
+
+    with pytest.raises(HelperIpcError) as exc:
+        handle_helper_request(request, expected_token=token, expected_uid=expected_uid, peer_uid=501)
+
+    assert exc.value.code == "helper_ipc_missing_peer_policy"
+
+
+def test_helper_ipc_rejects_missing_peer_uid() -> None:
+    token = "correct-token"
+    request = build_helper_request(command="ping", token=token, request_id="req-peer")
+
+    with pytest.raises(HelperIpcError) as exc:
+        handle_helper_request(request, expected_token=token, expected_uid=501, peer_uid=None)
+
+    assert exc.value.code == "helper_ipc_bad_peer"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("request_id", {"bad": "shape"}, "helper_ipc_bad_request_id"),
+        ("request_id", "", "helper_ipc_bad_request_id"),
+        ("payload", "not-object", "helper_ipc_bad_payload"),
+        ("audit_id", {"bad": "shape"}, "helper_ipc_bad_audit_id"),
+    ],
+)
+def test_helper_ipc_rejects_malformed_authorized_envelope(field: str, value: object, code: str) -> None:
+    token = "correct-token"
+    request = build_helper_request(command="ping", token=token, request_id="req-shape")
+    request[field] = value
+
+    with pytest.raises(HelperIpcError) as exc:
+        handle_helper_request(request, expected_token=token, expected_uid=501, peer_uid=501)
+
+    assert exc.value.code == code
+
+
 @pytest.mark.parametrize(
     ("request_token", "peer_uid", "code"),
     [
@@ -103,8 +144,24 @@ def test_helper_ipc_framing_round_trips_and_rejects_oversized_messages() -> None
     assert exc.value.code == "helper_ipc_payload_too_large"
 
 
-def test_helper_ipc_rejects_malformed_frame_before_json_parse() -> None:
+def test_helper_ipc_rejects_oversized_frame_before_json_parse() -> None:
     with pytest.raises(HelperIpcError) as exc:
         decode_frame((HELPER_IPC_MAX_BYTES + 1).to_bytes(4, "big") + b"not-json")
 
     assert exc.value.code == "helper_ipc_payload_too_large"
+
+
+@pytest.mark.parametrize(
+    ("frame", "code"),
+    [
+        (b"\x00\x00\x00", "helper_ipc_frame_truncated"),
+        ((2).to_bytes(4, "big") + b"[]", "helper_ipc_bad_payload"),
+        ((10).to_bytes(4, "big") + b"{}", "helper_ipc_frame_truncated"),
+        ((8).to_bytes(4, "big") + b"not-json", "helper_ipc_bad_json"),
+    ],
+)
+def test_helper_ipc_rejects_malformed_in_bounds_frames(frame: bytes, code: str) -> None:
+    with pytest.raises(HelperIpcError) as exc:
+        decode_frame(frame)
+
+    assert exc.value.code == code

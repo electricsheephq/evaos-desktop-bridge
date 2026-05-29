@@ -12,6 +12,9 @@ This is the contract-only first slice for the future persistent computer-use hel
 - Maximum payload: 64 KiB.
 - Authorization: per-launch capability token plus peer-uid match.
 - Allowed command in this slice: `ping`.
+- Request envelope: `request_id` must be a non-empty string, `payload`
+  must be a JSON object, and `audit_id` must be a non-empty string when
+  present.
 
 Example request:
 
@@ -61,9 +64,12 @@ This slice deliberately rejects every actuation-like command, including desktop 
 - successful authorized `ping`;
 - no token echo in responses;
 - schema-version rejection;
+- malformed request envelope rejection;
 - missing/wrong capability token rejection;
+- missing/invalid peer policy rejection;
 - wrong peer uid rejection;
 - oversized frame rejection before JSON parsing;
-- malformed frame rejection;
+- malformed in-bounds frame rejection, including short prefix, length mismatch,
+  invalid JSON, and non-object JSON payloads;
 - unknown/actuation-like command rejection;
 - exact allowed-command lock of `{"ping"}`.

@@ -52,12 +52,21 @@ def handle_helper_request(
     _authorize_request(request, expected_token=expected_token, expected_uid=expected_uid, peer_uid=peer_uid)
     if request.get("schema_version") != HELPER_IPC_SCHEMA_VERSION:
         raise HelperIpcError("helper_ipc_bad_schema", "Helper IPC request has an unsupported schema version.")
+    request_id = request.get("request_id")
+    if not isinstance(request_id, str) or not request_id:
+        raise HelperIpcError("helper_ipc_bad_request_id", "Helper IPC request id must be a non-empty string.")
     command = request.get("command")
     if not isinstance(command, str) or command not in HELPER_IPC_ALLOWED_COMMANDS:
         raise HelperIpcError("helper_ipc_command_not_allowed", "Helper IPC command is not allowed in the contract skeleton.")
+    payload = request.get("payload")
+    if not isinstance(payload, dict):
+        raise HelperIpcError("helper_ipc_bad_payload", "Helper IPC request payload must be a JSON object.")
+    audit_id = request.get("audit_id")
+    if audit_id is not None and (not isinstance(audit_id, str) or not audit_id):
+        raise HelperIpcError("helper_ipc_bad_audit_id", "Helper IPC audit id must be a non-empty string when present.")
     return {
         "schema_version": HELPER_IPC_SCHEMA_VERSION,
-        "request_id": str(request.get("request_id") or ""),
+        "request_id": request_id,
         "ok": True,
         "timestamp": timestamp_utc(),
         "data": {
@@ -102,10 +111,12 @@ def _authorize_request(
     expected_uid: int | None,
     peer_uid: int | None,
 ) -> None:
+    if type(expected_uid) is not int or expected_uid < 0:
+        raise HelperIpcError("helper_ipc_missing_peer_policy", "Helper IPC expected peer uid is not configured.")
     supplied_token = request.get("capability_token")
     if not isinstance(supplied_token, str) or not supplied_token:
         raise HelperIpcError("helper_ipc_missing_token", "Helper IPC request is missing its capability token.")
     if not expected_token or not secrets.compare_digest(supplied_token, expected_token):
         raise HelperIpcError("helper_ipc_bad_token", "Helper IPC request has an invalid capability token.")
-    if expected_uid is not None and peer_uid != expected_uid:
+    if peer_uid != expected_uid:
         raise HelperIpcError("helper_ipc_bad_peer", "Helper IPC peer uid is not authorized.")
