@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -25,6 +26,45 @@ SCREEN_RECORDING_GUIDANCE = (
     "or app running evaos-desktop-bridge, then rerun the command."
 )
 SUPPORT_CANARY_ENV = "EVAOS_SUPPORT_CANARY_CONTROLS"
+VISIBLE_MESSAGE_MAX_CHARS = 4000
+THREAD_STATUS_LABELS = (
+    "Awaiting response",
+    "Running",
+    "Working",
+    "Thinking",
+    "Needs approval",
+    "Approval needed",
+    "Queued",
+    "Done",
+    "Failed",
+    "Error",
+)
+THREAD_SECTION_LABELS = {"pinned", "projects", "chats", "recent", "show more"}
+THREAD_CONTROL_LABELS = {
+    "archive chat",
+    "automation folders",
+    "automations",
+    "unarchive chat",
+    "pin chat",
+    "unpin chat",
+    "copy",
+    "copy message",
+    "new chat",
+    "new thread",
+    "search",
+    "settings",
+    "send",
+    "plugins",
+}
+THREAD_CONTROL_PREFIX_LABELS = {
+    "archive chat",
+    "automation folders",
+    "automations",
+    "pin chat",
+    "unarchive chat",
+    "unpin chat",
+}
+THREAD_TIME_RE = re.compile(r"^(?:now|yesterday|\d+\s?(?:s|m|h|d|w|mo|y))$", re.IGNORECASE)
 
 
 @dataclass
@@ -120,9 +160,32 @@ def text_value(value):
         return None
 
 
+def bool_value(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    try:
+        return bool(value)
+    except Exception:
+        return None
+
+
 def rect_value(element):
     pos = ax_value(element, AS.kAXPositionAttribute)
     size = ax_value(element, AS.kAXSizeAttribute)
+    try:
+        ok_pos, point = AS.AXValueGetValue(pos, AS.kAXValueCGPointType, None)
+        ok_size, size_value = AS.AXValueGetValue(size, AS.kAXValueCGSizeType, None)
+        if ok_pos and ok_size:
+            return {
+                "x": int(point.x),
+                "y": int(point.y),
+                "width": int(size_value.width),
+                "height": int(size_value.height),
+            }
+    except Exception:
+        pass
     try:
         x, y = pos.x, pos.y
         w, h = size.width, size.height
@@ -136,7 +199,15 @@ def walk(element, rows, depth=0, window_index=None):
         return True
     role = text_value(ax_value(element, AS.kAXRoleAttribute)) or "unknown"
     name = text_value(ax_value(element, AS.kAXTitleAttribute)) or text_value(ax_value(element, AS.kAXDescriptionAttribute))
-    rows.append({"role": role, "name": name, "depth": depth, "window_index": window_index, "bounds": rect_value(element)})
+    rows.append({
+        "role": role,
+        "name": name,
+        "depth": depth,
+        "window_index": window_index,
+        "bounds": rect_value(element),
+        "selected": bool_value(ax_value(element, AS.kAXSelectedAttribute)),
+        "focused": bool_value(ax_value(element, AS.kAXFocusedAttribute)),
+    })
     children = ax_value(element, AS.kAXChildrenAttribute) or []
     try:
         child_iter = list(children)
@@ -504,6 +575,240 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             provenance={"source": "ax", "dry_run": False, "selected_visible_target_id": thread_id},
         )
 
+    def send_visible_message(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        dry_run: bool = True,
+        confirmed: bool = False,
+    ) -> CommandResult:
+        message = message.strip()
+        message_preview = self._safe_message_preview(message)
+        message_hash = self._short_hash(message)
+        provenance = {
+            "source": "codex_visible_gui",
+            "dry_run": dry_run,
+            "selected_visible_target_id": thread_id,
+            "message_hash": message_hash,
+        }
+        if not message:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[
+                    make_error(
+                        code="visible_message_empty",
+                        message="Codex visible GUI message cannot be empty.",
+                        guidance="Pass a non-empty --message value.",
+                    )
+                ],
+                provenance=provenance,
+            )
+        if len(message) > VISIBLE_MESSAGE_MAX_CHARS:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash, "max_chars": VISIBLE_MESSAGE_MAX_CHARS},
+                errors=[
+                    make_error(
+                        code="visible_message_too_long",
+                        message=f"Codex visible GUI message is capped at {VISIBLE_MESSAGE_MAX_CHARS} characters.",
+                        guidance="Shorten the message, then rerun the dry-run approval flow.",
+                    )
+                ],
+                provenance=provenance,
+            )
+        if self.platform_name != "Darwin":
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[
+                    make_error(
+                        code="unsupported_platform",
+                        message="Codex Desktop visible GUI messaging is only supported on macOS.",
+                        guidance="Run this command on the macOS desktop host running Codex Desktop.",
+                    )
+                ],
+                provenance=provenance,
+            )
+        if self.accessibility_checker() is False:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[
+                    make_error(
+                        code="permission_missing",
+                        message="Accessibility permission is required to send a visible Codex GUI message.",
+                        guidance=ACCESSIBILITY_GUIDANCE,
+                        permission="accessibility",
+                    )
+                ],
+                provenance=provenance,
+            )
+        if not dry_run and not confirmed:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": False, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[
+                    make_error(
+                        code="visible_message_confirmation_required",
+                        message="Live Codex visible GUI messaging requires --confirm after a matching dry-run audit.",
+                        guidance="Run the command with --dry-run first, then rerun with --live --confirm --approval-audit-id.",
+                    )
+                ],
+                provenance=provenance,
+            )
+        inventory = self.threads(max_items=200)
+        if not inventory.ok:
+            inventory.provenance.update(provenance)
+            return inventory
+        target = next((item for item in inventory.data.get("threads", []) if item.get("visible_id") == thread_id), None)
+        if target is None:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[
+                    make_error(
+                        code="visible_thread_not_found",
+                        message="The requested visible Codex thread id is not present in the current GUI inventory.",
+                        guidance="Rerun `evaos-desktop-bridge codex threads --json` and choose a current visible_id.",
+                    )
+                ],
+                provenance=provenance,
+            )
+        center = target.get("center")
+        if not isinstance(center, dict) or center.get("x") is None or center.get("y") is None:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[
+                    make_error(
+                        code="visible_thread_not_selectable",
+                        message="The visible thread candidate does not have safe screen coordinates.",
+                        guidance="Use a candidate with bounds from the current AX inventory.",
+                    )
+                ],
+                provenance=provenance,
+            )
+        target_safety_error = self._visible_message_target_safety_error(target=target, live=not dry_run)
+        if target_safety_error is not None:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[target_safety_error],
+                provenance=provenance,
+            )
+        preflight = self._visible_message_preflight()
+        if not preflight.ok:
+            preflight.provenance.update(provenance)
+            preflight.data.update({"thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash})
+            return preflight
+        composer = preflight.data.get("composer")
+        if dry_run:
+            return CommandResult(
+                ok=True,
+                data={
+                    "thread_id": thread_id,
+                    "target": target,
+                    "composer": composer,
+                    "would_select": True,
+                    "would_focus_composer": True,
+                    "would_submit": True,
+                    "submitted": False,
+                    "message_preview": message_preview,
+                    "message_hash": message_hash,
+                    "max_chars": VISIBLE_MESSAGE_MAX_CHARS,
+                },
+                provenance=provenance,
+            )
+        selected = self.select_thread(thread_id=thread_id, dry_run=False)
+        if not selected.ok:
+            selected.provenance.update(provenance)
+            return selected
+        verified = self._verify_selected_visible_thread(target)
+        if not verified.ok:
+            verified.provenance.update(provenance)
+            verified.data.update({"thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash})
+            return verified
+        after_select_preflight = self._visible_message_preflight()
+        if not after_select_preflight.ok:
+            after_select_preflight.provenance.update(provenance)
+            after_select_preflight.data.update({"thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash})
+            return after_select_preflight
+        composer = after_select_preflight.data.get("composer")
+        before_snapshot = self.snapshot(max_chars=1000)
+        composer_center = composer.get("center") if isinstance(composer, dict) else None
+        click_command = None
+        if isinstance(composer_center, dict) and composer_center.get("x") is not None and composer_center.get("y") is not None:
+            click_command = self.runner(
+                ["osascript", "-e", f'tell application "System Events" to click at {{{int(composer_center["x"])}, {int(composer_center["y"])}}}'],
+                5.0,
+            )
+            if click_command.returncode != 0:
+                return CommandResult(
+                    ok=False,
+                    data={"submitted": False, "thread_id": thread_id, "target": target, "composer": composer, "message_preview": message_preview, "message_hash": message_hash},
+                    errors=[
+                        make_error(
+                            code="codex_visible_composer_focus_failed",
+                            message="macOS refused to focus the visible Codex composer.",
+                            guidance=ACCESSIBILITY_GUIDANCE,
+                            permission="accessibility",
+                        )
+                    ],
+                    warnings=[str(redact_value(click_command.stderr.strip()))] if click_command.stderr.strip() else [],
+                    provenance=provenance,
+                )
+        type_result = self.runner(
+            [
+                "osascript",
+                "-e",
+                f'tell application "System Events" to keystroke "{self._escape_applescript(message)}"',
+                "-e",
+                'tell application "System Events" to key code 36',
+            ],
+            10.0,
+        )
+        if type_result.returncode != 0:
+            return CommandResult(
+                ok=False,
+                data={"submitted": False, "thread_id": thread_id, "target": target, "composer": composer, "message_preview": message_preview, "message_hash": message_hash},
+                errors=[
+                    make_error(
+                        code="codex_visible_message_submit_failed",
+                        message="macOS refused the visible Codex GUI message submission.",
+                        guidance=ACCESSIBILITY_GUIDANCE,
+                        permission="accessibility",
+                    )
+                ],
+                warnings=[str(redact_value(type_result.stderr.strip()))] if type_result.stderr.strip() else [],
+                provenance=provenance,
+            )
+        after_snapshot = self.snapshot(max_chars=1000)
+        before_snapshot_path = before_snapshot.data.get("screenshot_path") if before_snapshot.ok else None
+        after_snapshot_path = after_snapshot.data.get("screenshot_path") if after_snapshot.ok else None
+        return CommandResult(
+            ok=True,
+            data={
+                "thread_id": thread_id,
+                "target": target,
+                "composer": composer,
+                "would_submit": False,
+                "submitted": True,
+                "message_preview": message_preview,
+                "message_hash": message_hash,
+                "before_snapshot": before_snapshot_path,
+                "after_snapshot": after_snapshot_path,
+            },
+            warnings=before_snapshot.warnings + after_snapshot.warnings,
+            provenance={
+                **provenance,
+                "before_snapshot_id": before_snapshot_path,
+                "after_snapshot_id": after_snapshot_path,
+                "selected_title_hash": target.get("title_hash"),
+            },
+        )
+
     def continue_thread(self, *, title: str, prompt: str = "continue", dry_run: bool = False) -> CommandResult:
         if not self._support_canary_enabled():
             return CommandResult(
@@ -556,52 +861,12 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             )
         target = matches[0]
         if dry_run:
-            return CommandResult(
-                ok=True,
-                data={
-                    "would_select": True,
-                    "would_submit": True,
-                    "submitted": False,
-                    "title": redact_value(title),
-                    "prompt_preview": self._safe_prompt_preview(prompt),
-                    "target": target,
-                },
-                provenance={"source": "codex_visible_fallback", "dry_run": True, "support_only": True},
-            )
-        selected = self.select_thread(thread_id=str(target["visible_id"]), dry_run=False)
-        if not selected.ok:
-            selected.provenance.update({"source": "codex_visible_fallback", "dry_run": False, "support_only": True})
-            return selected
-        type_result = self.runner(
-            [
-                "osascript",
-                "-e",
-                f'tell application "System Events" to keystroke "{self._escape_applescript(prompt.strip())}"',
-                "-e",
-                'tell application "System Events" to key code 36',
-            ],
-            5.0,
-        )
-        if type_result.returncode != 0:
-            return CommandResult(
-                ok=False,
-                data={"would_submit": False, "submitted": False, "title": redact_value(title), "target": target},
-                errors=[
-                    make_error(
-                        code="codex_continue_submit_failed",
-                        message="macOS refused the support canary Codex visible continue fallback.",
-                        guidance=ACCESSIBILITY_GUIDANCE,
-                        permission="accessibility",
-                    )
-                ],
-                warnings=[str(redact_value(type_result.stderr.strip()))] if type_result.stderr.strip() else [],
-                provenance={"source": "codex_visible_fallback", "dry_run": False, "support_only": True},
-            )
-        return CommandResult(
-            ok=True,
-            data={"submitted": True, "title": redact_value(title), "prompt_preview": self._safe_prompt_preview(prompt), "target": target},
-            provenance={"source": "codex_visible_fallback", "dry_run": False, "support_only": True},
-        )
+            delegated = self.send_visible_message(thread_id=str(target["visible_id"]), message=prompt.strip(), dry_run=True)
+        else:
+            delegated = self.send_visible_message(thread_id=str(target["visible_id"]), message=prompt.strip(), dry_run=False, confirmed=True)
+        delegated.data.update({"title": redact_value(title), "prompt_preview": self._safe_prompt_preview(prompt), "target": target})
+        delegated.provenance.update({"source": "codex_visible_fallback", "support_only": True})
+        return delegated
 
     def inspect(self, *, max_nodes: int) -> CommandResult:
         status = self.status()
@@ -810,19 +1075,53 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         }
         if row.get("bounds") is not None:
             node["bounds"] = row.get("bounds")
+        if row.get("selected") is not None:
+            node["selected"] = bool(row.get("selected"))
+        if row.get("focused") is not None:
+            node["focused"] = bool(row.get("focused"))
         return node
 
     def _visible_threads_from_payload(self, payload: dict[str, Any], *, max_items: int) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
+        fallback_candidates: list[dict[str, Any]] = []
         seen: set[str] = set()
+        fallback_seen: set[str] = set()
+        current_project: str | None = None
+        in_projects = False
+        window_bounds_by_index = {
+            row.get("index"): row.get("bounds")
+            for row in payload.get("windows", [])
+            if isinstance(row, dict)
+        }
         for row in payload.get("nodes", []):
             node = self._safe_node(row)
             role = str(node.get("role") or "")
             name = node.get("name")
             if not name or role not in {"AXButton", "AXStaticText", "AXTextField", "AXGroup", "AXRow", "AXLink"}:
                 continue
-            lowered = str(name).strip().lower()
-            if lowered in {"codex", "new chat", "new thread", "settings", "search", "send"}:
+            raw_name = str(name).strip()
+            lowered = raw_name.lower()
+            if self._is_thread_section_label(lowered):
+                in_projects = lowered == "projects" or in_projects
+                continue
+            if in_projects and role == "AXStaticText" and self._looks_like_project_header(raw_name):
+                current_project = str(redact_value(raw_name))
+                continue
+            if self._is_action_only_thread_row(lowered, node) and len(fallback_candidates) < max_items:
+                fallback_key = json.dumps(node.get("bounds"), sort_keys=True)
+                if fallback_key in fallback_seen:
+                    continue
+                fallback_seen.add(fallback_key)
+                fallback = self._unknown_thread_row(index=len(fallback_candidates), node=node, raw_name=raw_name, project=current_project)
+                if fallback["visible_id"] not in seen:
+                    fallback_candidates.append(fallback)
+                    seen.add(str(fallback["visible_id"]))
+            if self._is_thread_control_label(lowered):
+                continue
+            title, status, updated_label = self._split_thread_title_status(raw_name)
+            if not title or self._is_thread_control_label(title.lower()):
+                continue
+            if len(title) < 3 or title.lower() in {"codex", "vantage"}:
                 continue
             visible_id = self._visible_thread_id(index=len(candidates), title=str(name), window_index=node.get("window_index"))
             if visible_id in seen:
@@ -842,18 +1141,26 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 {
                     "visible_id": visible_id,
                     "index": len(candidates),
-                    "title": name,
+                    "title": title,
+                    "raw_title": raw_name,
+                    "project": current_project,
+                    "status": status,
+                    "updated_label": updated_label,
+                    "title_hash": self._short_hash(title),
                     "role": role,
                     "window_index": node.get("window_index"),
                     "bounds": bounds,
+                    "window_bounds": window_bounds_by_index.get(node.get("window_index")),
                     "center": center,
-                    "confidence": "medium" if center else "low",
+                    "selected": bool(node.get("selected")) if node.get("selected") is not None else None,
+                    "focused": bool(node.get("focused")) if node.get("focused") is not None else None,
+                    "confidence": self._thread_confidence(role=role, center=center, status=status, updated_label=updated_label, project=current_project),
                     "source": "ax",
                 }
             )
             if len(candidates) >= max_items:
                 break
-        return candidates
+        return candidates or fallback_candidates[:max_items]
 
     def _visible_thread_id(self, *, index: int, title: str, window_index: Any) -> str:
         digest = hashlib.sha256(f"{window_index}:{index}:{title}".encode("utf-8")).hexdigest()[:12]
@@ -866,5 +1173,254 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         capped, _ = cap_text(redact_value(prompt.strip()), 80)
         return capped or ""
 
+    def _safe_message_preview(self, message: str) -> str:
+        capped, _ = cap_text(redact_value(message.strip()), 240)
+        return capped or ""
+
+    def _short_hash(self, value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
     def _escape_applescript(self, value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    def _visible_message_preflight(self) -> CommandResult:
+        frontmost = self.frontmost()
+        if not frontmost.ok or frontmost.data.get("codex_frontmost") is not True:
+            return CommandResult(
+                ok=False,
+                data={"composer": None, "codex_frontmost": frontmost.data.get("codex_frontmost", False)},
+                errors=[
+                    make_error(
+                        code="codex_not_frontmost",
+                        message="Codex Desktop must be frontmost before sending a visible GUI message.",
+                        guidance="Focus Codex Desktop and make sure the target thread is visible, then rerun the dry-run.",
+                    )
+                ],
+                warnings=frontmost.warnings,
+                provenance={"source": "codex_visible_gui"},
+            )
+        ax = self.ax_tree(max_nodes=1200)
+        if not ax.ok:
+            return ax
+        composer = self._find_visible_composer(ax.data.get("nodes", []))
+        if composer is None:
+            return CommandResult(
+                ok=False,
+                data={"composer": None, "codex_frontmost": True},
+                errors=[
+                    make_error(
+                        code="codex_visible_composer_not_found",
+                        message="No visible Codex composer was found in the current Accessibility tree.",
+                        guidance="Open a loaded Codex thread with the message composer visible, then rerun the dry-run.",
+                    )
+                ],
+                warnings=ax.warnings,
+                provenance={"source": "codex_visible_gui"},
+            )
+        return CommandResult(ok=True, data={"composer": composer, "codex_frontmost": True}, warnings=ax.warnings, provenance={"source": "codex_visible_gui"})
+
+    def _visible_message_target_safety_error(self, *, target: dict[str, Any], live: bool) -> dict[str, Any] | None:
+        bounds = target.get("bounds")
+        center = target.get("center")
+        if not self._bounds_have_positive_size(bounds) or not isinstance(center, dict):
+            return make_error(
+                code="visible_thread_not_selectable",
+                message="The visible thread candidate does not have positive on-screen bounds.",
+                guidance="Use a candidate with positive bounds from the current AX inventory.",
+            )
+        window_bounds = target.get("window_bounds")
+        if isinstance(window_bounds, dict) and not self._point_inside_bounds(center, window_bounds):
+            return make_error(
+                code="visible_thread_offscreen",
+                message="The visible thread candidate center is outside the Codex window bounds.",
+                guidance="Rerun the thread inventory with the target row visible in the Codex window.",
+            )
+        if live and (target.get("selection_only") is True or target.get("confidence") == "low"):
+            return make_error(
+                code="visible_thread_identity_not_verifiable",
+                message="Live visible GUI messaging requires a titled, medium-or-better confidence thread candidate.",
+                guidance="Use a visible row with title/status evidence, or use dry-run/read-only mapping until Codex exposes enough AX identity.",
+            )
+        return None
+
+    def _verify_selected_visible_thread(self, target: dict[str, Any]) -> CommandResult:
+        inventory = self.threads(max_items=200)
+        if not inventory.ok:
+            inventory.provenance.update({"source": "codex_visible_gui"})
+            return inventory
+        current = next((item for item in inventory.data.get("threads", []) if item.get("visible_id") == target.get("visible_id")), None)
+        if current is None:
+            return CommandResult(
+                ok=False,
+                data={"selection_verified": False},
+                errors=[
+                    make_error(
+                        code="visible_thread_not_found_after_select",
+                        message="The target visible Codex thread disappeared after selection.",
+                        guidance="Rerun thread-map and dry-run approval against the current visible UI.",
+                    )
+                ],
+                provenance={"source": "codex_visible_gui"},
+            )
+        if current.get("selected") is True or current.get("focused") is True:
+            return CommandResult(ok=True, data={"selection_verified": True, "selected_thread": current}, provenance={"source": "codex_visible_gui"})
+        return CommandResult(
+            ok=False,
+            data={"selection_verified": False, "selected_thread": current},
+            errors=[
+                make_error(
+                    code="visible_thread_selection_not_verified",
+                    message="Codex did not expose the requested visible thread as selected after the click.",
+                    guidance="Do not submit a live GUI message until AX confirms the selected target. Rerun thread-map after focusing the intended thread.",
+                )
+            ],
+            provenance={"source": "codex_visible_gui"},
+        )
+
+    def _find_visible_composer(self, nodes: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for node in reversed(nodes):
+            role = str(node.get("role") or "")
+            if role not in {"AXTextArea", "AXTextField", "AXTextView", "AXComboBox"}:
+                continue
+            bounds = node.get("bounds")
+            center = None
+            if isinstance(bounds, dict):
+                try:
+                    width = int(bounds.get("width") or 0)
+                    height = int(bounds.get("height") or 0)
+                    if width <= 0 or height <= 0:
+                        continue
+                    center = {"x": int(bounds["x"]) + width // 2, "y": int(bounds["y"]) + height // 2}
+                except Exception:
+                    continue
+            if center is None:
+                continue
+            name = str(node.get("name") or "")
+            name_lower = name.lower()
+            if name_lower and not any(token in name_lower for token in ("message", "ask", "prompt", "codex", "input", "chat")):
+                continue
+            safe_name, _ = cap_text(redact_value(name), 120)
+            return {"role": role, "name": safe_name, "bounds": bounds, "center": center}
+        return None
+
+    def _bounds_have_positive_size(self, bounds: Any) -> bool:
+        if not isinstance(bounds, dict):
+            return False
+        try:
+            return int(bounds.get("width") or 0) > 0 and int(bounds.get("height") or 0) > 0
+        except Exception:
+            return False
+
+    def _point_inside_bounds(self, point: dict[str, Any], bounds: dict[str, Any]) -> bool:
+        try:
+            x = int(point["x"])
+            y = int(point["y"])
+            bx = int(bounds["x"])
+            by = int(bounds["y"])
+            bw = int(bounds["width"])
+            bh = int(bounds["height"])
+        except Exception:
+            return False
+        return bx <= x <= bx + bw and by <= y <= by + bh
+
+    def _is_thread_section_label(self, lowered: str) -> bool:
+        return lowered in THREAD_SECTION_LABELS
+
+    def _is_thread_control_label(self, lowered: str) -> bool:
+        if lowered in THREAD_CONTROL_LABELS:
+            return True
+        for control in THREAD_CONTROL_PREFIX_LABELS:
+            if lowered.startswith(f"{control} ") or lowered.startswith(control):
+                return True
+        return any(control in lowered for control in ("archive chat", "unpin chat", "pin chat"))
+
+    def _looks_like_project_header(self, name: str) -> bool:
+        if not name or len(name) > 80:
+            return False
+        lowered = name.strip().lower()
+        if self._is_thread_section_label(lowered) or self._is_thread_control_label(lowered):
+            return False
+        if THREAD_TIME_RE.match(lowered):
+            return False
+        return True
+
+    def _split_thread_title_status(self, raw_name: str) -> tuple[str, str | None, str | None]:
+        parts = raw_name.strip().split()
+        updated_label = None
+        if parts and THREAD_TIME_RE.match(parts[-1]):
+            updated_label = parts[-1]
+            raw_name = " ".join(parts[:-1]).strip()
+        status = None
+        for label in THREAD_STATUS_LABELS:
+            suffix = f" {label}".lower()
+            if raw_name.lower().endswith(suffix):
+                status = label
+                raw_name = raw_name[: -len(label)].strip()
+                break
+        title, _ = cap_text(str(redact_value(raw_name.strip())), 160)
+        return title or "", status, updated_label
+
+    def _thread_confidence(self, *, role: str, center: dict[str, int] | None, status: str | None, updated_label: str | None, project: str | None) -> str:
+        score = 0
+        if center:
+            score += 2
+        if role in {"AXButton", "AXRow", "AXGroup"}:
+            score += 1
+        if status or updated_label:
+            score += 1
+        if project:
+            score += 1
+        if score >= 4:
+            return "high"
+        if score >= 2:
+            return "medium"
+        return "low"
+
+    def _is_action_only_thread_row(self, lowered: str, node: dict[str, Any]) -> bool:
+        if "archive chat" not in lowered or "unpin chat" not in lowered:
+            return False
+        bounds = node.get("bounds")
+        if not isinstance(bounds, dict):
+            return False
+        try:
+            width = int(bounds.get("width") or 0)
+            height = int(bounds.get("height") or 0)
+        except Exception:
+            return False
+        return width >= 120 and height > 0
+
+    def _unknown_thread_row(self, *, index: int, node: dict[str, Any], raw_name: str, project: str | None) -> dict[str, Any]:
+        bounds = node.get("bounds")
+        center = None
+        if isinstance(bounds, dict):
+            try:
+                center = {
+                    "x": int(bounds["x"]) + int(bounds["width"]) // 2,
+                    "y": int(bounds["y"]) + int(bounds["height"]) // 2,
+                }
+            except Exception:
+                center = None
+        _, _, updated_label = self._split_thread_title_status(raw_name)
+        title = f"Visible thread row {index + 1} (title unavailable)"
+        visible_id = self._visible_thread_id(index=index, title=f"title-unavailable:{updated_label or ''}:{bounds}", window_index=node.get("window_index"))
+        return {
+            "visible_id": visible_id,
+            "index": index,
+            "title": title,
+            "raw_title": "title_unavailable",
+            "project": project,
+            "status": None,
+            "updated_label": updated_label,
+            "title_hash": self._short_hash(title),
+            "role": str(node.get("role") or ""),
+            "window_index": node.get("window_index"),
+            "bounds": bounds,
+            "window_bounds": None,
+            "center": center,
+            "selected": bool(node.get("selected")) if node.get("selected") is not None else None,
+            "focused": bool(node.get("focused")) if node.get("focused") is not None else None,
+            "confidence": "low",
+            "source": "ax",
+            "title_available": False,
+            "selection_only": True,
+        }

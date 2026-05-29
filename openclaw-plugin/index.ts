@@ -92,6 +92,18 @@ function readOnlyTools(): ToolDefinition[] {
       },
     ),
     tool(
+      "desktop_bridge_codex_thread_map",
+      "Read a joined map of visible Codex Desktop thread candidates and saved app-server thread summaries.",
+      "codexThreadMap",
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          max_items: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+        },
+      },
+    ),
+    tool(
       "desktop_bridge_codex_select_thread",
       "Guarded visible action: select an already-visible Codex thread by visible_id. Dry-run defaults on.",
       "codexSelectThread",
@@ -102,6 +114,23 @@ function readOnlyTools(): ToolDefinition[] {
         properties: {
           thread_id: { type: "string" },
           dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
+      "desktop_bridge_codex_send_visible_message",
+      "Live visible Codex GUI action: send an approved message through the frontmost Codex Desktop composer. Dry-run defaults on and live mode requires approval.",
+      "codexSendVisibleMessage",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["thread_id", "message"],
+        properties: {
+          thread_id: { type: "string" },
+          message: { type: "string", minLength: 1, maxLength: 4000 },
+          dry_run: { type: "boolean", default: true },
+          confirm: { type: "boolean", default: false },
           approval_audit_id: approvalAuditIdProperty,
         },
       },

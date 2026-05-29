@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHmac, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import * as fs from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -10,6 +10,11 @@ const execFileAsync = promisify(execFile) as (
   args: string[],
   options: Record<string, unknown>,
 ) => Promise<{ stdout: string }>;
+const fsCompat = fs as unknown as {
+  mkdtempSync: (prefix: string) => string;
+  chmodSync: (path: string, mode: number) => void;
+  rmSync: (path: string, options: { recursive: boolean; force: boolean }) => void;
+};
 
 export type BridgeCommandKey =
   | "status"
@@ -21,6 +26,8 @@ export type BridgeCommandKey =
   | "codexFrontmost"
   | "codexWindows"
   | "codexThreads"
+  | "codexThreadMap"
+  | "codexSendVisibleMessage"
   | "codexContinueThread"
   | "codexSelectThread"
   | "codexSnapshot"
@@ -87,6 +94,7 @@ export type BridgeParams = {
   kind?: string;
   source_audit_id?: string;
   message?: string;
+  message_file?: string;
   thread_id?: string;
   turn_id?: string;
   title?: string;
@@ -135,6 +143,8 @@ const FIXED_COMMANDS: Record<
     | "queueList"
     | "queueAppend"
     | "codexThreads"
+    | "codexThreadMap"
+    | "codexSendVisibleMessage"
     | "codexContinueThread"
     | "codexSelectThread"
     | "codexAppServerThreads"
@@ -224,6 +234,9 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
   if (command === "codexThreads") {
     return ["codex", "threads", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
   }
+  if (command === "codexThreadMap") {
+    return ["codex", "thread-map", "--json", "--max-items", String(clampInt(params.max_items, 50, 1, 200))];
+  }
   if (command === "codexSelectThread") {
     return [
       "codex",
@@ -245,6 +258,22 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       "--prompt",
       String(params.prompt || "continue"),
       ...(params.dry_run !== false ? ["--dry-run"] : []),
+      ...guardedApprovalArg(params),
+    ];
+  }
+  if (command === "codexSendVisibleMessage") {
+    const messageFile = typeof params.message_file === "string" && params.message_file.trim() !== ""
+      ? params.message_file.trim()
+      : undefined;
+    return [
+      "codex",
+      "send-visible-message",
+      "--json",
+      "--thread-id",
+      requiredString(params.thread_id, "thread_id"),
+      ...(messageFile ? ["--message-file", messageFile] : ["--message", requiredString(params.message, "message")]),
+      ...(params.dry_run !== false ? ["--dry-run"] : ["--live"]),
+      ...(params.confirm === true ? ["--confirm"] : []),
       ...guardedApprovalArg(params),
     ];
   }
@@ -605,35 +634,72 @@ export async function runBridge(command: BridgeCommandKey, params: BridgeParams 
     return runRemoteBridge(remoteURL, command, params);
   }
 
-  const bin = process.env.EVAOS_DESKTOP_BRIDGE_BIN || "evaos-desktop-bridge";
-  const argv = buildBridgeArgv(command, params);
-  try {
-    const { stdout } = await execFileAsync(bin, argv, {
-      shell: false,
-      timeout: timeoutForCommand(command),
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return materializeVisualEvidence(command, JSON.parse(stdout));
-  } catch (error: unknown) {
-    const err = error as { stdout?: string; message?: string };
-    if (err.stdout) {
-      try {
-        return JSON.parse(err.stdout);
-      } catch {
-        // Fall through to structured wrapper below.
+  return withLocalMessagePayload(command, params, async (safeParams) => {
+    const bin = process.env.EVAOS_DESKTOP_BRIDGE_BIN || "evaos-desktop-bridge";
+    const argv = buildBridgeArgv(command, safeParams);
+    try {
+      const { stdout } = await execFileAsync(bin, argv, {
+        shell: false,
+        timeout: timeoutForCommand(command),
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      return materializeVisualEvidence(command, JSON.parse(stdout));
+    } catch (error: unknown) {
+      const err = error as { stdout?: string; message?: string };
+      if (err.stdout) {
+        try {
+          return JSON.parse(err.stdout);
+        } catch {
+          // Fall through to structured wrapper below.
+        }
       }
+      return {
+        ok: false,
+        errors: [
+          {
+            code: "bridge_cli_failed",
+            message: safeBridgeErrorMessage(command, err.message),
+            guidance: "Install evaos-desktop-bridge locally and set EVAOS_DESKTOP_BRIDGE_BIN if it is not on PATH.",
+          },
+        ],
+      };
     }
-    return {
-      ok: false,
-      errors: [
-        {
-          code: "bridge_cli_failed",
-          message: err.message || "evaos-desktop-bridge command failed",
-          guidance: "Install evaos-desktop-bridge locally and set EVAOS_DESKTOP_BRIDGE_BIN if it is not on PATH.",
-        },
-      ],
-    };
+  });
+}
+
+async function withLocalMessagePayload<T>(
+  command: BridgeCommandKey,
+  params: BridgeParams,
+  callback: (params: BridgeParams) => Promise<T>,
+): Promise<T> {
+  if (command !== "codexSendVisibleMessage" || typeof params.message !== "string") {
+    return callback(params);
   }
+  const dir = fsCompat.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "evaos-codex-visible-message-"));
+  const messageFile = path.join(dir, "message.txt");
+  await writeFile(messageFile, params.message, { encoding: "utf8", mode: 0o600 });
+  try {
+    fsCompat.chmodSync(messageFile, 0o600);
+  } catch {
+    // Best-effort on platforms that do not support chmod.
+  }
+  try {
+    const safeParams = { ...params, message: undefined, message_file: messageFile };
+    return await callback(safeParams);
+  } finally {
+    try {
+      fsCompat.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup; the file is 0600 and contains only the approved message.
+    }
+  }
+}
+
+function safeBridgeErrorMessage(command: BridgeCommandKey, message?: string): string {
+  if (command === "codexSendVisibleMessage") {
+    return "evaos-desktop-bridge guarded Codex visible message command failed";
+  }
+  return message || "evaos-desktop-bridge command failed";
 }
 
 async function providerProfilesPayload(): Promise<unknown> {
@@ -980,7 +1046,7 @@ function readProviderGrantCache(): unknown {
   const cachePath = providerGrantCachePath();
   if (!cachePath) return null;
   try {
-    return JSON.parse(readFileSync(cachePath, "utf8"));
+    return JSON.parse(fs.readFileSync(cachePath, "utf8"));
   } catch {
     return null;
   }

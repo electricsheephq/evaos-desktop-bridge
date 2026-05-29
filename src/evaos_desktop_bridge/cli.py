@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -31,6 +32,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "codex.frontmost",
         "codex.windows",
         "codex.threads",
+        "codex.thread_map",
         "codex.snapshot",
         "codex.inspect",
         "codex.ax_tree",
@@ -54,6 +56,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
 
 GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "codex.select_thread": ("thread_id",),
+    "codex.send_visible_message": ("thread_id", "message_hash"),
     "codex.continue_thread": ("title", "prompt"),
     "customer_mac.app_focus": ("app_name",),
     "customer_mac.local_site_open": ("url",),
@@ -267,6 +270,11 @@ def build_parser() -> argparse.ArgumentParser:
     threads_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum visible thread candidates to return.")
     threads_parser.set_defaults(command_id="codex.threads", target="codex")
 
+    thread_map_parser = codex_subparsers.add_parser("thread-map", help="Join visible Codex GUI thread candidates with read-only app-server thread summaries.")
+    thread_map_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    thread_map_parser.add_argument("--max-items", type=_positive_int, default=50, help="Maximum visible/app-server thread candidates to return.")
+    thread_map_parser.set_defaults(command_id="codex.thread_map", target="codex")
+
     focus_parser = codex_subparsers.add_parser("focus", help="Focus the visible Codex Desktop app.")
     focus_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     focus_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without focusing.")
@@ -278,6 +286,19 @@ def build_parser() -> argparse.ArgumentParser:
     select_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without clicking/selecting.")
     select_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
     select_parser.set_defaults(command_id="codex.select_thread", target="codex")
+
+    send_visible_parser = codex_subparsers.add_parser("send-visible-message", help="Guarded visible GUI action: send an approved message through the frontmost Codex Desktop composer.")
+    send_visible_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    send_visible_parser.add_argument("--thread-id", required=True, help="Visible thread id from codex threads/thread-map output.")
+    send_visible_message_group = send_visible_parser.add_mutually_exclusive_group(required=True)
+    send_visible_message_group.add_argument("--message", default=None, help="Approved message text to send through the visible Codex composer.")
+    send_visible_message_group.add_argument("--message-file", default=None, help="Path to a UTF-8 file containing the approved message; preferred for plugin/connector wrappers.")
+    send_visible_group = send_visible_parser.add_mutually_exclusive_group()
+    send_visible_group.add_argument("--dry-run", dest="dry_run", action="store_true", default=True, help="Report what would happen without typing or submitting.")
+    send_visible_group.add_argument("--live", dest="dry_run", action="store_false", help="Type and submit the approved message after matching dry-run approval.")
+    send_visible_parser.add_argument("--confirm", action="store_true", help="Required with --live.")
+    send_visible_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
+    send_visible_parser.set_defaults(command_id="codex.send_visible_message", target="codex")
 
     continue_parser = codex_subparsers.add_parser("continue-thread", help="Support-only visible fallback: select a visible Codex thread by title and submit the exact prompt 'continue'.")
     continue_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -644,6 +665,9 @@ def main(
         return 0 if result.get("ok") is True else 2
 
     try:
+        if command_id == "codex.send_visible_message":
+            args.message = _resolve_visible_message_arg(args)
+            args.message_hash = _short_hash(str(getattr(args, "message", "") or "").strip())
         ensure_allowed(command_id)
         observer = observer_factory() if observer_factory is not None else MacOSCodexObserver(state_dir=state_dir)
         customer_mac = customer_mac_factory() if customer_mac_factory is not None else CustomerMacObserver(state_dir=state_dir)
@@ -668,7 +692,7 @@ def main(
     audit_id = append_audit(
         command=command_id,
         target=target,
-        args={key: value for key, value in vars(args).items() if key not in {"command_id", "target", "state_dir"}},
+        args=_audit_args(command_id, args),
         ok=result.ok,
         warnings=result.warnings,
         errors=result.errors,
@@ -707,6 +731,36 @@ def _run_bridge_argv(argv: list[str], *, state_dir: Path | None = None) -> tuple
     exit_code = main(argv, stdout=stdout, stderr=stderr, state_dir=state_dir)
     output = stdout.getvalue() or stderr.getvalue()
     return exit_code, output
+
+
+def _short_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _message_preview(value: str, *, limit: int = 240) -> str:
+    text = str(value or "").strip()
+    if len(text) > limit:
+        return text[:limit]
+    return text
+
+
+def _resolve_visible_message_arg(args: argparse.Namespace) -> str:
+    message_file = getattr(args, "message_file", None)
+    if isinstance(message_file, str) and message_file.strip():
+        return Path(message_file).expanduser().read_text(encoding="utf-8")
+    return str(getattr(args, "message", "") or "")
+
+
+def _audit_args(command_id: str, args: argparse.Namespace) -> dict[str, object]:
+    excluded = {"command_id", "target", "state_dir"}
+    if command_id == "codex.send_visible_message":
+        excluded.add("message")
+        excluded.add("message_file")
+    values = {key: value for key, value in vars(args).items() if key not in excluded}
+    if command_id == "codex.send_visible_message":
+        values["message_hash"] = getattr(args, "message_hash", _short_hash(str(getattr(args, "message", "") or "").strip()))
+        values["message_preview"] = _message_preview(str(getattr(args, "message", "") or ""))
+    return values
 
 
 def _run_command(
@@ -754,10 +808,14 @@ def _run_command(
         return observer.windows()
     if command_id == "codex.threads":
         return observer.threads(max_items=args.max_items)
+    if command_id == "codex.thread_map":
+        return _build_codex_thread_map(observer=observer, app_server=app_server, max_items=args.max_items)
     if command_id == "codex.focus":
         return observer.focus(dry_run=args.dry_run)
     if command_id == "codex.select_thread":
         return observer.select_thread(thread_id=args.thread_id, dry_run=args.dry_run)
+    if command_id == "codex.send_visible_message":
+        return observer.send_visible_message(thread_id=args.thread_id, message=args.message, dry_run=args.dry_run, confirmed=args.confirm)
     if command_id == "codex.continue_thread":
         return observer.continue_thread(title=args.title, prompt=args.prompt, dry_run=args.dry_run)
     if command_id == "codex.snapshot":
@@ -863,6 +921,96 @@ def _run_command(
     raise PolicyError(command_id)
 
 
+def _build_codex_thread_map(
+    *,
+    observer: MacOSCodexObserver,
+    app_server: CodexAppServerObserver,
+    max_items: int,
+) -> CommandResult:
+    visible_result = observer.threads(max_items=max_items)
+    if not visible_result.ok:
+        visible_result.provenance.update({"source": "codex_visible_gui"})
+        return visible_result
+    app_result = app_server.threads(max_items=max_items)
+    warnings = list(visible_result.warnings)
+    app_threads: list[dict[str, object]] = []
+    app_server_available = app_result.ok
+    if app_result.ok:
+        app_threads = list(app_result.data.get("threads", []))
+        warnings.extend(app_result.warnings)
+    else:
+        warnings.extend(app_result.warnings)
+        warnings.append("app-server thread summaries unavailable; returning visible GUI candidates without saved-thread matches")
+
+    visible_threads = list(visible_result.data.get("threads", []))
+    matches: list[dict[str, object]] = []
+    matched_app_ids: set[str] = set()
+    for visible in visible_threads:
+        visible_title = str(visible.get("title") or "")
+        visible_norm = _normalize_title_for_match(visible_title)
+        best: dict[str, object] | None = None
+        best_score = 0
+        for app_thread in app_threads:
+            app_title = str(app_thread.get("title") or app_thread.get("name") or "")
+            app_norm = _normalize_title_for_match(app_title)
+            score = _title_match_score(visible_norm, app_norm)
+            if score > best_score:
+                best = app_thread
+                best_score = score
+        if best is not None and best_score > 0:
+            app_id = str(best.get("id") or "")
+            if app_id:
+                matched_app_ids.add(app_id)
+            matches.append(
+                {
+                    "visible_id": visible.get("visible_id"),
+                    "visible_title": visible_title,
+                    "app_server_id": best.get("id"),
+                    "app_server_title": best.get("title") or best.get("name"),
+                    "confidence": "high" if best_score >= 3 else "medium",
+                    "match_reason": "normalized_title",
+                }
+            )
+
+    return CommandResult(
+        ok=True,
+        data={
+            "visible_threads": visible_threads,
+            "app_server_threads": app_threads,
+            "matches": matches,
+            "visible_count": len(visible_threads),
+            "app_server_count": len(app_threads),
+            "matched_count": len(matches),
+            "unmatched_visible_count": max(0, len(visible_threads) - len(matches)),
+            "unmatched_app_server_count": len([thread for thread in app_threads if str(thread.get("id") or "") not in matched_app_ids]),
+            "app_server_available": app_server_available,
+            "max_items": max_items,
+            "source": "codex_visible_gui_app_server_read",
+        },
+        warnings=warnings,
+        provenance={"source": "codex_visible_gui_app_server_read"},
+    )
+
+
+def _normalize_title_for_match(value: str) -> str:
+    lowered = "".join(char.lower() if char.isalnum() else " " for char in value)
+    return " ".join(lowered.split())
+
+
+def _title_match_score(left: str, right: str) -> int:
+    if not left or not right:
+        return 0
+    if left == right:
+        return 3
+    if left in right or right in left:
+        return 2
+    left_words = set(left.split())
+    right_words = set(right.split())
+    if len(left_words & right_words) >= 2:
+        return 1
+    return 0
+
+
 def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_dir: Path | None) -> CommandResult:
     if command_id in CONTROLLED_LIVE_COMMANDS and getattr(args, "dry_run", None) is False:
         session = read_control_session(state_dir)
@@ -910,6 +1058,18 @@ def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_
     fields = GUARDED_APPROVAL_FIELDS.get(command_id)
     if fields is None or getattr(args, "dry_run", None) is not False:
         return CommandResult(ok=True)
+    if command_id == "codex.send_visible_message" and getattr(args, "confirm", None) is not True:
+        return CommandResult(
+            ok=False,
+            data={"required_fields": ["confirm", *fields]},
+            errors=[
+                make_error(
+                    code="visible_message_confirmation_required",
+                    message="Live Codex visible GUI messaging requires --confirm after a matching dry-run audit.",
+                    guidance="Run the command with --dry-run first, then rerun with --live --confirm --approval-audit-id.",
+                )
+            ],
+        )
     approval_audit_id = getattr(args, "approval_audit_id", None)
     if not isinstance(approval_audit_id, str) or not approval_audit_id.strip():
         return _approval_required_result(command_id, fields)
@@ -1011,8 +1171,10 @@ def _capabilities() -> dict[str, object]:
                 "codex.frontmost",
                 "codex.windows",
                 "codex.threads",
+                "codex.thread_map",
                 "codex.focus",
                 "codex.select_thread",
+                "codex.send_visible_message",
                 "codex.continue_thread",
                 "codex.snapshot",
                 "codex.inspect",
@@ -1066,7 +1228,7 @@ def _capabilities() -> dict[str, object]:
                 "customer_mac.screen_sharing_status",
             ]
         ],
-        "guarded_prompt_or_message_commands": [],
+        "guarded_prompt_or_message_commands": ["codex.send_visible_message"],
         "forbidden": [
             "unguarded_send_prompts_or_messages",
             "type_into_codex",

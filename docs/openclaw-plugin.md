@@ -15,6 +15,7 @@ Read-only tools:
 - `desktop_bridge_codex_frontmost`: current frontmost app and Codex-frontmost boolean.
 - `desktop_bridge_codex_windows`: visible Codex window metadata.
 - `desktop_bridge_codex_threads`: visible Codex thread candidates from GUI state.
+- `desktop_bridge_codex_thread_map`: joined visible GUI candidates and saved app-server thread summaries.
 - `desktop_bridge_codex_snapshot`: capped visible snapshot; screenshot only when Codex is frontmost.
 - `desktop_bridge_codex_inspect`: compact page map of visible windows, controls, and text summaries.
 - `desktop_bridge_codex_ax_tree`: capped Accessibility roles/names tree.
@@ -37,6 +38,7 @@ Read-only tools:
 Guarded visible action:
 
 - `desktop_bridge_codex_select_thread`: select an already-visible thread by `visible_id`; `dry_run` defaults to true.
+- `desktop_bridge_codex_send_visible_message`: send an approved message through the visible Codex Desktop composer; `dry_run` defaults to true and live mode requires `confirm` plus a matching `approval_audit_id`.
 - `desktop_bridge_codex_continue_thread`: support-only fallback; select a visible thread by title and submit exact `continue` after dry-run approval.
 - `customer_mac_app_focus`: focus a non-sensitive Mac app by name.
 - `customer_mac_local_site_open`: open a localhost, loopback, or `.local` website.
@@ -74,11 +76,12 @@ or `ax_fallback`.
 
 No plugin tool exposes arbitrary Codex app-server RPCs, hidden shell, session
 database reads, Screen Sharing enablement, public VNC/SSH/CDP, or arbitrary
-shell commands. The only Codex prompt-like fallback is
-`desktop_bridge_codex_continue_thread`, which is support-only, fixed to exact
-`continue`, dry-run/approval-gated, and should be used only as a recovery
-canary. Native Codex controller tools are intentionally withheld until issue
-#136 proves a visible Desktop thread is present in `thread/loaded/list`.
+shell commands. Codex prompt-like control is limited to fixed named GUI tools:
+`desktop_bridge_codex_send_visible_message` for an explicitly approved visible
+message and `desktop_bridge_codex_continue_thread` for the support-only exact
+`continue` canary. Native Codex app-server controller tools are intentionally
+withheld until issue #136 proves a visible Desktop thread is present in
+`thread/loaded/list`.
 
 ## Runtime Contract
 
