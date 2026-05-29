@@ -46,13 +46,17 @@ Milestone: `P1 v0.5.0 information architecture`
 
 | Issue | Acceptance | Implemented |
 | --- | --- | --- |
-| `#95` v0.5 information architecture, navigation, and feature-flag matrix | Screen map covers signed-out, signed-in, admin customer switch, normal customer, and degraded runtime states. Feature flag table includes default, owner, rollout criteria, rollback action, and public copy. Existing gateway tabs remain stable and no lane assumes new local Mac/iPhone control behavior. | `docs/evaos-workbench-v050-one-app-expansion.md` now defines the Workbench IA map, sidebar/settings/workspace ownership, degradation behavior, and the full flag matrix. `WorkbenchFeatureFlagKey` exposes typed descriptors for `providers_hub`, `shared_browser_2`, `session_center`, and `creative_studio`, with Swift smoke coverage for defaults, dashboard env keys, rollout/rollback copy, and stable gateway behavior. |
+| `#95` v0.5 information architecture, navigation, and feature-flag matrix | Screen map covers signed-out, signed-in, normal customer, admin customer switch, gateway fallback, Creative Studio, and degraded runtime states. Feature flag table includes default, owner, rollout criteria, rollback action, and public copy. Existing gateway tabs remain stable and no lane assumes new local Mac/iPhone control behavior. | `docs/evaos-workbench-v050-one-app-expansion.md` now defines the Workbench IA map, sidebar/settings/workspace ownership, degradation behavior, and the full flag matrix. `WorkbenchFeatureFlagKey` exposes typed descriptors for `providers_hub`, `shared_browser_2`, `session_center`, and `creative_studio`, with Swift smoke coverage for defaults, dashboard env keys, rollout/rollback copy, and stable gateway behavior. |
 
 Verification:
 
 ```bash
 cd apps/eva-desktop-mac
 swift run EvaDesktopCoreSmoke
+swift build
+cd ../..
+python3 -m pytest tests/test_cli.py tests/test_openclaw_plugin.py -q
+git diff --check
 ```
 
 ## Workbench OpenDesign Gateway
