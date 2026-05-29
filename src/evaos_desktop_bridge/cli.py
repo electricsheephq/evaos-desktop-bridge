@@ -86,6 +86,12 @@ GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "customer_mac.iphone_type": ("text",),
 }
 
+CODEX_SOURCE_AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
+    "codex.app_server.start_turn": ("thread_id", "message"),
+    "codex.app_server.steer_turn": ("thread_id", "turn_id", "message"),
+    "codex.app_server.interrupt_turn": ("thread_id", "turn_id"),
+}
+
 CONTROL_SESSION_COMMANDS = frozenset(
     {
         "customer_mac.control_start",
@@ -910,6 +916,29 @@ def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_
             if session.get("mode") == "ask_permission" and not _ask_permission_requires_approval(command_id, args):
                 return CommandResult(ok=True)
 
+    source_fields = CODEX_SOURCE_AUDIT_FIELDS.get(command_id)
+    if source_fields is not None and getattr(args, "dry_run", None) is False:
+        if getattr(args, "confirm", None) is not True:
+            return CommandResult(ok=True)
+        source_audit_id = getattr(args, "source_audit_id", None)
+        if not isinstance(source_audit_id, str) or not source_audit_id.strip().startswith("audit-"):
+            return _source_audit_required_result(command_id, source_fields)
+        record = read_audit_record(source_audit_id.strip(), state_dir=state_dir)
+        if record is None:
+            return _source_audit_required_result(command_id, source_fields, "source_audit_id was not found in the local audit log.")
+        if record.get("command") != command_id or record.get("ok") is not True:
+            return _source_audit_required_result(command_id, source_fields, "source_audit_id does not reference a successful dry-run for this command.")
+        record_args = record.get("args")
+        if not isinstance(record_args, dict) or record_args.get("dry_run") is not True:
+            return _source_audit_required_result(command_id, source_fields, "source_audit_id must reference a dry-run record.")
+        freshness_error = approval_audit_freshness_error(record)
+        if freshness_error is not None:
+            return _source_audit_required_result(command_id, source_fields, freshness_error.replace("approval_audit_id", "source_audit_id"))
+        for field in source_fields:
+            if record_args.get(field) != getattr(args, field, None):
+                return _source_audit_required_result(command_id, source_fields, f"source_audit_id does not match {field}.")
+        return CommandResult(ok=True)
+
     fields = GUARDED_APPROVAL_FIELDS.get(command_id)
     if fields is None or getattr(args, "dry_run", None) is not False:
         return CommandResult(ok=True)
@@ -968,6 +997,20 @@ def _approval_required_result(command_id: str, fields: tuple[str, ...], message:
                 code="approval_audit_required",
                 message=message or "Live guarded actions require a prior matching dry-run audit id.",
                 guidance=f"Run {command_id} with --dry-run first, then rerun the exact same action with --approval-audit-id set to that audit_id.",
+            )
+        ],
+    )
+
+
+def _source_audit_required_result(command_id: str, fields: tuple[str, ...], message: str | None = None) -> CommandResult:
+    return CommandResult(
+        ok=False,
+        data={"required_fields": list(fields)},
+        errors=[
+            make_error(
+                code="source_audit_id_required",
+                message=message or "Live Codex remote-control actions require a prior matching dry-run audit id.",
+                guidance=f"Run {command_id} with --dry-run first, then rerun the exact same action with --source-audit-id set to that audit_id.",
             )
         ],
     )

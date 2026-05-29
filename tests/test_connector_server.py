@@ -301,6 +301,34 @@ def test_connector_approval_audit_expires(tmp_path: Path) -> None:
     ) == "approval_audit_id is older than 15 minutes; run a new dry-run."
 
 
+def test_connector_codex_remote_requires_matching_source_audit(tmp_path: Path) -> None:
+    dry_run_audit = append_audit(
+        command="codex.app_server.start_turn",
+        target="codex",
+        args={"thread_id": "thread-1", "message": "continue", "dry_run": True, "json": True, "source_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+
+    assert _live_guarded_approval_error(
+        "codexRemoteStartTurn",
+        {"thread_id": "thread-1", "message": "continue", "dry_run": False, "source_audit_id": dry_run_audit, "confirm": True},
+        state_dir=tmp_path,
+    ) is None
+    assert _live_guarded_approval_error(
+        "codexRemoteStartTurn",
+        {"thread_id": "thread-1", "message": "different", "dry_run": False, "source_audit_id": dry_run_audit, "confirm": True},
+        state_dir=tmp_path,
+    ) == "source_audit_id does not match message."
+    assert _live_guarded_approval_error(
+        "codexRemoteStartTurn",
+        {"thread_id": "thread-1", "message": "continue", "dry_run": False, "source_audit_id": "audit-missing", "confirm": True},
+        state_dir=tmp_path,
+    ) == "source_audit_id was not found in the local audit log."
+
+
 def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tmp_path: Path) -> None:
     dry_run_audit = append_audit(
         command="customer_mac.app_focus",
@@ -327,6 +355,49 @@ def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tm
         {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-missing"},
         state_dir=tmp_path,
     ) == "approval_audit_id was not found in the local audit log."
+
+
+def test_connector_rejects_forged_codex_source_audit_before_runner(tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> tuple[int, str]:
+        calls.append(argv)
+        return 0, json.dumps({"ok": True})
+
+    handler = _make_handler(token="secret-token", command_runner=runner, state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request(
+            "POST",
+            "/v1/commands",
+            body=json.dumps(
+                {
+                    "command": "codexRemoteStartTurn",
+                    "params": {
+                        "thread_id": "thread-1",
+                        "message": "continue",
+                        "dry_run": False,
+                        "confirm": True,
+                        "source_audit_id": "audit-forged",
+                    },
+                }
+            ),
+            headers={"Content-Type": "application/json", "Authorization": "Bearer secret-token"},
+        )
+        response = conn.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 403
+        assert calls == []
+        assert payload["target"] == "codex"
+        assert payload["errors"][0]["code"] == "approval_audit_required"
+        assert "not found" in payload["errors"][0]["message"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
 
 
 def test_connector_token_file_must_exist_when_configured(tmp_path: Path) -> None:

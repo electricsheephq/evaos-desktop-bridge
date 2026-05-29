@@ -22,17 +22,20 @@ Each run writes:
 
 ```bash
 export EVAOS_DESKTOP_BRIDGE_TOKEN="<paired connector token>"
+export VERSION_UNDER_TEST="<exact-version-build>"
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "http://<mac-tailnet-ip>:8765" \
   --surface connector \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 ```
 
 When running from an uninstalled checkout, prefix commands with
 `PYTHONPATH=src`. Installed support VM environments do not need that prefix.
+If `--version-under-test` is omitted, the report uses `local-dev`; release
+certification must always pass the exact version/build candidate.
 For `openclaw` or `hermes` surface runs from outside the repo checkout, pass
 `--repo-root /Volumes/LEXAR/repos/evaos-desktop-bridge` or set
 `EVAOS_DESKTOP_BRIDGE_QA_REPO_ROOT` so the harness can find the plugin and
@@ -58,26 +61,28 @@ Options:
 Run all three surfaces before marking a release candidate certified:
 
 ```bash
+export VERSION_UNDER_TEST="<exact-version-build>"
+
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface connector \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface openclaw \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 
 python3 -m evaos_desktop_bridge.qa_canary \
   --connector-url "$EVAOS_DESKTOP_BRIDGE_URL" \
   --surface hermes \
   --suite all \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 ```
 
 Then run the destructive kill-switch proof once, after the other surfaces are
@@ -90,7 +95,7 @@ python3 -m evaos_desktop_bridge.qa_canary \
   --surface connector \
   --suite kill_switch \
   --operator-ack-live-control \
-  --version-under-test 0.6.2
+  --version-under-test "$VERSION_UNDER_TEST"
 ```
 
 The OpenClaw path shells through `openclaw-plugin/scripts/qa-run-bridge.mjs`,

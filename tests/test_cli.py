@@ -550,7 +550,7 @@ def test_app_server_start_turn_live_requires_confirm_flag(tmp_path: Path) -> Non
         FakeObserver(),
         tmp_path,
     )
-    approved = run_cli(
+    forged = run_cli(
         [
             "codex",
             "app-server",
@@ -568,9 +568,31 @@ def test_app_server_start_turn_live_requires_confirm_flag(tmp_path: Path) -> Non
         FakeObserver(),
         tmp_path,
     )
+    dry_run = run_cli(["codex", "app-server", "start-turn", "--json", "--thread-id", "t1", "--message", "continue"], FakeObserver(), tmp_path)
+    approved = run_cli(
+        [
+            "codex",
+            "app-server",
+            "start-turn",
+            "--json",
+            "--thread-id",
+            "t1",
+            "--message",
+            "continue",
+            "--live",
+            "--confirm",
+            "--source-audit-id",
+            dry_run["audit_id"],
+        ],
+        FakeObserver(),
+        tmp_path,
+    )
 
     assert rejected["_exit_code"] == 2
     assert rejected["errors"][0]["code"] == "remote_control_confirmation_required"
+    assert forged["_exit_code"] == 2
+    assert forged["errors"][0]["code"] == "source_audit_id_required"
+    assert "not found" in forged["errors"][0]["message"]
     assert approved["_exit_code"] == 0
     assert approved["data"]["sent"] is True
 

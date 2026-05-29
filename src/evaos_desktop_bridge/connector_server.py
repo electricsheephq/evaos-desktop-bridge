@@ -56,6 +56,12 @@ CODEX_REMOTE_CONTROL_COMMANDS = frozenset(
     }
 )
 
+CODEX_REMOTE_CONTROL_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
+    "codexRemoteStartTurn": ("codex.app_server.start_turn", ("thread_id", "message")),
+    "codexRemoteSteerTurn": ("codex.app_server.steer_turn", ("thread_id", "turn_id", "message")),
+    "codexRemoteInterruptTurn": ("codex.app_server.interrupt_turn", ("thread_id", "turn_id")),
+}
+
 CONTROLLED_REMOTE_COMMANDS = frozenset(
     {
         "customerMacIphoneMirroringFocus",
@@ -778,6 +784,21 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
             return "Live Codex remote-control actions require confirm=true."
         if not isinstance(source, str) or not source.strip().startswith("audit-"):
             return "Live Codex remote-control actions require source_audit_id from a dry-run or evidence command."
+        command_id, fields = CODEX_REMOTE_CONTROL_APPROVAL[command]
+        record = read_audit_record(source.strip(), state_dir=state_dir)
+        if record is None:
+            return "source_audit_id was not found in the local audit log."
+        if record.get("command") != command_id or record.get("ok") is not True:
+            return "source_audit_id does not reference a successful dry-run for this command."
+        record_args = record.get("args")
+        if not isinstance(record_args, dict) or record_args.get("dry_run") is not True:
+            return "source_audit_id must reference a dry-run record."
+        freshness_error = approval_audit_freshness_error(record)
+        if freshness_error is not None:
+            return freshness_error.replace("approval_audit_id", "source_audit_id")
+        for field in fields:
+            if record_args.get(field) != _approval_field_value(command, params, field):
+                return f"source_audit_id does not match {field}."
         return None
     approval = params.get("approval_audit_id")
     if not isinstance(approval, str) or not approval.strip():

@@ -73,6 +73,9 @@ TRANSPORT_ENV = "EVAOS_CODEX_APP_SERVER_TRANSPORT"
 WS_URL_ENV = "EVAOS_CODEX_APP_SERVER_WS_URL"
 SOCKET_PATH_ENV = "EVAOS_CODEX_APP_SERVER_SOCKET"
 MESSAGE_MAX_CHARS = 8000
+IDENTIFIER_MAX_CHARS = 240
+STATUS_MAX_CHARS = 1000
+EVENT_METHOD_MAX_CHARS = 160
 SUBSCRIBE_MAX_DURATION_MS = 30_000
 SUBSCRIBE_MAX_EVENTS = 200
 APP_SERVER_TIMEOUT_SECONDS = 10.0
@@ -312,9 +315,17 @@ class WebSocketTransport:
         if port is None:
             raise ValueError("Codex app-server websocket URL must include a port")
         self.timeout = timeout
+        self._buffer = b""
         self.sock = socket.create_connection((parsed.hostname or "127.0.0.1", port), timeout=timeout)
-        self.sock.settimeout(timeout)
-        self._handshake(parsed.hostname or "127.0.0.1", port)
+        try:
+            self.sock.settimeout(timeout)
+            self._handshake(parsed.hostname or "127.0.0.1", port)
+        except Exception:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            raise
 
     def _handshake(self, host: str, port: int) -> None:
         key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
@@ -328,7 +339,19 @@ class WebSocketTransport:
             "\r\n"
         )
         self.sock.sendall(request.encode("ascii"))
-        response = self.sock.recv(4096).decode("latin1", errors="replace")
+        response_bytes = b""
+        deadline = time.monotonic() + self.timeout
+        while b"\r\n\r\n" not in response_bytes and time.monotonic() < deadline:
+            self.sock.settimeout(max(0.01, deadline - time.monotonic()))
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                break
+            response_bytes += chunk
+        header, separator, extra = response_bytes.partition(b"\r\n\r\n")
+        if not separator:
+            raise RuntimeError("Codex app-server websocket handshake failed")
+        self._buffer = extra
+        response = header.decode("latin1", errors="replace")
         expected_accept = base64.b64encode(
             hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
         ).decode("ascii")
@@ -383,18 +406,17 @@ class WebSocketTransport:
         return payload.decode("utf-8", errors="replace")
 
     def _recv_exact(self, size: int, deadline: float) -> bytes | None:
-        chunks: list[bytes] = []
-        remaining = size
-        while remaining > 0 and time.monotonic() < deadline:
+        while len(self._buffer) < size and time.monotonic() < deadline:
             self.sock.settimeout(max(0.01, deadline - time.monotonic()))
-            chunk = self.sock.recv(remaining)
+            chunk = self.sock.recv(size - len(self._buffer))
             if not chunk:
                 return None
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        if remaining:
+            self._buffer += chunk
+        if len(self._buffer) < size:
             return None
-        return b"".join(chunks)
+        payload = self._buffer[:size]
+        self._buffer = self._buffer[size:]
+        return payload
 
     def close(self) -> None:
         try:
@@ -466,21 +488,30 @@ class CodexJsonRpcClient:
 
     def __enter__(self) -> CodexJsonRpcClient:
         self.transport = self.transport_factory()
-        init_response = self._request_raw(
-            "initialize",
-            {
-                "clientInfo": APP_SERVER_CLIENT_INFO,
-                "capabilities": {
-                    "experimentalApi": True,
-                    "requestAttestation": False,
-                    "optOutNotificationMethods": [],
+        try:
+            init_response = self._request_raw(
+                "initialize",
+                {
+                    "clientInfo": APP_SERVER_CLIENT_INFO,
+                    "capabilities": {
+                        "experimentalApi": True,
+                        "requestAttestation": False,
+                        "optOutNotificationMethods": [],
+                    },
                 },
-            },
-        )
-        if not init_response.ok:
-            raise RuntimeError(init_response.error or "Codex app-server initialize failed")
-        self.initialize_payload = init_response.payload
-        self._send_notification("initialized")
+            )
+            if not init_response.ok:
+                raise RuntimeError(init_response.error or "Codex app-server initialize failed")
+            self.initialize_payload = init_response.payload
+            self._send_notification("initialized")
+        except Exception:
+            if self.transport is not None:
+                try:
+                    self.transport.close()
+                except Exception:
+                    pass
+                self.transport = None
+            raise
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
@@ -715,7 +746,7 @@ class CodexAppServerObserver:
         threads = [
             {
                 "index": index,
-                "id": redact_value(_thread_id_from_loaded_row(row)),
+                "id": _cap_redacted_scalar(_thread_id_from_loaded_row(row), IDENTIFIER_MAX_CHARS),
                 "source": "app_server_loaded",
             }
             for index, row in enumerate(raw_threads[:max_items])
@@ -745,7 +776,7 @@ class CodexAppServerObserver:
             return CommandResult(
                 ok=True,
                 data={
-                    "thread_id": redact_value(thread_id),
+                    "thread_id": _cap_redacted_scalar(thread_id, IDENTIFIER_MAX_CHARS),
                     "duration_ms": duration_ms,
                     "events": [],
                     "event_count": 0,
@@ -767,7 +798,7 @@ class CodexAppServerObserver:
         return CommandResult(
             ok=True,
             data={
-                "thread_id": redact_value(thread_id),
+                "thread_id": _cap_redacted_scalar(thread_id, IDENTIFIER_MAX_CHARS),
                 "duration_ms": duration_ms,
                 "events": safe_events,
                 "event_count": len(safe_events),
@@ -1082,11 +1113,11 @@ class CodexAppServerObserver:
         status = row.get("status") or row.get("state")
         return {
             "index": index,
-            "id": redact_value(thread_id),
+            "id": _cap_redacted_scalar(thread_id, IDENTIFIER_MAX_CHARS),
             "title": capped_title,
             "title_truncated": title_truncated,
             "updated_at": None if updated_at is None else redact_value(str(updated_at)),
-            "status": redact_value(status),
+            "status": _cap_redacted_value(status, STATUS_MAX_CHARS),
             "source": "app_server",
         }
 
@@ -1095,7 +1126,7 @@ class CodexAppServerObserver:
         text = json.dumps(params, sort_keys=True, default=str)
         capped, truncated = cap_text(text, max_chars)
         return {
-            "method": redact_value(event.get("method")),
+            "method": _cap_redacted_scalar(event.get("method"), EVENT_METHOD_MAX_CHARS),
             "params_json": capped,
             "params_truncated": truncated,
             "source": "app_server_notification",
@@ -1220,6 +1251,29 @@ def _thread_id_from_loaded_row(row: Any) -> Any:
     if isinstance(row, dict):
         return row.get("id") or row.get("thread_id") or row.get("threadId")
     return row
+
+
+def _cap_redacted_scalar(value: Any, max_chars: int) -> str | None:
+    if value is None:
+        return None
+    capped, _ = cap_text(str(redact_value(value)), max_chars)
+    return capped
+
+
+def _cap_redacted_value(value: Any, max_chars: int) -> Any:
+    redacted = redact_value(value)
+    if isinstance(redacted, str):
+        capped, _ = cap_text(redacted, max_chars)
+        return capped
+    if isinstance(redacted, dict):
+        capped_dict: dict[str, Any] = {}
+        for key, item in list(redacted.items())[:50]:
+            capped_key, _ = cap_text(str(redact_value(key)), IDENTIFIER_MAX_CHARS)
+            capped_dict[capped_key] = _cap_redacted_value(item, max_chars)
+        return capped_dict
+    if isinstance(redacted, list):
+        return [_cap_redacted_value(item, max_chars) for item in redacted[:50]]
+    return redacted
 
 
 def _is_loopback_host(host: str | None) -> bool:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from pathlib import Path
 import signal
@@ -15,6 +17,7 @@ from evaos_desktop_bridge.adapters.codex_app_server import (
     CodexJsonRpcClient,
     JsonRpcResponse,
     TransportConfig,
+    WebSocketTransport,
     _build_websocket_frame,
 )
 from evaos_desktop_bridge.adapters import codex_app_server as codex_app_server_module
@@ -316,12 +319,77 @@ def test_app_server_json_rpc_client_preserves_empty_result() -> None:
     assert response.payload == {}
 
 
+def test_app_server_json_rpc_client_closes_transport_when_initialize_fails() -> None:
+    transport = FakeTransport([{"jsonrpc": "2.0", "id": 1, "error": {"message": "bad initialize"}}])
+    client = CodexJsonRpcClient(lambda: transport, timeout=0.1)
+
+    with pytest.raises(RuntimeError):
+        client.__enter__()
+
+    assert transport.closed is True
+    assert client.transport is None
+
+
 def test_websocket_client_frames_are_masked() -> None:
     frame = _build_websocket_frame(b'{"jsonrpc":"2.0"}', opcode=0x1, mask_key=b"abcd")
 
     assert frame[0] == 0x81
     assert frame[1] & 0x80 == 0x80
     assert b"abcd" in frame
+
+
+class FakeSocket:
+    def __init__(self, chunks: list[bytes] | None = None) -> None:
+        self.chunks = chunks or []
+        self.sent: list[bytes] = []
+        self.closed = False
+        self.timeout_values: list[float] = []
+
+    def settimeout(self, timeout: float) -> None:
+        self.timeout_values.append(timeout)
+
+    def sendall(self, payload: bytes) -> None:
+        self.sent.append(payload)
+        if payload.startswith(b"GET ") and not self.chunks:
+            request = payload.decode("ascii")
+            key = next(line.split(":", 1)[1].strip() for line in request.split("\r\n") if line.lower().startswith("sec-websocket-key:"))
+            accept = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest())
+            response = b"HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Accept: " + accept + b"\r\n\r\n"
+            self.chunks = [response[:9], response[9:]]
+
+    def recv(self, size: int) -> bytes:
+        if not self.chunks:
+            return b""
+        chunk = self.chunks.pop(0)
+        if len(chunk) > size:
+            self.chunks.insert(0, chunk[size:])
+            return chunk[:size]
+        return chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_websocket_transport_handles_split_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeSocket()
+    monkeypatch.setattr(codex_app_server_module.socket, "create_connection", lambda *args, **kwargs: fake)
+
+    transport = WebSocketTransport("ws://127.0.0.1:9777", timeout=0.1)
+
+    assert fake.closed is False
+    assert fake.sent[0].startswith(b"GET / HTTP/1.1")
+    transport.close()
+    assert fake.closed is True
+
+
+def test_websocket_transport_closes_socket_when_handshake_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeSocket([b"HTTP/1.1 302 Found\r\n\r\n"])
+    monkeypatch.setattr(codex_app_server_module.socket, "create_connection", lambda *args, **kwargs: fake)
+
+    with pytest.raises(RuntimeError):
+        WebSocketTransport("ws://127.0.0.1:9777", timeout=0.1)
+
+    assert fake.closed is True
 
 
 def test_app_server_threads_sanitizes_response() -> None:
@@ -341,6 +409,47 @@ def test_app_server_threads_sanitizes_response() -> None:
     assert result.data["threads"][0]["updated_at"] == "1779992752"
     assert result.data["threads"][0]["status"] == {"type": "notLoaded"}
     assert result.data["thread_state"] == "active"
+
+
+def test_app_server_threads_caps_redacted_identifiers_and_status() -> None:
+    long_value = "thread-" + ("x" * 10_000)
+    observer = CodexAppServerObserver(
+        rpc_client=lambda method, params: JsonRpcResponse(
+            ok=True,
+            payload={"data": [{"id": long_value, "title": "safe", "status": {"state": long_value}}]},
+        )
+    )
+
+    result = observer.threads(max_items=1)
+    serialized = json.dumps(result.data)
+
+    assert result.ok is True
+    assert len(result.data["threads"][0]["id"]) <= 240
+    assert len(result.data["threads"][0]["status"]["state"]) <= 1000
+    assert long_value not in serialized
+
+
+def test_app_server_loaded_threads_caps_redacted_ids() -> None:
+    long_value = "thread-" + ("x" * 10_000)
+    observer = CodexAppServerObserver(
+        rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={"data": [long_value]}),
+    )
+
+    result = observer.loaded_threads(max_items=1)
+
+    assert result.ok is True
+    assert len(result.data["threads"][0]["id"]) <= 240
+    assert long_value not in json.dumps(result.data)
+
+
+def test_app_server_events_cap_method_names() -> None:
+    long_method = "item/agentMessage/delta/" + ("x" * 10_000)
+    observer = CodexAppServerObserver(rpc_client=lambda method, params: JsonRpcResponse(ok=True, payload={}))
+
+    event = observer._safe_event({"method": long_method, "params": {"text": "ok"}}, max_chars=4000)
+
+    assert len(event["method"]) <= 160
+    assert long_method not in json.dumps(event)
 
 
 def test_app_server_threads_empty_result_data_is_idle() -> None:
