@@ -31,9 +31,6 @@ export type BridgeCommandKey =
   | "codexAppServerThreads"
   | "codexAppServerLoadedThreads"
   | "codexLiveStatus"
-  | "codexRemoteStartTurn"
-  | "codexRemoteSteerTurn"
-  | "codexRemoteInterruptTurn"
   | "codexAppServerRemoteControlStatus"
   | "evaosProviderProfiles"
   | "evaosProviderActiveProfile"
@@ -143,9 +140,6 @@ const FIXED_COMMANDS: Record<
     | "codexAppServerThreads"
     | "codexAppServerLoadedThreads"
     | "codexLiveStatus"
-    | "codexRemoteStartTurn"
-    | "codexRemoteSteerTurn"
-    | "codexRemoteInterruptTurn"
     | "evaosProviderProfiles"
     | "evaosProviderActiveProfile"
     | "evaosProviderCompleteAuth"
@@ -279,47 +273,6 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       requiredString(params.thread_id, "thread_id"),
       "--duration-ms",
       String(clampInt(params.duration_ms, 1000, 1, 30000)),
-    ];
-  }
-  if (command === "codexRemoteStartTurn") {
-    return [
-      "codex",
-      "app-server",
-      "start-turn",
-      "--json",
-      "--thread-id",
-      requiredString(params.thread_id, "thread_id"),
-      "--message",
-      requiredString(params.message, "message"),
-      ...codexRemoteControlArgs(params),
-    ];
-  }
-  if (command === "codexRemoteSteerTurn") {
-    return [
-      "codex",
-      "app-server",
-      "steer-turn",
-      "--json",
-      "--thread-id",
-      requiredString(params.thread_id, "thread_id"),
-      "--turn-id",
-      requiredString(params.turn_id, "turn_id"),
-      "--message",
-      requiredString(params.message, "message"),
-      ...codexRemoteControlArgs(params),
-    ];
-  }
-  if (command === "codexRemoteInterruptTurn") {
-    return [
-      "codex",
-      "app-server",
-      "interrupt-turn",
-      "--json",
-      "--thread-id",
-      requiredString(params.thread_id, "thread_id"),
-      "--turn-id",
-      requiredString(params.turn_id, "turn_id"),
-      ...codexRemoteControlArgs(params),
     ];
   }
   if (command === "customerMacSnapshot") {
@@ -600,20 +553,6 @@ function guardedApprovalArg(params: BridgeParams): string[] {
     return [];
   }
   return approvalArg(params);
-}
-
-function codexRemoteControlArgs(params: BridgeParams): string[] {
-  if (params.dry_run !== false) {
-    return ["--dry-run"];
-  }
-  const argv = ["--live"];
-  if (params.confirm === true) {
-    argv.push("--confirm");
-  }
-  if (typeof params.source_audit_id === "string" && params.source_audit_id.trim() !== "") {
-    argv.push("--source-audit-id", params.source_audit_id.trim());
-  }
-  return argv;
 }
 
 function requiredString(value: unknown, name: string): string {

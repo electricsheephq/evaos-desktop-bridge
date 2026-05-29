@@ -111,7 +111,7 @@ function readOnlyTools() {
                 max_items: { type: "integer", minimum: 1, maximum: 200, default: 50 },
             },
         }),
-        tool("desktop_bridge_codex_app_server_loaded_threads", "Read loaded Codex Desktop thread ids that are eligible for guarded remote-control actions.", "codexAppServerLoadedThreads", {
+        tool("desktop_bridge_codex_app_server_loaded_threads", "Read loaded Codex app-server thread ids for readiness diagnostics.", "codexAppServerLoadedThreads", {
             type: "object",
             additionalProperties: false,
             properties: {
@@ -127,9 +127,6 @@ function readOnlyTools() {
                 duration_ms: { type: "integer", minimum: 1, maximum: 30000, default: 1000 },
             },
         }),
-        tool("desktop_bridge_codex_remote_start_turn", "Guarded Codex Desktop remote-control action: start a turn in a loaded thread. Dry-run defaults on.", "codexRemoteStartTurn", codexRemoteStartSchema()),
-        tool("desktop_bridge_codex_remote_steer_turn", "Guarded Codex Desktop remote-control action: steer an active turn by expected turn id. Dry-run defaults on.", "codexRemoteSteerTurn", codexRemoteSteerSchema()),
-        tool("desktop_bridge_codex_remote_interrupt_turn", "Guarded Codex Desktop remote-control action: interrupt an active turn by expected turn id. Dry-run defaults on.", "codexRemoteInterruptTurn", codexRemoteInterruptSchema()),
         tool("evaos_provider_profiles", "Read active evaOS provider profile metadata and brokered grant readiness without raw provider secrets.", "evaosProviderProfiles"),
         tool("evaos_provider_active_profile", "Read the active provider profile and whether OpenClaw/Hermes should re-auth.", "evaosProviderActiveProfile"),
         tool("evaos_provider_complete_auth", "Complete OpenAI / Codex provider auth by sending signed metadata proof to the evaOS broker. Does not expose raw provider credentials.", "evaosProviderCompleteAuth", {
@@ -436,45 +433,6 @@ function readOnlyTools() {
         }),
         tool("customer_mac_screen_sharing_status", "Read Screen Sharing/Remote Management status; this tool cannot enable it.", "customerMacScreenSharingStatus"),
     ];
-}
-function codexRemoteStartSchema() {
-    return {
-        type: "object",
-        additionalProperties: false,
-        required: ["thread_id", "message"],
-        properties: {
-            thread_id: { type: "string", minLength: 1, maxLength: 240 },
-            message: { type: "string", minLength: 1, maxLength: 8000 },
-            dry_run: { type: "boolean", default: true },
-            confirm: { type: "boolean", default: false },
-            source_audit_id: { type: "string", minLength: 1, maxLength: 160 },
-        },
-    };
-}
-function codexRemoteSteerSchema() {
-    const schema = codexRemoteStartSchema();
-    return {
-        ...schema,
-        required: ["thread_id", "turn_id", "message"],
-        properties: {
-            ...schema.properties,
-            turn_id: { type: "string", minLength: 1, maxLength: 240 },
-        },
-    };
-}
-function codexRemoteInterruptSchema() {
-    return {
-        type: "object",
-        additionalProperties: false,
-        required: ["thread_id", "turn_id"],
-        properties: {
-            thread_id: { type: "string", minLength: 1, maxLength: 240 },
-            turn_id: { type: "string", minLength: 1, maxLength: 240 },
-            dry_run: { type: "boolean", default: true },
-            confirm: { type: "boolean", default: false },
-            source_audit_id: { type: "string", minLength: 1, maxLength: 160 },
-        },
-    };
 }
 function tool(name, description, command, parameters = { type: "object", additionalProperties: false, properties: {} }) {
     return {

@@ -78,9 +78,8 @@ The MVP must not:
 - Return a capped AX tree containing roles and names only.
 - Return capped app-server thread summaries through a hard read-only method allowlist.
 - Probe Codex native remote-control readiness without enabling it or calling mutation methods.
-- Use named Codex app-server controller commands for `turn/start`,
-  `turn/steer`, and `turn/interrupt` only when the target thread is loaded and
-  live mode includes `--confirm` plus source audit provenance.
+- Keep Codex app-server controller methods withheld from the public CLI and
+  plugin surface until live loaded-thread acceptance passes.
 - In support-VM canary mode only, select a visible Codex thread by title and submit exact `continue` as a guarded fallback when native remote-control is unavailable.
 - Return the last redacted observation envelope.
 - Return a capped redacted local audit-log tail.
@@ -103,7 +102,7 @@ The MVP must not:
 | Silent prompt sending | No command types, pastes, clicks send controls, or exposes prompt APIs. |
 | Support Codex fallback drift | The only prompt-like fallback is fixed to exact `continue` and requires a matching dry-run audit id. |
 | Hidden Codex state mutation | App-server methods are denied unless on the read-only allowlist. |
-| Codex controller abuse | `turn/start`, `turn/steer`, and `turn/interrupt` are available only as named controller commands with dry-run default, loaded-thread verification, `--confirm`, and `source_audit_id`; no generic RPC tool exists. |
+| Codex controller abuse | `turn/start`, `turn/steer`, and `turn/interrupt` are not registered in the CLI, connector, or OpenClaw plugin while #136 remains blocked; no generic RPC tool exists. |
 | Session data leakage | No database reads; AX output is capped to roles/names only. |
 | Secret leakage | Redaction replaces home paths, API-key-like strings, bearer tokens, and authorization headers. |
 | Permission confusion | Commands return structured permission errors with setup guidance. |

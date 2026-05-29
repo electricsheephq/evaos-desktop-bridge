@@ -38,9 +38,6 @@ Guarded visible action:
 
 - `desktop_bridge_codex_select_thread`: select an already-visible thread by `visible_id`; `dry_run` defaults to true.
 - `desktop_bridge_codex_continue_thread`: support-only fallback; select a visible thread by title and submit exact `continue` after dry-run approval.
-- `desktop_bridge_codex_remote_start_turn`: guarded native app-server controller action for `turn/start`.
-- `desktop_bridge_codex_remote_steer_turn`: guarded native app-server controller action for `turn/steer`.
-- `desktop_bridge_codex_remote_interrupt_turn`: guarded native app-server controller action for `turn/interrupt`.
 - `customer_mac_app_focus`: focus a non-sensitive Mac app by name.
 - `customer_mac_local_site_open`: open a localhost, loopback, or `.local` website.
 - `customer_mac_local_site_action`: reload/back/forward in a supported browser.
@@ -79,14 +76,9 @@ No plugin tool exposes arbitrary Codex app-server RPCs, hidden shell, session
 database reads, Screen Sharing enablement, public VNC/SSH/CDP, or arbitrary
 shell commands. The only Codex prompt-like fallback is
 `desktop_bridge_codex_continue_thread`, which is support-only, fixed to exact
-`continue`, dry-run/approval-gated, and should be used only when native Codex
-remote-control is unavailable.
-
-Native Codex controller tools are separate from read-only tools. They default to
-dry-run, require a loaded thread id, and live mode requires `dry_run:false`,
-`confirm:true`, and `source_audit_id:"audit-..."`. The bridge verifies the
-target thread is still loaded before calling `turn/start`, `turn/steer`, or
-`turn/interrupt`.
+`continue`, dry-run/approval-gated, and should be used only as a recovery
+canary. Native Codex controller tools are intentionally withheld until issue
+#136 proves a visible Desktop thread is present in `thread/loaded/list`.
 
 ## Runtime Contract
 

@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Split the Codex Desktop app-server control sprint to status/readiness only after daemon/proxy acceptance still returned `thread/loaded/list` count 0; live `start-turn`/`steer-turn`/`interrupt-turn` CLI and OpenClaw tools remain withheld pending issue #136.
+- Add Codex app-server diagnostics for app-bundled vs PATH CLI mismatch, daemon/control-socket readiness, proxy transport socket validation, and isolated stdio loaded-thread scope.
 - Fix the Codex app-server read path to use an initialized JSON-RPC stdio session, parse real `thread/list` `result.data` payloads, clean up the stdio process group after each read, avoid Workbench pipe-EOF refresh hangs, report empty thread lists as idle evidence, and keep Connections/remote-control status read-only.
 - Add read-only Session Center mission cards derived from broker runtime status, bridge queue/audit events, and Codex app-server readiness/thread summaries for issue #137.
 - Add repo changelog hygiene so future evaOS Workbench/Desktop Bridge releases keep an in-repo record for agents and maintainers.

@@ -34,10 +34,11 @@ ALLOWED_APP_SERVER_METHODS = frozenset(
     }
 )
 
-CONTROLLER_APP_SERVER_METHODS = frozenset({"turn/start", "turn/steer", "turn/interrupt"})
-
 FORBIDDEN_APP_SERVER_METHODS = frozenset(
     {
+        "turn/start",
+        "turn/steer",
+        "turn/interrupt",
         "thread/inject_items",
         "thread/start",
         "thread/resume",
@@ -72,7 +73,6 @@ CODEX_BIN_ENV = "EVAOS_CODEX_BIN"
 TRANSPORT_ENV = "EVAOS_CODEX_APP_SERVER_TRANSPORT"
 WS_URL_ENV = "EVAOS_CODEX_APP_SERVER_WS_URL"
 SOCKET_PATH_ENV = "EVAOS_CODEX_APP_SERVER_SOCKET"
-MESSAGE_MAX_CHARS = 8000
 IDENTIFIER_MAX_CHARS = 240
 STATUS_MAX_CHARS = 1000
 EVENT_METHOD_MAX_CHARS = 160
@@ -607,6 +607,9 @@ class CodexAppServerObserver:
         help_result = self._run([config.cli, "app-server", "--help"], 5.0)
         cli_available = version.returncode == 0 and help_result.returncode == 0
         warnings = list(config.warnings)
+        cli_alignment = self._cli_alignment(config)
+        if cli_alignment["path_mismatch"] or cli_alignment["version_mismatch"]:
+            warnings.append("System codex differs from the Codex.app bundled CLI; evaOS Desktop Bridge is using the selected_cli path.")
         rpc_probe: CommandResult | None = None
         rpc_handshake_ok = False
         if cli_available:
@@ -627,12 +630,13 @@ class CodexAppServerObserver:
                     "path": redact_value(config.cli),
                     "version": codex_version,
                 },
+                "cli_alignment": cli_alignment,
                 "codex_version": codex_version,
                 "transport": config.mode,
                 "websocket_url": redact_value(config.ws_url),
                 "socket_path": redact_value(config.socket_path) if config.socket_path is not None else None,
                 "allowed_methods": sorted(ALLOWED_APP_SERVER_METHODS),
-                "controller_methods": sorted(CONTROLLER_APP_SERVER_METHODS),
+                "controller_methods": [],
                 "forbidden_methods": sorted(FORBIDDEN_APP_SERVER_METHODS),
                 "read_only": True,
                 "rpc_probe": {
@@ -647,16 +651,25 @@ class CodexAppServerObserver:
 
     def connections_status(self) -> CommandResult:
         config = self._transport_config()
-        system_version = self._command_version(["codex", "--version"])
-        app_bundle_version = self._command_version([str(APP_BUNDLE_CODEX), "--version"]) if APP_BUNDLE_CODEX.exists() else None
+        cli_alignment = self._cli_alignment(config)
+        system_cli_path = cli_alignment["system_cli"]["path"]
+        system_version = cli_alignment["system_cli"]["version"]
+        app_bundle_version = cli_alignment["app_bundle_cli"]["version"]
         remote_help = self._run([config.cli, "remote-control", "--help"], 5.0)
         daemon_version = self._run([config.cli, "app-server", "daemon", "version"], 5.0)
         control_sockets = [{"path": redact_value(path), "exists": path.exists()} for path in CONTROL_SOCKET_CANDIDATES]
+        control_socket_ready = any(item["exists"] for item in control_sockets)
         transport_status = self._probe_app_server(config)
         remote_status = self.request("remoteControl/status/read", {}, cli=config.cli)
         handshake_ok = transport_status.ok
         connections_state = self._connections_state(remote_status.data if remote_status.ok else None)
         warnings = list(config.warnings)
+        if cli_alignment["path_mismatch"] or cli_alignment["version_mismatch"]:
+            warnings.append("System codex differs from the Codex.app bundled CLI; evaOS Desktop Bridge is using the selected_cli path.")
+        if config.mode == "stdio":
+            warnings.append("Default stdio transport starts an isolated app-server process; loaded-thread results do not prove Codex Desktop UI attachment.")
+        if config.mode == "proxy" and not control_socket_ready:
+            warnings.append("Proxy transport was selected but no Codex app-server control socket is present.")
         if remote_help.returncode != 0:
             warnings.append("Codex native remote-control command was not detected.")
         if config.mode == "websocket" and config.ws_url is None:
@@ -670,15 +683,19 @@ class CodexAppServerObserver:
                         "exists": APP_BUNDLE_CODEX.exists(),
                         "version": app_bundle_version,
                     },
-                    "system_cli": {"available": system_version is not None, "version": system_version},
+                    "system_cli": {"available": system_version is not None, "path": system_cli_path, "version": system_version},
+                    "cli_alignment": cli_alignment,
                 },
                 "app_server": {
                     "available": handshake_ok,
                     "preferred_cli": redact_value(config.cli),
                     "transport": config.mode,
+                    "socket_path": redact_value(config.socket_path) if config.socket_path is not None else None,
                     "handshake": "ok" if handshake_ok else "unavailable",
                     "initialize": transport_status.data if transport_status.ok else None,
                     "error": transport_status.errors[0]["message"] if transport_status.errors else None,
+                    "loaded_thread_scope": "per_app_server_process_memory",
+                    "stdio_isolated": config.mode == "stdio",
                 },
                 "remote_control": {
                     "supported": remote_help.returncode == 0,
@@ -695,6 +712,8 @@ class CodexAppServerObserver:
                 "daemon": {
                     "version_available": daemon_version.returncode == 0,
                     "version_output": redact_value(daemon_version.stdout.strip()) if daemon_version.returncode == 0 else None,
+                    "control_socket_ready": control_socket_ready,
+                    "ready": daemon_version.returncode == 0 and control_socket_ready,
                 },
                 "control_sockets": control_sockets,
                 "websocket": {
@@ -739,9 +758,13 @@ class CodexAppServerObserver:
         )
 
     def loaded_threads(self, *, max_items: int) -> CommandResult:
+        config = self._transport_config()
         response = self.request("thread/loaded/list", {"limit": max_items})
         if not response.ok:
             return response
+        warnings = list(response.warnings)
+        if config.mode == "stdio":
+            warnings.append("Loaded-thread inventory is scoped to the bridge's isolated stdio app-server process, not necessarily Codex Desktop's visible UI process.")
         raw_threads = _extract_result_array(response.data, keys=("threads", "items", "data"))
         threads = [
             {
@@ -759,8 +782,12 @@ class CodexAppServerObserver:
                 "max_items": max_items,
                 "source": "app_server",
                 "thread_state": "active" if threads else "idle",
+                "transport": config.mode,
+                "socket_path": redact_value(config.socket_path) if config.socket_path is not None else None,
+                "loaded_thread_scope": "per_app_server_process_memory",
+                "stdio_isolated": config.mode == "stdio",
             },
-            warnings=response.warnings,
+            warnings=warnings,
             provenance={"source": "app_server", "app_server_method": "thread/loaded/list"},
         )
 
@@ -844,154 +871,6 @@ class CodexAppServerObserver:
             provenance={"source": "app_server", "app_server_method": method},
         )
 
-    def start_turn(
-        self,
-        *,
-        thread_id: str,
-        message: str,
-        dry_run: bool,
-        confirmed: bool,
-        source_audit_id: str | None,
-    ) -> CommandResult:
-        params = {
-            "threadId": thread_id,
-            "input": [{"type": "text", "text": message, "text_elements": []}],
-        }
-        return self._controller_request(
-            method="turn/start",
-            thread_id=thread_id,
-            turn_id=None,
-            message=message,
-            params=params,
-            dry_run=dry_run,
-            confirmed=confirmed,
-            source_audit_id=source_audit_id,
-        )
-
-    def steer_turn(
-        self,
-        *,
-        thread_id: str,
-        turn_id: str,
-        message: str,
-        dry_run: bool,
-        confirmed: bool,
-        source_audit_id: str | None,
-    ) -> CommandResult:
-        params = {
-            "threadId": thread_id,
-            "expectedTurnId": turn_id,
-            "input": [{"type": "text", "text": message, "text_elements": []}],
-        }
-        return self._controller_request(
-            method="turn/steer",
-            thread_id=thread_id,
-            turn_id=turn_id,
-            message=message,
-            params=params,
-            dry_run=dry_run,
-            confirmed=confirmed,
-            source_audit_id=source_audit_id,
-        )
-
-    def interrupt_turn(
-        self,
-        *,
-        thread_id: str,
-        turn_id: str,
-        dry_run: bool,
-        confirmed: bool,
-        source_audit_id: str | None,
-    ) -> CommandResult:
-        params = {"threadId": thread_id, "turnId": turn_id}
-        return self._controller_request(
-            method="turn/interrupt",
-            thread_id=thread_id,
-            turn_id=turn_id,
-            message=None,
-            params=params,
-            dry_run=dry_run,
-            confirmed=confirmed,
-            source_audit_id=source_audit_id,
-        )
-
-    def _controller_request(
-        self,
-        *,
-        method: str,
-        thread_id: str,
-        turn_id: str | None,
-        message: str | None,
-        params: dict[str, Any],
-        dry_run: bool,
-        confirmed: bool,
-        source_audit_id: str | None,
-    ) -> CommandResult:
-        if method not in CONTROLLER_APP_SERVER_METHODS:
-            return self._method_not_allowed_result(method)
-        for field, value in [("thread_id", thread_id), ("turn_id", turn_id)]:
-            if field == "turn_id" and method == "turn/start":
-                continue
-            validation_error = self._validate_identifier(field, value)
-            if validation_error is not None:
-                return validation_error
-        message_preview: str | None = None
-        message_truncated = False
-        if message is not None:
-            if not message.strip():
-                return self._simple_error(
-                    "message_required",
-                    "Codex remote-control turn messages must be non-empty.",
-                    "Pass an explicit --message value.",
-                )
-            message_preview, message_truncated = cap_text(redact_value(message), MESSAGE_MAX_CHARS)
-            if message_truncated:
-                return self._simple_error(
-                    "message_too_long",
-                    f"Codex remote-control messages are capped at {MESSAGE_MAX_CHARS} characters.",
-                    "Shorten the message and retry.",
-                )
-        preview = {
-            "method": method,
-            "thread_id": redact_value(thread_id),
-            "turn_id": redact_value(turn_id),
-            "message_preview": message_preview,
-            "dry_run": dry_run,
-            "would_send": method in {"turn/start", "turn/steer"} and dry_run,
-            "would_interrupt": method == "turn/interrupt" and dry_run,
-            "sent": False,
-            "interrupted": False,
-            "source_audit_id": redact_value(source_audit_id),
-        }
-        if dry_run:
-            return CommandResult(
-                ok=True,
-                data=preview,
-                provenance={"source": "app_server", "app_server_method": method, "dry_run": True, "source_audit_id": source_audit_id},
-            )
-        gate_error = self._live_gate_error(confirmed=confirmed, source_audit_id=source_audit_id)
-        if gate_error is not None:
-            return gate_error
-        loaded_error = self._loaded_thread_error(thread_id)
-        if loaded_error is not None:
-            return loaded_error
-        rpc = self._rpc(method, params)
-        if not rpc.ok:
-            return self._rpc_error_result(method, rpc)
-        return CommandResult(
-            ok=True,
-            data={
-                **preview,
-                "dry_run": False,
-                "would_send": False,
-                "would_interrupt": False,
-                "sent": method in {"turn/start", "turn/steer"},
-                "interrupted": method == "turn/interrupt",
-                "response": redact_value(rpc.payload if isinstance(rpc.payload, dict) else {"result": rpc.payload}),
-            },
-            provenance={"source": "app_server", "app_server_method": method, "dry_run": False, "source_audit_id": source_audit_id},
-        )
-
     def _rpc(self, method: str, params: dict[str, Any], *, cli: str | None = None) -> JsonRpcResponse:
         if self._custom_rpc_client and self.rpc_client is not None:
             return self.rpc_client(method, params)
@@ -1025,9 +904,12 @@ class CodexAppServerObserver:
                 raise RuntimeError("No Codex app-server websocket URL configured")
             return WebSocketTransport(config.ws_url)
         if config.mode == "proxy":
+            if config.socket_path is None:
+                raise RuntimeError("No Codex app-server control socket configured or found for proxy transport")
+            if not config.socket_path.exists():
+                raise RuntimeError(f"Codex app-server control socket does not exist: {config.socket_path}")
             argv = [config.cli, "app-server", "proxy"]
-            if config.socket_path is not None:
-                argv.extend(["--sock", str(config.socket_path)])
+            argv.extend(["--sock", str(config.socket_path)])
             return ProxyWebSocketProcessTransport(argv)
         return LineProcessTransport([config.cli, "app-server", "--listen", "stdio://"])
 
@@ -1048,6 +930,10 @@ class CodexAppServerObserver:
                 mode = "proxy"
             else:
                 mode = "stdio"
+        if mode == "proxy" and socket_path is None:
+            socket_path = next((candidate for candidate in CONTROL_SOCKET_CANDIDATES if candidate.exists()), None)
+            if socket_path is None:
+                warnings.append("Proxy transport selected but no Codex app-server control socket was configured or found.")
         if ws_url is not None and not self._valid_loopback_ws_url(ws_url):
             warnings.append(f"Ignoring non-loopback {WS_URL_ENV}; only ws://127.0.0.1:PORT or ws://localhost:PORT is allowed.")
             ws_url = None
@@ -1068,6 +954,32 @@ class CodexAppServerObserver:
         if result.returncode != 0:
             return None
         return str(redact_value(result.stdout.strip())) or None
+
+    def _cli_alignment(self, config: TransportConfig) -> dict[str, Any]:
+        system_cli_path = shutil.which("codex")
+        system_version = self._command_version(["codex", "--version"]) if system_cli_path is not None else None
+        app_bundle_exists = APP_BUNDLE_CODEX.exists()
+        app_bundle_version = self._command_version([str(APP_BUNDLE_CODEX), "--version"]) if app_bundle_exists else None
+        selected_path = config.cli
+        return {
+            "selected_cli": {
+                "path": redact_value(selected_path),
+                "is_app_bundle": selected_path == str(APP_BUNDLE_CODEX),
+            },
+            "app_bundle_cli": {
+                "path": redact_value(APP_BUNDLE_CODEX),
+                "exists": app_bundle_exists,
+                "version": app_bundle_version,
+            },
+            "system_cli": {
+                "available": system_cli_path is not None,
+                "path": redact_value(system_cli_path) if system_cli_path is not None else None,
+                "version": system_version,
+            },
+            "path_mismatch": bool(app_bundle_exists and system_cli_path and system_cli_path != str(APP_BUNDLE_CODEX)),
+            "version_mismatch": bool(system_version and app_bundle_version and system_version != app_bundle_version),
+            "bridge_prefers_app_bundle": APP_BUNDLE_CODEX.exists() and not os.environ.get(CODEX_BIN_ENV, "").strip(),
+        }
 
     def _stdio_rpc(self, method: str, params: dict[str, Any], *, cli: str = "codex") -> JsonRpcResponse:
         try:
@@ -1131,52 +1043,6 @@ class CodexAppServerObserver:
             "params_truncated": truncated,
             "source": "app_server_notification",
         }
-
-    def _loaded_thread_error(self, thread_id: str) -> CommandResult | None:
-        result = self.loaded_threads(max_items=500)
-        if not result.ok:
-            return CommandResult(
-                ok=False,
-                data={"thread_id": redact_value(thread_id)},
-                errors=[
-                    make_error(
-                        code="codex_loaded_threads_unavailable",
-                        message="Unable to verify the target Codex Desktop thread is currently loaded.",
-                        guidance="Open the target thread in Codex Desktop and retry after a fresh connections status check.",
-                    )
-                ],
-                provenance={"source": "app_server", "app_server_method": "thread/loaded/list"},
-            )
-        loaded_ids = {str(item.get("id")) for item in result.data.get("threads", []) if isinstance(item, dict)}
-        if thread_id not in loaded_ids:
-            return CommandResult(
-                ok=False,
-                data={"thread_id": redact_value(thread_id), "loaded_count": len(loaded_ids)},
-                errors=[
-                    make_error(
-                        code="codex_thread_not_loaded",
-                        message="The target thread is not in Codex Desktop's loaded-thread set.",
-                        guidance="Open or select the thread visibly in Codex Desktop, then rerun the dry-run before live control.",
-                    )
-                ],
-                provenance={"source": "app_server", "app_server_method": "thread/loaded/list"},
-            )
-        return None
-
-    def _live_gate_error(self, *, confirmed: bool, source_audit_id: str | None) -> CommandResult | None:
-        if not confirmed:
-            return self._simple_error(
-                "remote_control_confirmation_required",
-                "Live Codex remote-control actions require --confirm.",
-                "Rerun with --live --confirm --source-audit-id from a recent evidence or dry-run record.",
-            )
-        if not isinstance(source_audit_id, str) or not source_audit_id.strip().startswith("audit-"):
-            return self._simple_error(
-                "source_audit_id_required",
-                "Live Codex remote-control actions require a source audit id.",
-                "Run a read-only status/loaded-threads/dry-run command first, then pass its audit_id as --source-audit-id.",
-            )
-        return None
 
     def _validate_identifier(self, field: str, value: str | None) -> CommandResult | None:
         if not isinstance(value, str) or not value.strip():

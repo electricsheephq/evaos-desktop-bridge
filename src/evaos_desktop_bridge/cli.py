@@ -86,11 +86,7 @@ GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "customer_mac.iphone_type": ("text",),
 }
 
-CODEX_SOURCE_AUDIT_FIELDS: dict[str, tuple[str, ...]] = {
-    "codex.app_server.start_turn": ("thread_id", "message"),
-    "codex.app_server.steer_turn": ("thread_id", "turn_id", "message"),
-    "codex.app_server.interrupt_turn": ("thread_id", "turn_id"),
-}
+CODEX_SOURCE_AUDIT_FIELDS: dict[str, tuple[str, ...]] = {}
 
 CONTROL_SESSION_COMMANDS = frozenset(
     {
@@ -336,28 +332,6 @@ def build_parser() -> argparse.ArgumentParser:
     app_server_subscribe_parser.add_argument("--duration-ms", type=_positive_int, default=1000, help="How long to buffer notifications.")
     app_server_subscribe_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum JSON chars per notification payload.")
     app_server_subscribe_parser.set_defaults(command_id="codex.app_server.subscribe", target="codex")
-
-    app_server_start_parser = app_server_subparsers.add_parser("start-turn", help="Guarded remote-control action: start a turn in a loaded Codex Desktop thread.")
-    app_server_start_parser.add_argument("--json", action="store_true", help="Emit JSON.")
-    app_server_start_parser.add_argument("--thread-id", required=True, help="Loaded Codex app-server thread id.")
-    app_server_start_parser.add_argument("--message", required=True, help="Exact user message for the turn.")
-    _add_remote_control_flags(app_server_start_parser)
-    app_server_start_parser.set_defaults(command_id="codex.app_server.start_turn", target="codex")
-
-    app_server_steer_parser = app_server_subparsers.add_parser("steer-turn", help="Guarded remote-control action: steer an active Codex Desktop turn.")
-    app_server_steer_parser.add_argument("--json", action="store_true", help="Emit JSON.")
-    app_server_steer_parser.add_argument("--thread-id", required=True, help="Loaded Codex app-server thread id.")
-    app_server_steer_parser.add_argument("--turn-id", required=True, help="Currently active Codex turn id precondition.")
-    app_server_steer_parser.add_argument("--message", required=True, help="Exact steering message.")
-    _add_remote_control_flags(app_server_steer_parser)
-    app_server_steer_parser.set_defaults(command_id="codex.app_server.steer_turn", target="codex")
-
-    app_server_interrupt_parser = app_server_subparsers.add_parser("interrupt-turn", help="Guarded remote-control action: interrupt an active Codex Desktop turn.")
-    app_server_interrupt_parser.add_argument("--json", action="store_true", help="Emit JSON.")
-    app_server_interrupt_parser.add_argument("--thread-id", required=True, help="Loaded Codex app-server thread id.")
-    app_server_interrupt_parser.add_argument("--turn-id", required=True, help="Currently active Codex turn id precondition.")
-    _add_remote_control_flags(app_server_interrupt_parser)
-    app_server_interrupt_parser.set_defaults(command_id="codex.app_server.interrupt_turn", target="codex")
 
     app_server_remote_parser = app_server_subparsers.add_parser("remote-control-status", help="Probe Codex native remote-control readiness without enabling or mutating it.")
     app_server_remote_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -802,12 +776,6 @@ def _run_command(
         return app_server.loaded_threads(max_items=args.max_items)
     if command_id == "codex.app_server.subscribe":
         return app_server.subscribe(thread_id=args.thread_id, duration_ms=args.duration_ms, max_chars=args.max_chars)
-    if command_id == "codex.app_server.start_turn":
-        return app_server.start_turn(thread_id=args.thread_id, message=args.message, dry_run=args.dry_run, confirmed=args.confirm, source_audit_id=args.source_audit_id)
-    if command_id == "codex.app_server.steer_turn":
-        return app_server.steer_turn(thread_id=args.thread_id, turn_id=args.turn_id, message=args.message, dry_run=args.dry_run, confirmed=args.confirm, source_audit_id=args.source_audit_id)
-    if command_id == "codex.app_server.interrupt_turn":
-        return app_server.interrupt_turn(thread_id=args.thread_id, turn_id=args.turn_id, dry_run=args.dry_run, confirmed=args.confirm, source_audit_id=args.source_audit_id)
     if command_id == "codex.app_server.remote_control_status":
         return app_server.remote_control_status()
     if command_id == "customer_mac.status":
@@ -1027,7 +995,7 @@ def _capabilities() -> dict[str, object]:
     return {
         "modes": {
             "eyes": "Read-only visible desktop observation with redaction and caps.",
-            "hands": "Guarded visible focus/select only; Codex turn messages use separate guarded app-server controller commands.",
+            "hands": "Guarded visible focus/select only; Codex app-server mutation commands remain withheld until live loaded-thread acceptance passes.",
             "brain": "Local Eva/OpenClaw announcement queue contract with external relay left to future sinks.",
         },
         "commands": [
@@ -1054,9 +1022,6 @@ def _capabilities() -> dict[str, object]:
                 "codex.app_server.threads",
                 "codex.app_server.loaded_threads",
                 "codex.app_server.subscribe",
-                "codex.app_server.start_turn",
-                "codex.app_server.steer_turn",
-                "codex.app_server.interrupt_turn",
                 "codex.app_server.remote_control_status",
                 "customer_mac.status",
                 "customer_mac.capabilities",
@@ -1101,11 +1066,7 @@ def _capabilities() -> dict[str, object]:
                 "customer_mac.screen_sharing_status",
             ]
         ],
-        "guarded_prompt_or_message_commands": [
-            "codex.app_server.start_turn",
-            "codex.app_server.steer_turn",
-            "codex.app_server.interrupt_turn",
-        ],
+        "guarded_prompt_or_message_commands": [],
         "forbidden": [
             "unguarded_send_prompts_or_messages",
             "type_into_codex",

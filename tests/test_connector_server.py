@@ -43,7 +43,6 @@ def test_connector_accepts_openclaw_tool_name_aliases() -> None:
     assert normalize_connector_command("desktop_see") == "desktopSee"
     assert normalize_connector_command("iphone_swipe") == "iphoneSwipe"
     assert normalize_connector_command("desktop_bridge_audit_tail") == "auditTail"
-    assert normalize_connector_command("desktop_bridge_codex_remote_start_turn") == "codexRemoteStartTurn"
     assert build_bridge_argv("customer_mac_status") == ["customer-mac", "status", "--json"]
     assert build_bridge_argv("desktop_see", {"max_chars": 800, "max_nodes": 40}) == [
         "customer-mac",
@@ -57,7 +56,7 @@ def test_connector_accepts_openclaw_tool_name_aliases() -> None:
     ]
 
 
-def test_connector_builds_codex_remote_control_argv() -> None:
+def test_connector_builds_codex_read_only_app_server_argv() -> None:
     assert build_bridge_argv("codexAppServerLoadedThreads", {"max_items": 3}) == [
         "codex",
         "app-server",
@@ -76,53 +75,12 @@ def test_connector_builds_codex_remote_control_argv() -> None:
         "--duration-ms",
         "25",
     ]
-    assert build_bridge_argv("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue"}) == [
-        "codex",
-        "app-server",
-        "start-turn",
-        "--json",
-        "--thread-id",
-        "thread-1",
-        "--message",
-        "continue",
-        "--dry-run",
-    ]
-    assert build_bridge_argv(
-        "codexRemoteSteerTurn",
-        {"thread_id": "thread-1", "turn_id": "turn-1", "message": "adjust", "dry_run": False, "source_audit_id": "audit-1", "confirm": True},
-    ) == [
-        "codex",
-        "app-server",
-        "steer-turn",
-        "--json",
-        "--thread-id",
-        "thread-1",
-        "--turn-id",
-        "turn-1",
-        "--message",
-        "adjust",
-        "--live",
-        "--confirm",
-        "--source-audit-id",
-        "audit-1",
-    ]
-    assert build_bridge_argv(
-        "codexRemoteInterruptTurn",
-        {"thread_id": "thread-1", "turn_id": "turn-1", "dry_run": False, "source_audit_id": "audit-1", "confirm": True},
-    ) == [
-        "codex",
-        "app-server",
-        "interrupt-turn",
-        "--json",
-        "--thread-id",
-        "thread-1",
-        "--turn-id",
-        "turn-1",
-        "--live",
-        "--confirm",
-        "--source-audit-id",
-        "audit-1",
-    ]
+    try:
+        build_bridge_argv("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue"})
+    except ValueError as exc:
+        assert "Unsupported connector command" in str(exc)
+    else:
+        raise AssertionError("expected Codex remote start to stay unexposed")
     assert build_bridge_argv("iphone_swipe", {"direction": "left", "dry_run": False}) == [
         "customer-mac",
         "iphone-mirroring",
@@ -205,11 +163,9 @@ def test_connector_clamps_caps_and_rejects_missing_required_values() -> None:
 
 def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> None:
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": False}) is True
-    assert _live_guarded_without_approval("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue", "dry_run": False}) is True
     assert _live_guarded_without_approval("customerMacIphoneMirroringSwipeLeft", {"dry_run": False}) is True
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": True}) is False
     assert _live_guarded_without_approval("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"}) is False
-    assert _live_guarded_without_approval("codexRemoteStartTurn", {"thread_id": "thread-1", "message": "continue", "dry_run": False, "source_audit_id": "audit-1", "confirm": True}) is False
     assert _live_guarded_without_approval("customerMacStatus", {}) is False
     argv = build_bridge_argv("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": "audit-1"})
     assert "--approval-audit-id" in argv
@@ -301,34 +257,6 @@ def test_connector_approval_audit_expires(tmp_path: Path) -> None:
     ) == "approval_audit_id is older than 15 minutes; run a new dry-run."
 
 
-def test_connector_codex_remote_requires_matching_source_audit(tmp_path: Path) -> None:
-    dry_run_audit = append_audit(
-        command="codex.app_server.start_turn",
-        target="codex",
-        args={"thread_id": "thread-1", "message": "continue", "dry_run": True, "json": True, "source_audit_id": None},
-        ok=True,
-        warnings=[],
-        errors=[],
-        state_dir=tmp_path,
-    )
-
-    assert _live_guarded_approval_error(
-        "codexRemoteStartTurn",
-        {"thread_id": "thread-1", "message": "continue", "dry_run": False, "source_audit_id": dry_run_audit, "confirm": True},
-        state_dir=tmp_path,
-    ) is None
-    assert _live_guarded_approval_error(
-        "codexRemoteStartTurn",
-        {"thread_id": "thread-1", "message": "different", "dry_run": False, "source_audit_id": dry_run_audit, "confirm": True},
-        state_dir=tmp_path,
-    ) == "source_audit_id does not match message."
-    assert _live_guarded_approval_error(
-        "codexRemoteStartTurn",
-        {"thread_id": "thread-1", "message": "continue", "dry_run": False, "source_audit_id": "audit-missing", "confirm": True},
-        state_dir=tmp_path,
-    ) == "source_audit_id was not found in the local audit log."
-
-
 def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tmp_path: Path) -> None:
     dry_run_audit = append_audit(
         command="customer_mac.app_focus",
@@ -357,7 +285,7 @@ def test_connector_live_guarded_remote_actions_require_matching_dry_run_audit(tm
     ) == "approval_audit_id was not found in the local audit log."
 
 
-def test_connector_rejects_forged_codex_source_audit_before_runner(tmp_path: Path) -> None:
+def test_connector_rejects_removed_codex_remote_tool_before_runner(tmp_path: Path) -> None:
     calls: list[list[str]] = []
 
     def runner(argv: list[str]) -> tuple[int, str]:
@@ -375,7 +303,7 @@ def test_connector_rejects_forged_codex_source_audit_before_runner(tmp_path: Pat
             "/v1/commands",
             body=json.dumps(
                 {
-                    "command": "codexRemoteStartTurn",
+                    "command": "desktop_bridge_codex_remote_start_turn",
                     "params": {
                         "thread_id": "thread-1",
                         "message": "continue",
@@ -390,11 +318,11 @@ def test_connector_rejects_forged_codex_source_audit_before_runner(tmp_path: Pat
         response = conn.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
 
-        assert response.status == 403
+        assert response.status == 400
         assert calls == []
-        assert payload["target"] == "codex"
-        assert payload["errors"][0]["code"] == "approval_audit_required"
-        assert "not found" in payload["errors"][0]["message"]
+        assert payload["target"] == "desktop"
+        assert payload["errors"][0]["code"] == "connector_bad_request"
+        assert "Unsupported connector command" in payload["errors"][0]["message"]
     finally:
         server.shutdown()
         thread.join(timeout=2)
@@ -455,7 +383,7 @@ def test_connector_rejects_post_without_token_even_on_loopback(tmp_path: Path) -
         thread.join(timeout=2)
 
 
-def test_connector_codex_remote_rejection_targets_codex(tmp_path: Path) -> None:
+def test_connector_removed_codex_remote_rejection_is_bad_request(tmp_path: Path) -> None:
     handler = _make_handler(token="secret-token", command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -467,7 +395,7 @@ def test_connector_codex_remote_rejection_targets_codex(tmp_path: Path) -> None:
             "/v1/commands",
             body=json.dumps(
                 {
-                    "command": "codexRemoteStartTurn",
+                    "command": "desktop_bridge_codex_remote_start_turn",
                     "params": {"thread_id": "thread-1", "message": "continue", "dry_run": False},
                 }
             ),
@@ -476,9 +404,9 @@ def test_connector_codex_remote_rejection_targets_codex(tmp_path: Path) -> None:
         response = conn.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
 
-        assert response.status == 403
-        assert payload["target"] == "codex"
-        assert payload["errors"][0]["code"] == "approval_audit_required"
+        assert response.status == 400
+        assert payload["target"] == "desktop"
+        assert payload["errors"][0]["code"] == "connector_bad_request"
     finally:
         server.shutdown()
         thread.join(timeout=2)

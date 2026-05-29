@@ -32,9 +32,6 @@ use the Workbench connector's customer-granted control session:
 - `desktop_bridge_codex_connections_status`
 - `desktop_bridge_codex_app_server_loaded_threads`
 - `desktop_bridge_codex_live_status`
-- `desktop_bridge_codex_remote_start_turn`
-- `desktop_bridge_codex_remote_steer_turn`
-- `desktop_bridge_codex_remote_interrupt_turn`
 - `desktop_bridge_codex_continue_thread`
 - `evaos_provider_profiles`
 - `evaos_provider_active_profile`

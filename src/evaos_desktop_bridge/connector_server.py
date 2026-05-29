@@ -25,9 +25,6 @@ GUARDED_REMOTE_COMMANDS = frozenset(
     {
         "codexSelectThread",
         "codexContinueThread",
-        "codexRemoteStartTurn",
-        "codexRemoteSteerTurn",
-        "codexRemoteInterruptTurn",
         "customerMacAppFocus",
         "customerMacLocalSiteOpen",
         "customerMacLocalSiteAction",
@@ -48,19 +45,9 @@ GUARDED_REMOTE_COMMANDS = frozenset(
     }
 )
 
-CODEX_REMOTE_CONTROL_COMMANDS = frozenset(
-    {
-        "codexRemoteStartTurn",
-        "codexRemoteSteerTurn",
-        "codexRemoteInterruptTurn",
-    }
-)
+CODEX_REMOTE_CONTROL_COMMANDS = frozenset()
 
-CODEX_REMOTE_CONTROL_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
-    "codexRemoteStartTurn": ("codex.app_server.start_turn", ("thread_id", "message")),
-    "codexRemoteSteerTurn": ("codex.app_server.steer_turn", ("thread_id", "turn_id", "message")),
-    "codexRemoteInterruptTurn": ("codex.app_server.interrupt_turn", ("thread_id", "turn_id")),
-}
+CODEX_REMOTE_CONTROL_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {}
 
 CONTROLLED_REMOTE_COMMANDS = frozenset(
     {
@@ -169,9 +156,6 @@ CONNECTOR_COMMAND_ALIASES = {
     "desktop_bridge_codex_connections_status": "codexConnectionsStatus",
     "desktop_bridge_codex_app_server_loaded_threads": "codexAppServerLoadedThreads",
     "desktop_bridge_codex_live_status": "codexLiveStatus",
-    "desktop_bridge_codex_remote_start_turn": "codexRemoteStartTurn",
-    "desktop_bridge_codex_remote_steer_turn": "codexRemoteSteerTurn",
-    "desktop_bridge_codex_remote_interrupt_turn": "codexRemoteInterruptTurn",
     "customer_mac_status": "customerMacStatus",
     "customer_mac_capabilities": "customerMacCapabilities",
     "customer_mac_snapshot": "customerMacSnapshot",
@@ -338,44 +322,6 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
             _required_string(params, "thread_id"),
             "--duration-ms",
             str(_clamp_int(params.get("duration_ms"), 1000, 1, 30000)),
-        ]
-    if command == "codexRemoteStartTurn":
-        return [
-            "codex",
-            "app-server",
-            "start-turn",
-            "--json",
-            "--thread-id",
-            _required_string(params, "thread_id"),
-            "--message",
-            _required_string(params, "message"),
-            *_codex_remote_control_args(params),
-        ]
-    if command == "codexRemoteSteerTurn":
-        return [
-            "codex",
-            "app-server",
-            "steer-turn",
-            "--json",
-            "--thread-id",
-            _required_string(params, "thread_id"),
-            "--turn-id",
-            _required_string(params, "turn_id"),
-            "--message",
-            _required_string(params, "message"),
-            *_codex_remote_control_args(params),
-        ]
-    if command == "codexRemoteInterruptTurn":
-        return [
-            "codex",
-            "app-server",
-            "interrupt-turn",
-            "--json",
-            "--thread-id",
-            _required_string(params, "thread_id"),
-            "--turn-id",
-            _required_string(params, "turn_id"),
-            *_codex_remote_control_args(params),
         ]
     if command == "customerMacSnapshot":
         return ["customer-mac", "snapshot", "--json", "--max-chars", str(_clamp_int(params.get("max_chars"), 4000, 1, 20000))]
