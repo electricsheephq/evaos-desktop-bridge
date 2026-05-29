@@ -91,6 +91,25 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         self.auditId = auditId
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let title = try container.decode(String.self, forKey: .title)
+        self.schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.surface = try container.decode(WorkbenchSessionSurface.self, forKey: .surface)
+        self.runtime = try container.decodeIfPresent(RuntimeKey.self, forKey: .runtime)
+        self.customerId = try container.decodeIfPresent(String.self, forKey: .customerId)
+        self.title = title
+        self.status = try container.decode(String.self, forKey: .status)
+        self.attentionState = try container.decode(WorkbenchMissionAttentionState.self, forKey: .attentionState)
+        self.lastActor = try container.decode(String.self, forKey: .lastActor)
+        self.updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        self.nextAction = try container.decodeIfPresent(String.self, forKey: .nextAction) ?? "Review \(title)."
+        self.resumeRoute = try container.decode(WorkbenchSessionResumeRoute.self, forKey: .resumeRoute)
+        self.sourcePointer = try container.decode(String.self, forKey: .sourcePointer)
+        self.auditId = try container.decodeIfPresent(String.self, forKey: .auditId)
+    }
+
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case id

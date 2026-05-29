@@ -415,6 +415,19 @@ precondition(runtimeSessionRecord.resumeRoute.kind == .brokerRuntime)
 precondition(runtimeSessionRecord.resumeRoute.runtime == .liveBrowser)
 precondition(runtimeSessionRecord.resumeRoute.targetId == "browser")
 precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: runtimeSessionRecord) == .liveBrowser)
+let sessionRecordEncoder = JSONEncoder()
+sessionRecordEncoder.outputFormatting = [.sortedKeys]
+let encodedRuntimeSessionRecord = try sessionRecordEncoder.encode(runtimeSessionRecord)
+let encodedRuntimeSessionRecordText = String(data: encodedRuntimeSessionRecord, encoding: .utf8)!
+precondition(encodedRuntimeSessionRecordText.contains("\"next_action\""))
+let decodedRuntimeSessionRecord = try JSONDecoder().decode(WorkbenchSessionRecord.self, from: encodedRuntimeSessionRecord)
+precondition(decodedRuntimeSessionRecord == runtimeSessionRecord)
+let legacySessionRecordJSON = """
+{"schema_version":"evaos.session_center.v1","id":"runtime-browser","surface":"broker","runtime":"browser","customer_id":"david-poku","title":"Shared Browser","status":"Loaded","attention_state":"active","last_actor":"broker","updated_at":"2026-05-29T16:00:00Z","resume_route":{"kind":"broker_runtime","runtime":"browser","target_id":"browser","source_pointer":"broker:runtime_status:browser"},"source_pointer":"broker:runtime_status:browser","audit_id":null}
+""".data(using: .utf8)!
+let legacySessionRecord = try JSONDecoder().decode(WorkbenchSessionRecord.self, from: legacySessionRecordJSON)
+precondition(legacySessionRecord.nextAction == "Review Shared Browser.")
+precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: legacySessionRecord) == .liveBrowser)
 
 let degradedRuntimeStatusResponse = """
 {"runtime_key":"openclaw","display_label":"evaOS (OpenClaw)","status":"degraded","health_summary":"Needs login","last_checked_at":"2026-05-23T10:00:00Z","auth_needed":true,"captcha_needed":false}
@@ -535,6 +548,8 @@ let sessionContractDoc = try String(contentsOfFile: "../../docs/session-center-a
 precondition(sessionContractDoc.contains("Canonical Session Record"))
 precondition(sessionContractDoc.contains("No Generic Control Surface"))
 precondition(sessionContractDoc.contains("broker_runtime"))
+precondition(sessionContractDoc.contains("next_action"))
+precondition(sessionContractDoc.contains("Readers should tolerate it missing"))
 
 let callbackURL = URL(string: "evaos://auth/callback?desktop_session=eds_test&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=admin%40100yen.org")!
 let callbackSession = try DesktopSessionCallbackParser.parse(callbackURL)
