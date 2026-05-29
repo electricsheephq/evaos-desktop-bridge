@@ -38,7 +38,7 @@ Read-only tools:
 Guarded visible action:
 
 - `desktop_bridge_codex_select_thread`: select an already-visible thread by `visible_id`; `dry_run` defaults to true.
-- `desktop_bridge_codex_send_visible_message`: send an approved message through the visible Codex Desktop composer; `dry_run` defaults to true and live mode requires `confirm` plus a matching `approval_audit_id`.
+- `desktop_bridge_codex_send_visible_message`: send an approved message through the visible Codex Desktop composer; `dry_run` defaults to true and live mode requires `confirm` plus a matching `approval_audit_id`. Use `thread_id=current` when the intended Codex thread is already open and should not be selected by sidebar coordinates. Optional `wait_ms` and `poll_interval_ms` keep the bridge in a read-only post-send observation loop so OpenClaw can report `submitted_waiting`, idle/done/error, or timeout evidence instead of looking silent during long Codex replies.
 - `desktop_bridge_codex_continue_thread`: support-only fallback; select a visible thread by title and submit exact `continue` after dry-run approval.
 - `customer_mac_app_focus`: focus a non-sensitive Mac app by name.
 - `customer_mac_local_site_open`: open a localhost, loopback, or `.local` website.

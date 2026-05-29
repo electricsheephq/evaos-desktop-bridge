@@ -174,11 +174,15 @@ def test_openclaw_codex_visible_gui_tools_are_fixed_and_approval_gated() -> None
     assert "withLocalMessagePayload" in source
     assert "safeBridgeErrorMessage" in source
     assert "--approval-audit-id" in source
+    assert "--wait-ms" in source
+    assert "--poll-interval-ms" in source
     assert "requiredString(params.message, \"message\")" in source
     assert "desktop_bridge_codex_send_visible_message" in firewall
     assert "<approved-message-redacted-for-firewall-scan>" in firewall
     assert "desktop_bridge_codex_send_visible_message" in index_source
     assert "Live visible Codex GUI action" in index_source
+    assert "wait_ms" in index_source
+    assert "poll_interval_ms" in index_source
 
 
 def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_tokens() -> None:

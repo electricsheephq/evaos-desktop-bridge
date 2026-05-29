@@ -110,7 +110,7 @@ The MVP must not:
 | Plugin shell escape | OpenClaw wrapper exposes fixed command mappings only and uses `execFile` with `shell: false`. |
 | Generic desktop-control bypass | Plugin `before_tool_call` firewall blocks suspicious shell/computer calls containing desktop-control, Codex app-server, prompt-send, token, or session database patterns. |
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
-| Stale visible message target | `send-visible-message` re-reads visible candidates, requires Codex frontmost and a visible composer, and records target/message hashes plus before/after snapshot pointers. |
+| Stale visible message target | `send-visible-message` re-reads visible candidates, requires Codex frontmost and a visible composer, and records target/message hashes plus before/after snapshot pointers. Live sends to title-hidden sidebar rows fail closed; agents can use `thread_id=current` only after the intended thread is already selected and visible, which avoids sidebar clicks. Optional post-send waiting is read-only: it captures capped snapshots/AX observations and never types, clicks, or calls app-server mutation after the approved submit. |
 | Cross-customer Mac exposure | Connector is bound locally by default; paired-VM mode requires Headscale ACLs and a connector token. |
 | Accidental live control | Live desktop/phone tools require an active Workbench control session; kill switch blocks future live commands. |
 | Accidental broad iPhone control | iPhone actions operate through the visible iPhone Mirroring window and are governed by Full Access / Ask Permission mode. |

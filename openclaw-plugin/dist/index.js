@@ -86,6 +86,8 @@ function readOnlyTools() {
                 dry_run: { type: "boolean", default: true },
                 confirm: { type: "boolean", default: false },
                 approval_audit_id: approvalAuditIdProperty,
+                wait_ms: { type: "integer", minimum: 0, maximum: 120000, default: 0 },
+                poll_interval_ms: { type: "integer", minimum: 250, maximum: 10000, default: 2000 },
             },
         }),
         tool("desktop_bridge_codex_continue_thread", "Support-only fallback: select a visible Codex thread by title and submit the exact prompt 'continue'. Dry-run defaults on.", "codexContinueThread", {

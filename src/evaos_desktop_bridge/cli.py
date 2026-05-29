@@ -298,6 +298,8 @@ def build_parser() -> argparse.ArgumentParser:
     send_visible_group.add_argument("--live", dest="dry_run", action="store_false", help="Type and submit the approved message after matching dry-run approval.")
     send_visible_parser.add_argument("--confirm", action="store_true", help="Required with --live.")
     send_visible_parser.add_argument("--approval-audit-id", default=None, help="Audit id from the approving dry-run/evidence record.")
+    send_visible_parser.add_argument("--wait-ms", type=_nonnegative_int, default=0, help="After a live send, poll read-only visible state for up to this many milliseconds.")
+    send_visible_parser.add_argument("--poll-interval-ms", type=_positive_int, default=2000, help="Read-only post-send poll interval in milliseconds.")
     send_visible_parser.set_defaults(command_id="codex.send_visible_message", target="codex")
 
     continue_parser = codex_subparsers.add_parser("continue-thread", help="Support-only visible fallback: select a visible Codex thread by title and submit the exact prompt 'continue'.")
@@ -815,7 +817,14 @@ def _run_command(
     if command_id == "codex.select_thread":
         return observer.select_thread(thread_id=args.thread_id, dry_run=args.dry_run)
     if command_id == "codex.send_visible_message":
-        return observer.send_visible_message(thread_id=args.thread_id, message=args.message, dry_run=args.dry_run, confirmed=args.confirm)
+        return observer.send_visible_message(
+            thread_id=args.thread_id,
+            message=args.message,
+            dry_run=args.dry_run,
+            confirmed=args.confirm,
+            wait_ms=args.wait_ms,
+            poll_interval_ms=args.poll_interval_ms,
+        )
     if command_id == "codex.continue_thread":
         return observer.continue_thread(title=args.title, prompt=args.prompt, dry_run=args.dry_run)
     if command_id == "codex.snapshot":
@@ -1155,6 +1164,13 @@ def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
         raise argparse.ArgumentTypeError("value must be >= 1")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be >= 0")
     return parsed
 
 

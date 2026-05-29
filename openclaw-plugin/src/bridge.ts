@@ -102,6 +102,8 @@ export type BridgeParams = {
   dry_run?: boolean;
   confirm?: boolean;
   duration_ms?: number;
+  wait_ms?: number;
+  poll_interval_ms?: number;
   app_name?: string;
   url?: string;
   action?: string;
@@ -275,6 +277,8 @@ export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams 
       ...(params.dry_run !== false ? ["--dry-run"] : ["--live"]),
       ...(params.confirm === true ? ["--confirm"] : []),
       ...guardedApprovalArg(params),
+      ...(params.wait_ms !== undefined ? ["--wait-ms", String(clampInt(params.wait_ms, 0, 0, 120000))] : []),
+      ...(params.poll_interval_ms !== undefined ? ["--poll-interval-ms", String(clampInt(params.poll_interval_ms, 2000, 250, 10000))] : []),
     ];
   }
   if (command === "codexSnapshot") {

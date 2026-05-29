@@ -8,6 +8,7 @@ import platform
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -27,6 +28,23 @@ SCREEN_RECORDING_GUIDANCE = (
 )
 SUPPORT_CANARY_ENV = "EVAOS_SUPPORT_CANARY_CONTROLS"
 VISIBLE_MESSAGE_MAX_CHARS = 4000
+VISIBLE_MESSAGE_WAIT_MAX_MS = 120_000
+VISIBLE_MESSAGE_WAIT_POLL_MIN_MS = 250
+VISIBLE_MESSAGE_WAIT_POLL_MAX_MS = 10_000
+VISIBLE_MESSAGE_WAIT_OBSERVATION_MAX = 25
+VISIBLE_MESSAGE_AX_MAX_NODES = 2500
+VISIBLE_MESSAGE_ACTIVE_TOKENS = (
+    "awaiting response",
+    "thinking",
+    "working",
+    "running",
+    "generating",
+    "responding",
+    "stop generating",
+    "stop response",
+)
+VISIBLE_MESSAGE_DONE_TOKENS = ("done", "completed", "response complete")
+VISIBLE_MESSAGE_ERROR_TOKENS = ("failed", "error")
 THREAD_STATUS_LABELS = (
     "Awaiting response",
     "Running",
@@ -480,7 +498,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             provenance={"source": "ax"},
         )
 
-    def select_thread(self, *, thread_id: str, dry_run: bool = False, max_items: int = 200) -> CommandResult:
+    def select_thread(self, *, thread_id: str, dry_run: bool = False, max_items: int = 50) -> CommandResult:
         if self.platform_name != "Darwin":
             return CommandResult(
                 ok=False,
@@ -582,15 +600,24 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         message: str,
         dry_run: bool = True,
         confirmed: bool = False,
+        wait_ms: int = 0,
+        poll_interval_ms: int = 2000,
     ) -> CommandResult:
         message = message.strip()
         message_preview = self._safe_message_preview(message)
         message_hash = self._short_hash(message)
+        wait_ms = max(0, min(VISIBLE_MESSAGE_WAIT_MAX_MS, int(wait_ms or 0)))
+        poll_interval_ms = max(
+            VISIBLE_MESSAGE_WAIT_POLL_MIN_MS,
+            min(VISIBLE_MESSAGE_WAIT_POLL_MAX_MS, int(poll_interval_ms or 2000)),
+        )
         provenance = {
             "source": "codex_visible_gui",
             "dry_run": dry_run,
             "selected_visible_target_id": thread_id,
             "message_hash": message_hash,
+            "wait_ms": wait_ms,
+            "poll_interval_ms": poll_interval_ms,
         }
         if not message:
             return CommandResult(
@@ -658,46 +685,55 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 ],
                 provenance=provenance,
             )
-        inventory = self.threads(max_items=200)
-        if not inventory.ok:
-            inventory.provenance.update(provenance)
-            return inventory
-        target = next((item for item in inventory.data.get("threads", []) if item.get("visible_id") == thread_id), None)
-        if target is None:
-            return CommandResult(
-                ok=False,
-                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash},
-                errors=[
-                    make_error(
-                        code="visible_thread_not_found",
-                        message="The requested visible Codex thread id is not present in the current GUI inventory.",
-                        guidance="Rerun `evaos-desktop-bridge codex threads --json` and choose a current visible_id.",
-                    )
-                ],
-                provenance=provenance,
-            )
-        center = target.get("center")
-        if not isinstance(center, dict) or center.get("x") is None or center.get("y") is None:
-            return CommandResult(
-                ok=False,
-                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash},
-                errors=[
-                    make_error(
-                        code="visible_thread_not_selectable",
-                        message="The visible thread candidate does not have safe screen coordinates.",
-                        guidance="Use a candidate with bounds from the current AX inventory.",
-                    )
-                ],
-                provenance=provenance,
-            )
-        target_safety_error = self._visible_message_target_safety_error(target=target, live=not dry_run)
-        if target_safety_error is not None:
-            return CommandResult(
-                ok=False,
-                data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash},
-                errors=[target_safety_error],
-                provenance=provenance,
-            )
+        current_thread = thread_id.strip().lower() in {"current", "visible-current", "current-visible"}
+        target: dict[str, Any] = {
+            "visible_id": "current",
+            "title": "Current visible Codex thread",
+            "source": "codex_visible_gui",
+            "selection_mode": "current_visible_thread",
+        }
+        if not current_thread:
+            inventory = self.threads(max_items=50)
+            if not inventory.ok:
+                inventory.provenance.update(provenance)
+                return inventory
+            found = next((item for item in inventory.data.get("threads", []) if item.get("visible_id") == thread_id), None)
+            if found is None:
+                return CommandResult(
+                    ok=False,
+                    data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "message_preview": message_preview, "message_hash": message_hash},
+                    errors=[
+                        make_error(
+                            code="visible_thread_not_found",
+                            message="The requested visible Codex thread id is not present in the current GUI inventory.",
+                            guidance="Rerun `evaos-desktop-bridge codex threads --json` and choose a current visible_id.",
+                        )
+                    ],
+                    provenance=provenance,
+                )
+            target = found
+            center = target.get("center")
+            if not isinstance(center, dict) or center.get("x") is None or center.get("y") is None:
+                return CommandResult(
+                    ok=False,
+                    data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash},
+                    errors=[
+                        make_error(
+                            code="visible_thread_not_selectable",
+                            message="The visible thread candidate does not have safe screen coordinates.",
+                            guidance="Use a candidate with bounds from the current AX inventory.",
+                        )
+                    ],
+                    provenance=provenance,
+                )
+            target_safety_error = self._visible_message_target_safety_error(target=target, live=not dry_run)
+            if target_safety_error is not None:
+                return CommandResult(
+                    ok=False,
+                    data={"submitted": False, "would_submit": dry_run, "thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash},
+                    errors=[target_safety_error],
+                    provenance=provenance,
+                )
         preflight = self._visible_message_preflight()
         if not preflight.ok:
             preflight.provenance.update(provenance)
@@ -711,9 +747,12 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                     "thread_id": thread_id,
                     "target": target,
                     "composer": composer,
-                    "would_select": True,
+                    "would_select": not current_thread,
                     "would_focus_composer": True,
                     "would_submit": True,
+                    "would_poll_after_submit": wait_ms > 0,
+                    "wait_ms": wait_ms,
+                    "poll_interval_ms": poll_interval_ms,
                     "submitted": False,
                     "message_preview": message_preview,
                     "message_hash": message_hash,
@@ -721,15 +760,16 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 },
                 provenance=provenance,
             )
-        selected = self.select_thread(thread_id=thread_id, dry_run=False)
-        if not selected.ok:
-            selected.provenance.update(provenance)
-            return selected
-        verified = self._verify_selected_visible_thread(target)
-        if not verified.ok:
-            verified.provenance.update(provenance)
-            verified.data.update({"thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash})
-            return verified
+        if not current_thread:
+            selected = self.select_thread(thread_id=thread_id, dry_run=False)
+            if not selected.ok:
+                selected.provenance.update(provenance)
+                return selected
+            verified = self._verify_selected_visible_thread(target)
+            if not verified.ok:
+                verified.provenance.update(provenance)
+                verified.data.update({"thread_id": thread_id, "target": target, "message_preview": message_preview, "message_hash": message_hash})
+                return verified
         after_select_preflight = self._visible_message_preflight()
         if not after_select_preflight.ok:
             after_select_preflight.provenance.update(provenance)
@@ -787,6 +827,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         after_snapshot = self.snapshot(max_chars=1000)
         before_snapshot_path = before_snapshot.data.get("screenshot_path") if before_snapshot.ok else None
         after_snapshot_path = after_snapshot.data.get("screenshot_path") if after_snapshot.ok else None
+        post_send, post_send_warnings = self._visible_message_post_send_status(wait_ms=wait_ms, poll_interval_ms=poll_interval_ms)
         return CommandResult(
             ok=True,
             data={
@@ -799,13 +840,17 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 "message_hash": message_hash,
                 "before_snapshot": before_snapshot_path,
                 "after_snapshot": after_snapshot_path,
+                "post_send": post_send,
             },
-            warnings=before_snapshot.warnings + after_snapshot.warnings,
+            warnings=before_snapshot.warnings + after_snapshot.warnings + post_send_warnings,
             provenance={
                 **provenance,
                 "before_snapshot_id": before_snapshot_path,
                 "after_snapshot_id": after_snapshot_path,
+                "post_send_state": post_send.get("state"),
+                "post_send_observation_count": post_send.get("observation_count"),
                 "selected_title_hash": target.get("title_hash"),
+                "current_visible_thread": current_thread,
             },
         )
 
@@ -836,7 +881,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 ],
                 provenance={"source": "codex_visible_fallback", "dry_run": dry_run, "support_only": True},
             )
-        inventory = self.threads(max_items=200)
+        inventory = self.threads(max_items=50)
         if not inventory.ok:
             inventory.provenance.update({"source": "codex_visible_fallback", "dry_run": dry_run, "support_only": True})
             return inventory
@@ -1160,7 +1205,29 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             )
             if len(candidates) >= max_items:
                 break
-        return candidates or fallback_candidates[:max_items]
+        if fallback_candidates:
+            fallback_right = 0
+            for fallback in fallback_candidates:
+                bounds = fallback.get("bounds")
+                if isinstance(bounds, dict):
+                    try:
+                        fallback_right = max(fallback_right, int(bounds.get("x") or 0) + int(bounds.get("width") or 0))
+                    except Exception:
+                        pass
+            sidebar_titled_candidates = []
+            for candidate in candidates:
+                center = candidate.get("center")
+                try:
+                    center_x = int(center.get("x")) if isinstance(center, dict) else None
+                except Exception:
+                    center_x = None
+                if center_x is not None and center_x <= fallback_right + 120:
+                    sidebar_titled_candidates.append(candidate)
+            if sidebar_titled_candidates:
+                return sidebar_titled_candidates[:max_items]
+            merged = fallback_candidates + candidates
+            return merged[:max_items]
+        return candidates[:max_items]
 
     def _visible_thread_id(self, *, index: int, title: str, window_index: Any) -> str:
         digest = hashlib.sha256(f"{window_index}:{index}:{title}".encode("utf-8")).hexdigest()[:12]
@@ -1231,7 +1298,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 warnings=frontmost.warnings,
                 provenance={"source": "codex_visible_gui"},
             )
-        ax = self.ax_tree(max_nodes=1200)
+        ax = self.ax_tree(max_nodes=VISIBLE_MESSAGE_AX_MAX_NODES)
         if not ax.ok:
             return ax
         composer = self._find_visible_composer(ax.data.get("nodes", []))
@@ -1251,6 +1318,129 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             )
         return CommandResult(ok=True, data={"composer": composer, "codex_frontmost": True}, warnings=ax.warnings, provenance={"source": "codex_visible_gui"})
 
+    def _visible_message_post_send_status(self, *, wait_ms: int, poll_interval_ms: int) -> tuple[dict[str, Any], list[str]]:
+        base = {
+            "state": "submitted_waiting",
+            "wait_ms": wait_ms,
+            "poll_interval_ms": poll_interval_ms,
+            "read_only_after_submit": True,
+            "observations": [],
+            "observation_count": 0,
+        }
+        if wait_ms <= 0:
+            return base, []
+
+        warnings: list[str] = []
+        observations: list[dict[str, Any]] = []
+        total_observations = 0
+        elapsed_ms = 0
+        last_state = "unknown"
+        while True:
+            observation = self._visible_message_wait_observation(max_chars=1000)
+            observation["index"] = total_observations
+            total_observations += 1
+            if len(observations) < VISIBLE_MESSAGE_WAIT_OBSERVATION_MAX:
+                observations.append(observation)
+            state = str(observation.get("state") or "unknown")
+            last_state = state
+            explicit_idle = state == "idle" and observation.get("idle_confidence") == "explicit"
+            if state in {"done", "error", "unavailable"} or explicit_idle:
+                return {
+                    **base,
+                    "state": state,
+                    "last_observed_state": state,
+                    "observations": observations,
+                    "observation_count": total_observations,
+                    "observations_truncated": total_observations > len(observations),
+                }, warnings
+            if elapsed_ms >= wait_ms:
+                break
+            sleep_ms = min(poll_interval_ms, wait_ms - elapsed_ms)
+            if sleep_ms <= 0:
+                break
+            self._sleep_for_visible_message_poll(sleep_ms / 1000.0)
+            elapsed_ms += sleep_ms
+
+        return {
+            **base,
+            "state": "timeout",
+            "last_observed_state": last_state,
+            "observations": observations,
+            "observation_count": total_observations,
+            "observations_truncated": total_observations > len(observations),
+        }, warnings
+
+    def _visible_message_wait_observation(self, *, max_chars: int = 1000) -> dict[str, Any]:
+        timestamp = self.now()
+        frontmost = self.frontmost()
+        if not frontmost.ok or frontmost.data.get("codex_frontmost") is not True:
+            return {
+                "timestamp": timestamp,
+                "state": "unavailable",
+                "codex_frontmost": bool(frontmost.data.get("codex_frontmost")),
+                "composer_visible": False,
+                "active_indicators": [],
+                "max_chars": max_chars,
+            }
+
+        ax = self.ax_tree(max_nodes=VISIBLE_MESSAGE_AX_MAX_NODES)
+        if not ax.ok:
+            return {
+                "timestamp": timestamp,
+                "state": "unavailable",
+                "codex_frontmost": True,
+                "composer_visible": False,
+                "active_indicators": [],
+                "max_chars": max_chars,
+            }
+
+        nodes = ax.data.get("nodes", [])
+        composer_visible = self._find_visible_composer(nodes) is not None if isinstance(nodes, list) else False
+        active_indicators: list[str] = []
+        done = False
+        error = False
+        if isinstance(nodes, list):
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                name = str(node.get("name") or "")
+                lowered = name.lower()
+                if any(token in lowered for token in VISIBLE_MESSAGE_ERROR_TOKENS):
+                    error = True
+                if any(token in lowered for token in VISIBLE_MESSAGE_DONE_TOKENS):
+                    done = True
+                if any(token in lowered for token in VISIBLE_MESSAGE_ACTIVE_TOKENS):
+                    capped, _ = cap_text(redact_value(name), 120)
+                    if capped and capped not in active_indicators and len(active_indicators) < 5:
+                        active_indicators.append(capped)
+
+        if error:
+            state = "error"
+        elif done:
+            state = "done"
+        elif active_indicators:
+            state = "submitted_waiting"
+        elif composer_visible:
+            state = "idle"
+        else:
+            state = "submitted_waiting"
+
+        snapshot = self.snapshot(max_chars=max_chars)
+        screenshot_path = snapshot.data.get("screenshot_path") if snapshot.ok else None
+        return {
+            "timestamp": timestamp,
+            "state": state,
+            "idle_confidence": "implicit_composer_visible" if state == "idle" else None,
+            "codex_frontmost": True,
+            "composer_visible": composer_visible,
+            "active_indicators": active_indicators,
+            "screenshot_path": screenshot_path,
+            "max_chars": max_chars,
+        }
+
+    def _sleep_for_visible_message_poll(self, seconds: float) -> None:
+        time.sleep(seconds)
+
     def _visible_message_target_safety_error(self, *, target: dict[str, Any], live: bool) -> dict[str, Any] | None:
         bounds = target.get("bounds")
         center = target.get("center")
@@ -1267,11 +1457,11 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                 message="The visible thread candidate center is outside the Codex window bounds.",
                 guidance="Rerun the thread inventory with the target row visible in the Codex window.",
             )
-        if live and target.get("selection_only") is True and not self._selection_only_live_target_allowed(target):
+        if live and target.get("selection_only") is True:
             return make_error(
                 code="visible_thread_identity_not_verifiable",
-                message="Live visible GUI messaging requires the title-hidden row to carry stable visible row evidence.",
-                guidance="Use a current title-hidden candidate with row bounds and a visible updated label, or use a titled medium-or-better candidate.",
+                message="Live visible GUI messaging requires a titled target row or the explicit current visible thread sentinel.",
+                guidance="Select the intended Codex thread first, then use --thread-id current, or use a visible titled medium-or-better candidate.",
             )
         if live and target.get("selection_only") is not True and target.get("confidence") == "low":
             return make_error(
@@ -1282,7 +1472,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         return None
 
     def _verify_selected_visible_thread(self, target: dict[str, Any]) -> CommandResult:
-        inventory = self.threads(max_items=200)
+        inventory = self.threads(max_items=50)
         if not inventory.ok:
             inventory.provenance.update({"source": "codex_visible_gui"})
             return inventory
@@ -1302,12 +1492,6 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             )
         if current.get("selected") is True or current.get("focused") is True:
             return CommandResult(ok=True, data={"selection_verified": True, "selected_thread": current}, provenance={"source": "codex_visible_gui"})
-        if target.get("selection_only") is True and self._selection_only_live_target_allowed(current):
-            return CommandResult(
-                ok=True,
-                data={"selection_verified": True, "selected_thread": current, "verification": "title_hidden_row_still_visible_after_select"},
-                provenance={"source": "codex_visible_gui"},
-            )
         return CommandResult(
             ok=False,
             data={"selection_verified": False, "selected_thread": current},

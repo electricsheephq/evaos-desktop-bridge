@@ -152,7 +152,7 @@ Local plugin tools call fixed bridge argv mappings with `shell: false`. Remote
 plugin tools post fixed command keys to `/v1/commands` on the paired Mac
 connector. Numeric caps are clamped. A `before_tool_call` firewall blocks common
 shell/computer escape hatches that would bypass the bridge boundary and requests
-approval for guarded Codex visible GUI message sends and legacy guarded customer Mac actions. New `desktop_*` and
+approval for guarded Codex visible GUI message sends and legacy guarded customer Mac actions. Codex visible sends also accept `thread_id=current` for the already-open visible thread plus optional `wait_ms` and `poll_interval_ms` parameters for capped read-only post-send progress evidence. New `desktop_*` and
 `iphone_*` actions are governed by the Workbench control session: Full Access
 allows live action without `approval_audit_id`, Ask Permission gates risky
 clicks, taps, hotkeys, typing, sends, and other high-impact actions, and the

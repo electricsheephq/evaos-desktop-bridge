@@ -132,6 +132,8 @@ function readOnlyTools(): ToolDefinition[] {
           dry_run: { type: "boolean", default: true },
           confirm: { type: "boolean", default: false },
           approval_audit_id: approvalAuditIdProperty,
+          wait_ms: { type: "integer", minimum: 0, maximum: 120000, default: 0 },
+          poll_interval_ms: { type: "integer", minimum: 250, maximum: 10000, default: 2000 },
         },
       },
     ),
