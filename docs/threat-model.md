@@ -5,8 +5,8 @@ doc_type: "policy"
 status: "active"
 canonical: true
 created_at: "2026-05-02T00:00:00Z"
-updated_at: "2026-05-02T00:00:00Z"
-revision_count: 1
+updated_at: "2026-05-29T00:00:00Z"
+revision_count: 2
 last_updated_by_agent: "codex"
 last_updated_by_session: "codex-desktop-passive-observer-mvp"
 tags:
@@ -28,10 +28,10 @@ Active for MVP issue `100yenadmin/evaos-desktop-bridge#7`.
 
 ## Last Update
 
-- Updated At: 2026-05-02T00:00:00Z
+- Updated At: 2026-05-29T00:00:00Z
 - Agent: codex
 - Session: codex-desktop-passive-observer-mvp
-- Revision Count: 1
+- Revision Count: 2
 
 ## Change Log
 
