@@ -4,6 +4,7 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add Workbench MVP closeout evidence and smoke locks for desktop login/Keychain, runtime broker launch, WebView isolation, and packaging/notarization tracks so stale MVP issues #16, #17, #18, #21, and umbrella #12 can close while #22 remains deferred.
 - Document and smoke-lock OpenDesign as a first-class brokered Workbench gateway for issues #20 and #66, including broker route, persistent WebView, runtime-status, auth, and Codex/BYOK separation contracts.
 - Expand the evaOS Workbench Provider Hub catalog beyond OpenAI/Codex with planned Google Workspace, Slack, Notion, Linear, and GitHub cards, broker-profile merging, provider OAuth completion refresh handling, and updated card icons while keeping raw provider secrets out of Workbench.
 - Add the issue #130 behavior/invariant harness with a native scratch-app fixture, local evidence reports, and probes for intended effects, focus preservation, cursor non-warping, occluded target capture, denied zero-effect behavior, and sensitive observation blocks.

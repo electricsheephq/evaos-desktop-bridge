@@ -1,6 +1,6 @@
 ---
 title: "Eva Desktop Workbench MVP Sprint"
-status: active
+status: complete
 created: 2026-05-20
 ---
 
@@ -10,6 +10,12 @@ created: 2026-05-20
 
 The sprint creates a downloadable Mac cockpit for existing evaOS runtimes while
 preserving the `evaos-desktop-bridge` observer/controller safety split.
+
+Closeout: the MVP Workbench is shipped as the `apps/eva-desktop-mac` SwiftUI app
+with brokered runtime tabs, desktop login/Keychain session handling, isolated
+WebViews, read-only bridge status, packaging/release docs, and OpenDesign as a
+brokered gateway. Supervised local Mac control remains outside this MVP and is
+tracked in the deferred epic.
 
 ## Milestone
 

@@ -56,3 +56,24 @@ cd apps/eva-desktop-mac
 swift run EvaDesktopCoreSmoke
 swift build
 ```
+
+## Eva Desktop Workbench MVP
+
+Milestone: `Eva Desktop Workbench MVP`
+
+| Issue | Acceptance | Implemented |
+| --- | --- | --- |
+| `#12` Workbench MVP epic | Child issues linked, MVP excludes broad local control, app launches locally with runtime tabs | MVP source, docs, and CI live in `apps/eva-desktop-mac/`; the app launches as `evaOS Workbench`, keeps upstream runtime UIs in `WKWebView`, and the Bridge/Mac/iPhone surfaces keep local control named, gated, and audited. Deferred supervised local Mac control remains tracked separately in `#22`. |
+| `#16` Desktop login and Keychain session | Sign in/out, restart persistence, local revoke, no runtime secrets outside session layer, recoverable failure states | `ASWebAuthenticationSession` sign-in, backup device-code claim, non-interactive startup Keychain reads, Keychain-backed opaque desktop sessions, sign-out revoke, reset-local-session, 401/session-expiry cleanup, and explicit user-facing failure states are implemented. Runtime cookies/tokens are not stored in app model state. |
+| `#17` Runtime session broker client | Customer/runtime request, server-side short-lived launch URL, no raw runtime tokens in local storage/model, route keys represented | `RuntimeSessionBrokerClient` posts typed `runtime_launch` and `runtime_status` requests to the backend with bearer desktop-session auth; runtime keys are serialized by `RuntimeKey` and launch responses are loaded directly into runtime WebViews without exposing raw runtime secrets. |
+| `#18` WebView isolation and cookie safety | Customer/runtime isolation, admin switching cannot reuse wrong cookies, tabs keep separate auth state, two-target smoke coverage | `WebViewStore` keys `WKWebView` instances by `customerId::runtime`, uses a non-persistent website data store, resets webviews on sign-in/sign-out/client rebuild, and forces reload when switching customer targets. Live Workbench canary for `#66` covered an admin/customer switch from David Poku to Golden with OpenDesign reload evidence. |
+| `#21` Packaging and notarization track | Developer ID, hardened runtime, notarization/artifact flow, minimal entitlements, local archive validation, OpenClaw lessons borrowed | Packaging docs and `build_and_run.sh` cover beta, Developer ID release, hardened runtime signing, Sparkle appcast generation, bounded notarization, stapling, `codesign`, `spctl`, and live download verification. GA notarization/trust proof continues under `#67`. |
+
+Verification:
+
+```bash
+cd apps/eva-desktop-mac
+swift run EvaDesktopCoreSmoke
+swift build
+./script/build_and_run.sh --verify
+```
