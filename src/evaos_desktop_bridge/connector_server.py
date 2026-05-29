@@ -332,6 +332,10 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         else:
             argv.append("--dry-run")
         argv.extend(_approval_arg(params))
+        if params.get("wait_ms") is not None:
+            argv.extend(["--wait-ms", str(_clamp_int(params.get("wait_ms"), 0, 0, 120_000))])
+        if params.get("poll_interval_ms") is not None:
+            argv.extend(["--poll-interval-ms", str(_clamp_int(params.get("poll_interval_ms"), 2000, 250, 10_000))])
         return argv
     if command == "codexSnapshot":
         return ["codex", "snapshot", "--json", "--max-chars", str(_clamp_int(params.get("max_chars"), 4000, 1, 20000))]

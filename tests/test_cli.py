@@ -114,7 +114,16 @@ class FakeObserver:
             return CommandResult(ok=False, data={"submitted": False}, errors=[{"code": "codex_thread_title_not_unique", "message": "missing", "guidance": "rerun threads"}])
         return CommandResult(ok=True, data={"submitted": not dry_run, "would_submit": dry_run, "title": title, "prompt_preview": prompt})
 
-    def send_visible_message(self, *, thread_id: str, message: str, dry_run: bool = True, confirmed: bool = False) -> CommandResult:
+    def send_visible_message(
+        self,
+        *,
+        thread_id: str,
+        message: str,
+        dry_run: bool = True,
+        confirmed: bool = False,
+        wait_ms: int = 0,
+        poll_interval_ms: int = 2000,
+    ) -> CommandResult:
         if thread_id != "visible-0-abc":
             return CommandResult(ok=False, data={"submitted": False}, errors=[{"code": "visible_thread_not_found", "message": "missing", "guidance": "rerun threads"}])
         if not dry_run and not confirmed:
@@ -129,6 +138,12 @@ class FakeObserver:
                 "submitted": not dry_run,
                 "message_preview": message.strip(),
                 "message_hash": digest,
+                "post_send": {
+                    "state": "idle" if wait_ms else "submitted_waiting",
+                    "wait_ms": wait_ms,
+                    "poll_interval_ms": poll_interval_ms,
+                    "read_only_after_submit": True,
+                },
                 "provenance": {"source": "codex_visible_gui"},
             },
             provenance={"source": "codex_visible_gui", "dry_run": dry_run, "selected_visible_target_id": thread_id, "message_hash": digest},
@@ -556,6 +571,40 @@ def test_send_visible_message_live_requires_confirm_even_with_approval(tmp_path:
 
     assert rejected["_exit_code"] == 2
     assert rejected["errors"][0]["code"] == "visible_message_confirmation_required"
+
+
+def test_send_visible_message_live_accepts_wait_state_options(tmp_path: Path) -> None:
+    dry_run = run_cli(
+        ["codex", "send-visible-message", "--json", "--thread-id", "visible-0-abc", "--message", "hello", "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+    approved = run_cli(
+        [
+            "codex",
+            "send-visible-message",
+            "--json",
+            "--thread-id",
+            "visible-0-abc",
+            "--message",
+            "hello",
+            "--live",
+            "--confirm",
+            "--approval-audit-id",
+            dry_run["audit_id"],
+            "--wait-ms",
+            "3000",
+            "--poll-interval-ms",
+            "1000",
+        ],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert approved["_exit_code"] == 0
+    assert approved["data"]["post_send"]["state"] == "idle"
+    assert approved["data"]["post_send"]["wait_ms"] == 3000
+    assert approved["data"]["post_send"]["poll_interval_ms"] == 1000
 
 
 def test_send_visible_message_accepts_message_file_without_auditing_path_or_raw_message(tmp_path: Path) -> None:

@@ -115,6 +115,34 @@ def test_connector_builds_codex_read_only_app_server_argv() -> None:
         "--approval-audit-id",
         "audit-1",
     ]
+    assert build_bridge_argv(
+        "codexSendVisibleMessage",
+        {
+            "thread_id": "visible-0-abc",
+            "message": "hello",
+            "dry_run": False,
+            "confirm": True,
+            "approval_audit_id": "audit-1",
+            "wait_ms": 3000,
+            "poll_interval_ms": 1000,
+        },
+    ) == [
+        "codex",
+        "send-visible-message",
+        "--json",
+        "--thread-id",
+        "visible-0-abc",
+        "--message",
+        "hello",
+        "--live",
+        "--confirm",
+        "--approval-audit-id",
+        "audit-1",
+        "--wait-ms",
+        "3000",
+        "--poll-interval-ms",
+        "1000",
+    ]
     try:
         build_bridge_argv("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message_file": "/tmp/message.txt"})
     except ValueError as exc:

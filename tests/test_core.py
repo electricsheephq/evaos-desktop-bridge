@@ -197,6 +197,29 @@ def test_visible_thread_candidates_fallback_to_selection_only_rows_when_titles_h
     assert threads[0]["center"] == {"x": 140, "y": 138}
 
 
+def test_visible_thread_candidates_keep_title_hidden_sidebar_rows_ahead_of_body_text(tmp_path: Path) -> None:
+    observer = MacOSCodexObserver(
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+    )
+    payload = {
+        "nodes": [
+            {"role": "AXButton", "name": "Unpin chat Archive chat 13h", "window_index": 0, "bounds": {"x": 20, "y": 120, "width": 240, "height": 36}},
+            {"role": "AXStaticText", "name": "Body response text that is not a sidebar thread", "window_index": 0, "bounds": {"x": 450, "y": 200, "width": 500, "height": 30}},
+        ]
+    }
+
+    compact = observer._visible_threads_from_payload(payload, max_items=1)
+    expanded = observer._visible_threads_from_payload(payload, max_items=50)
+
+    assert compact[0]["selection_only"] is True
+    assert expanded[0]["visible_id"] == compact[0]["visible_id"]
+    assert expanded[0]["selection_only"] is True
+    assert expanded[0]["updated_label"] == "13h"
+
+
 class FakeVisibleCodexObserver(MacOSCodexObserver):
     def __init__(
         self,
@@ -208,14 +231,17 @@ class FakeVisibleCodexObserver(MacOSCodexObserver):
         selected_after_select: bool = True,
         selection_only: bool = False,
         title_hidden_updated_label: str | None = None,
+        wait_states: list[str] | None = None,
     ) -> None:
         self.commands: list[list[str]] = []
+        self.sleep_calls: list[float] = []
         self._composer = composer
         self._frontmost_ok = frontmost_ok
         self._stale = stale
         self._selected_after_select = selected_after_select
         self._selection_only = selection_only
         self._title_hidden_updated_label = title_hidden_updated_label
+        self._wait_states = list(wait_states or [])
         self._did_select = False
         super().__init__(
             runner=self._run,
@@ -273,6 +299,22 @@ class FakeVisibleCodexObserver(MacOSCodexObserver):
         self._did_select = not dry_run
         return CommandResult(ok=True, data={"selected": not dry_run, "would_select": dry_run, "thread_id": thread_id, "target": self.threads(max_items=1).data["threads"][0]})
 
+    def _visible_message_wait_observation(self, *, max_chars: int = 1000) -> dict[str, object]:
+        state = self._wait_states.pop(0) if self._wait_states else "submitted_waiting"
+        return {
+            "timestamp": self.now(),
+            "state": state,
+            "idle_confidence": "explicit" if state == "idle" else None,
+            "codex_frontmost": True,
+            "composer_visible": state == "idle",
+            "active_indicators": ["Awaiting response"] if state == "submitted_waiting" else [],
+            "screenshot_path": str(self.state_dir / "screenshots" / f"{state}.png"),
+            "max_chars": max_chars,
+        }
+
+    def _sleep_for_visible_message_poll(self, seconds: float) -> None:
+        self.sleep_calls.append(seconds)
+
 
 def test_send_visible_message_dry_run_preflights_without_typing(tmp_path: Path) -> None:
     observer = FakeVisibleCodexObserver(tmp_path)
@@ -320,6 +362,63 @@ def test_send_visible_message_live_selects_composer_and_submits(tmp_path: Path) 
     assert any("keystroke" in " ".join(command) and "key code 36" in " ".join(command) for command in observer.commands)
 
 
+def test_send_visible_message_current_thread_does_not_select_sidebar_row(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path)
+
+    result = observer.send_visible_message(thread_id="current", message="hello", dry_run=False, confirmed=True)
+
+    assert result.ok is True
+    assert result.data["submitted"] is True
+    assert result.data["target"]["visible_id"] == "current"
+    assert not observer._did_select
+    assert any("keystroke" in " ".join(command) and "key code 36" in " ".join(command) for command in observer.commands)
+
+
+def test_send_visible_message_live_reports_wait_state_until_idle(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, wait_states=["submitted_waiting", "idle"])
+
+    result = observer.send_visible_message(
+        thread_id="visible-0-abc",
+        message="hello",
+        dry_run=False,
+        confirmed=True,
+        wait_ms=3000,
+        poll_interval_ms=1000,
+    )
+
+    assert result.ok is True
+    assert result.data["submitted"] is True
+    assert result.data["post_send"]["state"] == "idle"
+    assert result.data["post_send"]["read_only_after_submit"] is True
+    assert result.data["post_send"]["observation_count"] == 2
+    assert result.data["post_send"]["observations"][0]["state"] == "submitted_waiting"
+    assert result.data["post_send"]["observations"][1]["state"] == "idle"
+    assert result.provenance["post_send_state"] == "idle"
+    assert observer.sleep_calls == [1.0]
+    assert sum(1 for command in observer.commands if "keystroke" in " ".join(command)) == 1
+
+
+def test_send_visible_message_live_wait_timeout_keeps_progress_evidence(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, wait_states=["submitted_waiting", "submitted_waiting"])
+
+    result = observer.send_visible_message(
+        thread_id="visible-0-abc",
+        message="hello",
+        dry_run=False,
+        confirmed=True,
+        wait_ms=1500,
+        poll_interval_ms=1000,
+    )
+
+    assert result.ok is True
+    assert result.data["post_send"]["state"] == "timeout"
+    assert result.data["post_send"]["last_observed_state"] == "submitted_waiting"
+    assert result.data["post_send"]["observation_count"] >= 1
+    assert result.data["post_send"]["read_only_after_submit"] is True
+    assert result.provenance["post_send_state"] == "timeout"
+    assert sum(1 for command in observer.commands if "keystroke" in " ".join(command)) == 1
+
+
 def test_codex_visible_message_applescript_expr_handles_multiline_controls(tmp_path: Path) -> None:
     observer = FakeVisibleCodexObserver(tmp_path)
 
@@ -352,14 +451,14 @@ def test_send_visible_message_live_rejects_selection_only_rows(tmp_path: Path) -
     assert observer.commands == []
 
 
-def test_send_visible_message_live_allows_current_title_hidden_row_with_stable_evidence(tmp_path: Path) -> None:
+def test_send_visible_message_live_rejects_title_hidden_row_even_with_stable_evidence(tmp_path: Path) -> None:
     observer = FakeVisibleCodexObserver(tmp_path, selection_only=True, title_hidden_updated_label="1m")
 
     result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=False, confirmed=True)
 
-    assert result.ok is True
-    assert result.data["submitted"] is True
-    assert any("keystroke" in " ".join(command) and "key code 36" in " ".join(command) for command in observer.commands)
+    assert result.ok is False
+    assert result.errors[0]["code"] == "visible_thread_identity_not_verifiable"
+    assert not any("keystroke" in " ".join(command) for command in observer.commands)
 
 
 def test_redaction_removes_home_paths_and_secret_like_tokens() -> None:

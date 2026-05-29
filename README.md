@@ -131,14 +131,25 @@ evaos-desktop-bridge codex focus --json --dry-run
 evaos-desktop-bridge codex focus --json
 evaos-desktop-bridge codex select-thread --json --thread-id visible-0-... --dry-run
 evaos-desktop-bridge codex send-visible-message --json --thread-id visible-0-... --message "continue" --dry-run
+evaos-desktop-bridge codex send-visible-message --json --thread-id current --message "continue" --dry-run
+evaos-desktop-bridge codex send-visible-message --json --thread-id visible-0-... --message "continue" --live --confirm --approval-audit-id audit-... --wait-ms 30000
 ```
 
 Focuses Codex, selects an already-visible thread candidate, or sends an approved message through the visible Codex Desktop composer. These actions do not launch Codex, call hidden app-server mutation methods, read session databases, or expose arbitrary coordinates. `select-thread` and `send-visible-message` should be dry-run first and fail closed if the target is stale, offscreen, missing bounds, Codex is not frontmost, the composer is absent, or permissions are absent.
 
+Use `--thread-id current` only after the intended Codex thread is already open
+and visible; this path never clicks a sidebar row and sends only through the
+current composer. Live sends to title-hidden sidebar rows fail closed because
+Codex may hide row titles and selected state from Accessibility.
+
 Live visible message sending requires rerunning the exact same command with
 `--live --confirm --approval-audit-id audit-...`. The approval audit matches
 `thread_id` and `message_hash`; the audit log stores capped/redacted preview
-and hash, not a hidden app-server mutation.
+and hash, not a hidden app-server mutation. Add `--wait-ms` with optional
+`--poll-interval-ms` when an agent should keep returning capped read-only
+post-send evidence until the visible UI looks idle/done/errors or the wait
+times out. The wait loop only snapshots/reads AX state after submission; it does
+not type, click, call app-server mutation, or send another message.
 
 ### Visible snapshot
 

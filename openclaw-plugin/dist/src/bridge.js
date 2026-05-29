@@ -89,6 +89,8 @@ export function buildBridgeArgv(command, params = {}) {
             ...(params.dry_run !== false ? ["--dry-run"] : ["--live"]),
             ...(params.confirm === true ? ["--confirm"] : []),
             ...guardedApprovalArg(params),
+            ...(params.wait_ms !== undefined ? ["--wait-ms", String(clampInt(params.wait_ms, 0, 0, 120000))] : []),
+            ...(params.poll_interval_ms !== undefined ? ["--poll-interval-ms", String(clampInt(params.poll_interval_ms, 2000, 250, 10000))] : []),
         ];
     }
     if (command === "codexSnapshot") {
