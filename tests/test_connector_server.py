@@ -115,7 +115,16 @@ def test_connector_builds_codex_read_only_app_server_argv() -> None:
         "--approval-audit-id",
         "audit-1",
     ]
-    assert build_bridge_argv("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message_file": "/tmp/message.txt"}) == [
+    try:
+        build_bridge_argv("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message_file": "/tmp/message.txt"})
+    except ValueError as exc:
+        assert "message_file is reserved" in str(exc)
+    else:
+        raise AssertionError("expected client-supplied message_file to fail closed")
+    assert build_bridge_argv(
+        "codexSendVisibleMessage",
+        {"thread_id": "visible-0-abc", "message_file": "/tmp/message.txt", "_prepared_message_file": True},
+    ) == [
         "codex",
         "send-visible-message",
         "--json",
@@ -321,12 +330,45 @@ def test_connector_codex_visible_message_moves_raw_message_to_temp_file(tmp_path
 
     assert "message" not in prepared
     assert prepared["message_file"].startswith(str(tmp_path))
+    assert prepared["_prepared_message_file"] is True
     assert temp_paths == [Path(prepared["message_file"])]
     assert temp_paths[0].read_text(encoding="utf-8") == "secret prompt"
     argv = build_bridge_argv("codexSendVisibleMessage", prepared)
     assert "--message-file" in argv
     assert "secret prompt" not in argv
     temp_paths[0].unlink()
+
+
+def test_connector_rejects_client_supplied_codex_visible_message_file(tmp_path: Path) -> None:
+    try:
+        _prepare_connector_params(
+            "codexSendVisibleMessage",
+            {"thread_id": "visible-0-abc", "message_file": "/etc/passwd"},
+            state_dir=tmp_path,
+        )
+    except ValueError as exc:
+        assert "message_file is reserved" in str(exc)
+    else:
+        raise AssertionError("expected connector to reject client-supplied message_file")
+
+
+def test_connector_cleans_temp_message_file_if_write_fails(tmp_path: Path, monkeypatch) -> None:
+    def fail_write(_fd: int, _payload: bytes) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("evaos_desktop_bridge.connector_server.os.write", fail_write)
+
+    try:
+        _prepare_connector_params(
+            "codexSendVisibleMessage",
+            {"thread_id": "visible-0-abc", "message": "secret prompt"},
+            state_dir=tmp_path,
+        )
+    except OSError as exc:
+        assert "disk full" in str(exc)
+    else:
+        raise AssertionError("expected failing temp write to propagate")
+    assert list((tmp_path / "tmp").glob("codex-visible-message-*")) == []
 
 
 def test_connector_approval_audit_expires(tmp_path: Path) -> None:

@@ -320,6 +320,8 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         ]
         message_file = params.get("message_file")
         if isinstance(message_file, str) and message_file.strip():
+            if params.get("_prepared_message_file") is not True:
+                raise ValueError("message_file is reserved for connector internals; provide message.")
             argv.extend(["--message-file", message_file.strip()])
         else:
             argv.extend(["--message", _required_string(params, "message")])
@@ -494,20 +496,29 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
 
 def _prepare_connector_params(command: str, params: dict[str, Any], *, state_dir: Path | None) -> tuple[dict[str, Any], list[Path]]:
     command = normalize_connector_command(command)
-    if command != "codexSendVisibleMessage" or not isinstance(params.get("message"), str):
+    if command != "codexSendVisibleMessage":
         return params, []
+    if isinstance(params.get("message_file"), str) and params.get("message_file", "").strip():
+        raise ValueError("message_file is reserved for connector internals; provide message.")
+    if not isinstance(params.get("message"), str):
+        raise ValueError("message is required")
     root = (state_dir or default_state_dir()) / "tmp"
     root.mkdir(parents=True, exist_ok=True)
     fd, path_text = tempfile.mkstemp(prefix="codex-visible-message-", suffix=".txt", dir=str(root), text=True)
     path = Path(path_text)
     try:
-        os.write(fd, str(params["message"]).encode("utf-8"))
-    finally:
-        os.close(fd)
-    os.chmod(path, 0o600)
+        try:
+            os.write(fd, str(params["message"]).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.chmod(path, 0o600)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     prepared = dict(params)
     prepared.pop("message", None)
     prepared["message_file"] = str(path)
+    prepared["_prepared_message_file"] = True
     return prepared, [path]
 
 

@@ -763,7 +763,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             [
                 "osascript",
                 "-e",
-                f'tell application "System Events" to keystroke "{self._escape_applescript(message)}"',
+                f'tell application "System Events" to keystroke {self._applescript_string_expr(message)}',
                 "-e",
                 'tell application "System Events" to key code 36',
             ],
@@ -1180,8 +1180,40 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
     def _short_hash(self, value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
-    def _escape_applescript(self, value: str) -> str:
-        return value.replace("\\", "\\\\").replace('"', '\\"')
+    def _applescript_string_expr(self, value: str) -> str:
+        parts: list[str] = []
+        literal: list[str] = []
+
+        def flush_literal() -> None:
+            if not literal:
+                return
+            escaped = "".join(literal).replace("\\", "\\\\").replace('"', '\\"')
+            parts.append(f'"{escaped}"')
+            literal.clear()
+
+        index = 0
+        while index < len(value):
+            if value.startswith("\r\n", index):
+                flush_literal()
+                parts.append("return")
+                index += 2
+                continue
+            char = value[index]
+            if char in {"\n", "\r"}:
+                flush_literal()
+                parts.append("return")
+            elif char == "\t":
+                flush_literal()
+                parts.append("tab")
+            elif ord(char) < 32 or ord(char) == 127:
+                flush_literal()
+                parts.append(f"(ASCII character {ord(char)})")
+            else:
+                literal.append(char)
+            index += 1
+
+        flush_literal()
+        return " & ".join(parts) if parts else '""'
 
     def _visible_message_preflight(self) -> CommandResult:
         frontmost = self.frontmost()

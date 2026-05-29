@@ -316,6 +316,18 @@ def test_send_visible_message_live_selects_composer_and_submits(tmp_path: Path) 
     assert any("keystroke" in " ".join(command) and "key code 36" in " ".join(command) for command in observer.commands)
 
 
+def test_codex_visible_message_applescript_expr_handles_multiline_controls(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path)
+
+    expr = observer._applescript_string_expr('hello "there"\\next\nline\r\nnext\tstop\x01')
+
+    assert "\n" not in expr
+    assert '"hello \\"there\\"\\\\next"' in expr
+    assert "return" in expr
+    assert "tab" in expr
+    assert "(ASCII character 1)" in expr
+
+
 def test_send_visible_message_live_fails_if_selection_not_verified(tmp_path: Path) -> None:
     observer = FakeVisibleCodexObserver(tmp_path, selected_after_select=False)
 

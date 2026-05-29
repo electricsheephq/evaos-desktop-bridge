@@ -479,14 +479,14 @@ async function withLocalMessagePayload(command, params, callback) {
     }
     const dir = fsCompat.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "evaos-codex-visible-message-"));
     const messageFile = path.join(dir, "message.txt");
-    await writeFile(messageFile, params.message, { encoding: "utf8", mode: 0o600 });
     try {
-        fsCompat.chmodSync(messageFile, 0o600);
-    }
-    catch {
-        // Best-effort on platforms that do not support chmod.
-    }
-    try {
+        await writeFile(messageFile, params.message, { encoding: "utf8", mode: 0o600 });
+        try {
+            fsCompat.chmodSync(messageFile, 0o600);
+        }
+        catch {
+            // Best-effort on platforms that do not support chmod.
+        }
         const safeParams = { ...params, message: undefined, message_file: messageFile };
         return await callback(safeParams);
     }
