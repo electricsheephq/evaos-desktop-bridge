@@ -1332,12 +1332,17 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
 
         warnings: list[str] = []
         observations: list[dict[str, Any]] = []
+        total_observations = 0
         elapsed_ms = 0
-        while len(observations) < VISIBLE_MESSAGE_WAIT_OBSERVATION_MAX:
+        last_state = "unknown"
+        while True:
             observation = self._visible_message_wait_observation(max_chars=1000)
-            observation["index"] = len(observations)
-            observations.append(observation)
+            observation["index"] = total_observations
+            total_observations += 1
+            if len(observations) < VISIBLE_MESSAGE_WAIT_OBSERVATION_MAX:
+                observations.append(observation)
             state = str(observation.get("state") or "unknown")
+            last_state = state
             explicit_idle = state == "idle" and observation.get("idle_confidence") == "explicit"
             if state in {"done", "error", "unavailable"} or explicit_idle:
                 return {
@@ -1345,7 +1350,8 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                     "state": state,
                     "last_observed_state": state,
                     "observations": observations,
-                    "observation_count": len(observations),
+                    "observation_count": total_observations,
+                    "observations_truncated": total_observations > len(observations),
                 }, warnings
             if elapsed_ms >= wait_ms:
                 break
@@ -1355,13 +1361,13 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             self._sleep_for_visible_message_poll(sleep_ms / 1000.0)
             elapsed_ms += sleep_ms
 
-        last_state = str(observations[-1].get("state") if observations else "unknown")
         return {
             **base,
             "state": "timeout",
             "last_observed_state": last_state,
             "observations": observations,
-            "observation_count": len(observations),
+            "observation_count": total_observations,
+            "observations_truncated": total_observations > len(observations),
         }, warnings
 
     def _visible_message_wait_observation(self, *, max_chars: int = 1000) -> dict[str, Any]:
@@ -1405,10 +1411,8 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
                     done = True
                 if any(token in lowered for token in VISIBLE_MESSAGE_ACTIVE_TOKENS):
                     capped, _ = cap_text(redact_value(name), 120)
-                    if capped and capped not in active_indicators:
+                    if capped and capped not in active_indicators and len(active_indicators) < 5:
                         active_indicators.append(capped)
-                if len(active_indicators) >= 5:
-                    break
 
         if error:
             state = "error"

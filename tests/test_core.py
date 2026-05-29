@@ -419,6 +419,60 @@ def test_send_visible_message_live_wait_timeout_keeps_progress_evidence(tmp_path
     assert sum(1 for command in observer.commands if "keystroke" in " ".join(command)) == 1
 
 
+def test_send_visible_message_wait_caps_returned_observations_without_shortening_wait(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, wait_states=["submitted_waiting"] * 40)
+
+    result = observer.send_visible_message(
+        thread_id="visible-0-abc",
+        message="hello",
+        dry_run=False,
+        confirmed=True,
+        wait_ms=8000,
+        poll_interval_ms=250,
+    )
+
+    assert result.ok is True
+    assert result.data["post_send"]["state"] == "timeout"
+    assert result.data["post_send"]["observation_count"] == 33
+    assert len(result.data["post_send"]["observations"]) == 25
+    assert result.data["post_send"]["observations_truncated"] is True
+    assert len(observer.sleep_calls) == 32
+
+
+def test_visible_message_wait_observation_scans_done_after_active_indicator_cap(tmp_path: Path) -> None:
+    class DoneAfterActiveObserver(MacOSCodexObserver):
+        def __init__(self, state_dir: Path) -> None:
+            super().__init__(
+                runner=lambda command, timeout=5.0: RunnerResult(returncode=0, stdout="", stderr=""),
+                state_dir=state_dir,
+                platform_name="Darwin",
+                accessibility_checker=lambda: True,
+                screen_recording_checker=lambda: True,
+                now=lambda: "2026-05-29T10:00:00Z",
+            )
+
+        def frontmost(self) -> CommandResult:
+            return CommandResult(ok=True, data={"frontmost_app": "Codex", "codex_frontmost": True})
+
+        def ax_tree(self, *, max_nodes: int) -> CommandResult:
+            nodes = [
+                {"role": "AXStaticText", "name": f"Thinking {index}", "bounds": {"x": 1, "y": index, "width": 10, "height": 10}}
+                for index in range(10)
+            ]
+            nodes.append({"role": "AXStaticText", "name": "Done", "bounds": {"x": 1, "y": 20, "width": 10, "height": 10}})
+            return CommandResult(ok=True, data={"nodes": nodes, "truncated": False, "max_nodes": max_nodes})
+
+        def snapshot(self, *, max_chars: int) -> CommandResult:
+            return CommandResult(ok=True, data={"screenshot_path": str(self.state_dir / "done.png"), "max_chars": max_chars})
+
+    observer = DoneAfterActiveObserver(tmp_path)
+
+    observation = observer._visible_message_wait_observation()
+
+    assert observation["state"] == "done"
+    assert len(observation["active_indicators"]) == 5
+
+
 def test_codex_visible_message_applescript_expr_handles_multiline_controls(tmp_path: Path) -> None:
     observer = FakeVisibleCodexObserver(tmp_path)
 
