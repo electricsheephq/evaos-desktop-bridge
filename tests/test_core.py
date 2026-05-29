@@ -21,13 +21,14 @@ from evaos_desktop_bridge.adapters.codex_app_server import (
     _build_websocket_frame,
 )
 from evaos_desktop_bridge.adapters import codex_app_server as codex_app_server_module
-from evaos_desktop_bridge.adapters.codex_macos import RunnerResult
+from evaos_desktop_bridge.adapters.codex_macos import MacOSCodexObserver, RunnerResult
 from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_allowed
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
 from evaos_desktop_bridge.schema import build_envelope, make_error
 from evaos_desktop_bridge.state import read_audit_record, read_audit_tail, read_latest, write_latest
 from evaos_desktop_bridge.cli import _run_connector_service
+from evaos_desktop_bridge.types import CommandResult
 
 
 def _fake_codex_app_server(tmp_path: Path, *, response_method: str = "thread/list") -> tuple[Path, Path]:
@@ -129,6 +130,9 @@ def test_policy_allows_only_mvp_commands() -> None:
 
 def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("codex.select_thread")["mode"] == "guarded_visible_action"
+    assert command_metadata("codex.thread_map")["mode"] == "read_only"
+    assert command_metadata("codex.send_visible_message")["mode"] == "guarded_visible_message_action"
+    assert command_metadata("codex.send_visible_message")["requires_approval"] is True
     assert command_metadata("codex.app_server.status")["source"] == "app_server"
     assert command_metadata("codex.app_server.threads")["source"] == "app_server"
     assert command_metadata("codex.continue_thread")["support_only"] is True
@@ -136,6 +140,226 @@ def test_command_metadata_marks_guarded_actions() -> None:
     assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["mode"] == "full_access_control"
     assert command_metadata("customer_mac.iphone_mirroring_send_approved_message")["high_impact_in_ask_permission"] is True
     assert command_metadata("customer_mac.screen_sharing_status")["bridge_can_enable"] is False
+
+
+def test_visible_thread_candidates_filter_controls_and_extract_status_project(tmp_path: Path) -> None:
+    observer = MacOSCodexObserver(
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+    )
+    payload = {
+        "nodes": [
+            {"role": "AXButton", "name": "Archive chat", "window_index": 0, "bounds": {"x": 1, "y": 1, "width": 20, "height": 20}},
+            {"role": "AXStaticText", "name": "Projects", "window_index": 0},
+            {"role": "AXStaticText", "name": "Codex", "window_index": 0},
+            {"role": "AXButton", "name": "I found ... Awaiting response", "window_index": 0, "bounds": {"x": 20, "y": 120, "width": 240, "height": 36}},
+            {"role": "AXButton", "name": "Unpin chat Archive chat 13h", "window_index": 0, "bounds": {"x": 20, "y": 160, "width": 240, "height": 36}},
+            {"role": "AXButton", "name": "need to review ram and mem... 55m", "window_index": 0, "bounds": {"x": 20, "y": 200, "width": 260, "height": 36}},
+            {"role": "AXButton", "name": "Send", "window_index": 0, "bounds": {"x": 520, "y": 720, "width": 32, "height": 32}},
+        ]
+    }
+
+    threads = observer._visible_threads_from_payload(payload, max_items=10)
+
+    assert [thread["title"] for thread in threads] == ["I found ...", "need to review ram and mem..."]
+    assert threads[0]["project"] == "Codex"
+    assert threads[0]["status"] == "Awaiting response"
+    assert threads[0]["confidence"] == "high"
+    assert threads[0]["center"] == {"x": 140, "y": 138}
+    assert threads[1]["updated_label"] == "55m"
+    assert all("Archive chat" not in thread["raw_title"] for thread in threads)
+
+
+def test_visible_thread_candidates_fallback_to_selection_only_rows_when_titles_hidden(tmp_path: Path) -> None:
+    observer = MacOSCodexObserver(
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+    )
+    payload = {
+        "nodes": [
+            {"role": "AXButton", "name": "Unpin chat Archive chat 13h", "window_index": 0, "bounds": {"x": 20, "y": 120, "width": 240, "height": 36}},
+            {"role": "AXButton", "name": "Unpin chat", "window_index": 0, "bounds": {"x": 220, "y": 128, "width": 21, "height": 20}},
+            {"role": "AXButton", "name": "Archive chat", "window_index": 0, "bounds": {"x": 250, "y": 128, "width": 21, "height": 20}},
+        ]
+    }
+
+    threads = observer._visible_threads_from_payload(payload, max_items=10)
+
+    assert len(threads) == 1
+    assert threads[0]["title"] == "Visible thread row 1 (title unavailable)"
+    assert threads[0]["raw_title"] == "title_unavailable"
+    assert threads[0]["selection_only"] is True
+    assert threads[0]["updated_label"] == "13h"
+    assert threads[0]["center"] == {"x": 140, "y": 138}
+
+
+class FakeVisibleCodexObserver(MacOSCodexObserver):
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        composer: bool = True,
+        frontmost_ok: bool = True,
+        stale: bool = False,
+        selected_after_select: bool = True,
+        selection_only: bool = False,
+        title_hidden_updated_label: str | None = None,
+    ) -> None:
+        self.commands: list[list[str]] = []
+        self._composer = composer
+        self._frontmost_ok = frontmost_ok
+        self._stale = stale
+        self._selected_after_select = selected_after_select
+        self._selection_only = selection_only
+        self._title_hidden_updated_label = title_hidden_updated_label
+        self._did_select = False
+        super().__init__(
+            runner=self._run,
+            state_dir=tmp_path,
+            platform_name="Darwin",
+            accessibility_checker=lambda: True,
+            screen_recording_checker=lambda: True,
+            now=lambda: "2026-05-29T10:00:00Z",
+        )
+
+    def _run(self, command: list[str], timeout: float = 5.0) -> RunnerResult:
+        self.commands.append(command)
+        return RunnerResult(returncode=0, stdout="", stderr="")
+
+    def threads(self, *, max_items: int) -> CommandResult:
+        threads = []
+        if not self._stale:
+            threads.append(
+                {
+                    "visible_id": "visible-0-abc",
+                    "index": 0,
+                    "title": "Visible thread row 1 (title unavailable)" if self._selection_only else "Implement bridge",
+                    "raw_title": "Implement bridge Awaiting response",
+                    "title_hash": "title-hash",
+                    "role": "AXButton",
+                    "title_available": False if self._selection_only else True,
+                    "updated_label": self._title_hidden_updated_label,
+                    "bounds": {"x": 10, "y": 20, "width": 100, "height": 40},
+                    "window_bounds": {"x": 0, "y": 0, "width": 800, "height": 800},
+                    "center": {"x": 60, "y": 40},
+                    "selected": self._did_select and self._selected_after_select,
+                    "focused": False,
+                    "confidence": "low" if self._selection_only else "high",
+                    "source": "ax",
+                    "selection_only": self._selection_only,
+                }
+            )
+        return CommandResult(ok=True, data={"threads": threads[:max_items], "count": len(threads[:max_items]), "max_items": max_items, "source": "ax"})
+
+    def frontmost(self) -> CommandResult:
+        return CommandResult(ok=True, data={"frontmost_app": "Codex" if self._frontmost_ok else "Safari", "codex_frontmost": self._frontmost_ok})
+
+    def ax_tree(self, *, max_nodes: int) -> CommandResult:
+        nodes = []
+        if self._composer:
+            nodes.append({"role": "AXTextArea", "name": "Message Codex", "bounds": {"x": 200, "y": 700, "width": 500, "height": 80}})
+        return CommandResult(ok=True, data={"nodes": nodes, "truncated": False, "max_nodes": max_nodes})
+
+    def snapshot(self, *, max_chars: int) -> CommandResult:
+        return CommandResult(ok=True, data={"screenshot_path": str(self.state_dir / "screenshots" / "before.png"), "max_chars": max_chars})
+
+    def select_thread(self, *, thread_id: str, dry_run: bool = False, max_items: int = 200) -> CommandResult:
+        if self._stale or thread_id != "visible-0-abc":
+            return CommandResult(ok=False, data={"selected": False}, errors=[make_error(code="visible_thread_not_found", message="missing", guidance="rerun threads")])
+        self._did_select = not dry_run
+        return CommandResult(ok=True, data={"selected": not dry_run, "would_select": dry_run, "thread_id": thread_id, "target": self.threads(max_items=1).data["threads"][0]})
+
+
+def test_send_visible_message_dry_run_preflights_without_typing(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path)
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="Continue from the visible GUI.", dry_run=True)
+
+    assert result.ok is True
+    assert result.data["would_submit"] is True
+    assert result.data["submitted"] is False
+    assert result.data["message_hash"]
+    assert result.data["message_preview"] == "Continue from the visible GUI."
+    assert result.provenance["source"] == "codex_visible_gui"
+    assert observer.commands == []
+
+
+def test_send_visible_message_fails_closed_without_composer(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, composer=False)
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=True)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "codex_visible_composer_not_found"
+
+
+def test_send_visible_message_live_requires_confirmation(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path)
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=False, confirmed=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "visible_message_confirmation_required"
+    assert observer.commands == []
+
+
+def test_send_visible_message_live_selects_composer_and_submits(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path)
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=False, confirmed=True)
+
+    assert result.ok is True
+    assert result.data["submitted"] is True
+    assert result.provenance["dry_run"] is False
+    assert result.provenance["selected_visible_target_id"] == "visible-0-abc"
+    assert any("click at {450, 740}" in " ".join(command) for command in observer.commands)
+    assert any("keystroke" in " ".join(command) and "key code 36" in " ".join(command) for command in observer.commands)
+
+
+def test_codex_visible_message_applescript_expr_handles_multiline_controls(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path)
+
+    expr = observer._applescript_string_expr('hello "there"\\next\nline\r\nnext\tstop\x01')
+
+    assert "\n" not in expr
+    assert '"hello \\"there\\"\\\\next"' in expr
+    assert "return" in expr
+    assert "tab" in expr
+    assert "(ASCII character 1)" in expr
+
+
+def test_send_visible_message_live_fails_if_selection_not_verified(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, selected_after_select=False)
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=False, confirmed=True)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "visible_thread_selection_not_verified"
+    assert not any("keystroke" in " ".join(command) for command in observer.commands)
+
+
+def test_send_visible_message_live_rejects_selection_only_rows(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, selection_only=True)
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=False, confirmed=True)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "visible_thread_identity_not_verifiable"
+    assert observer.commands == []
+
+
+def test_send_visible_message_live_allows_current_title_hidden_row_with_stable_evidence(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(tmp_path, selection_only=True, title_hidden_updated_label="1m")
+
+    result = observer.send_visible_message(thread_id="visible-0-abc", message="hello", dry_run=False, confirmed=True)
+
+    assert result.ok is True
+    assert result.data["submitted"] is True
+    assert any("keystroke" in " ".join(command) and "key code 36" in " ".join(command) for command in observer.commands)
 
 
 def test_redaction_removes_home_paths_and_secret_like_tokens() -> None:

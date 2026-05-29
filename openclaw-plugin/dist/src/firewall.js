@@ -3,6 +3,7 @@ const FULL_ACCESS_TOOL_PREFIXES = ["desktop_", "iphone_", "customer_mac_iphone_m
 const APPROVAL_GATED_TOOL_PREFIXES = [
     "desktop_bridge_codex_select_thread",
     "desktop_bridge_codex_continue_thread",
+    "desktop_bridge_codex_send_visible_message",
     "customer_mac_app_focus",
     "customer_mac_local_site_",
 ];
@@ -103,10 +104,10 @@ export function desktopBridgeFirewall(event) {
     const toolName = String(event.toolName || event.name || "");
     const haystack = JSON.stringify({
         toolName,
-        args: event.args,
-        input: event.input,
-        params: event.params,
-        parameters: event.parameters,
+        args: firewallPayload(toolName, event.args),
+        input: firewallPayload(toolName, event.input),
+        params: firewallPayload(toolName, event.params),
+        parameters: firewallPayload(toolName, event.parameters),
     }).toLowerCase();
     const matchedPattern = FORBIDDEN_ARGUMENT_PATTERNS.find((pattern) => haystack.includes(pattern.toLowerCase()));
     if (SAFE_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) {
@@ -147,4 +148,17 @@ export function desktopBridgeFirewall(event) {
         };
     }
     return undefined;
+}
+function firewallPayload(toolName, value) {
+    if (toolName !== "desktop_bridge_codex_send_visible_message" || !isRecord(value)) {
+        return value;
+    }
+    const clone = { ...value };
+    if (typeof clone.message === "string") {
+        clone.message = "<approved-message-redacted-for-firewall-scan>";
+    }
+    return clone;
+}
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

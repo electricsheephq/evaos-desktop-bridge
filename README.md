@@ -20,7 +20,7 @@ from its Bridge panel after an explicit refresh. It shows connector/iPhone
 status and audit context, but it does not expose arbitrary local commands or
 local-control action buttons.
 
-The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides one guarded visible thread-selection action, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. The support canary adds a read-only Codex native remote-control readiness probe and an exact `continue` GUI fallback for a visible thread such as `SDK Docs`. It does not expose generic prompt sending, arbitrary Codex RPCs, hidden mutation sockets, stdio hijacking, or Codex session database reads.
+The first target is **Codex Desktop on macOS**. The completed handoff slice observes visible state, reports permission readiness, exposes a read-only app-server seam, provides guarded visible thread-selection and approved-message GUI actions, writes local audit/queue trails, and ships an OpenClaw plugin wrapper. The support canary keeps a read-only Codex native remote-control readiness probe and exact `continue` GUI fallback for a visible thread such as `SDK Docs`. It does not expose generic prompt sending, arbitrary Codex RPCs, hidden mutation sockets, stdio hijacking, or Codex session database reads.
 
 ## Eva Desktop Workbench
 
@@ -118,10 +118,11 @@ evaos-desktop-bridge audit-tail --json --limit 20
 evaos-desktop-bridge codex frontmost --json
 evaos-desktop-bridge codex windows --json
 evaos-desktop-bridge codex threads --json --max-items 50
+evaos-desktop-bridge codex thread-map --json --max-items 50
 evaos-desktop-bridge codex inspect --json --max-nodes 120
 ```
 
-These commands read only visible GUI state. `threads` returns capped visible thread candidates with deterministic `visible_id` values that can be compared against the Codex Desktop UI.
+These commands read only visible GUI state and read-only app-server summaries. `threads` returns capped visible thread candidates with deterministic `visible_id` values, project/status chips when visible, and selection bounds when available. `thread-map` joins those visible candidates to saved app-server thread summaries by normalized title without treating unmatched rows as errors.
 
 ### Guarded Visible Actions
 
@@ -129,9 +130,15 @@ These commands read only visible GUI state. `threads` returns capped visible thr
 evaos-desktop-bridge codex focus --json --dry-run
 evaos-desktop-bridge codex focus --json
 evaos-desktop-bridge codex select-thread --json --thread-id visible-0-... --dry-run
+evaos-desktop-bridge codex send-visible-message --json --thread-id visible-0-... --message "continue" --dry-run
 ```
 
-Focuses Codex or selects an already-visible thread candidate through macOS Accessibility. These actions do not launch Codex, type text, click send/approval controls, or send turns. `select-thread` should be dry-run first and fails closed if the target is stale, offscreen, missing bounds, or permissions are absent.
+Focuses Codex, selects an already-visible thread candidate, or sends an approved message through the visible Codex Desktop composer. These actions do not launch Codex, call hidden app-server mutation methods, read session databases, or expose arbitrary coordinates. `select-thread` and `send-visible-message` should be dry-run first and fail closed if the target is stale, offscreen, missing bounds, Codex is not frontmost, the composer is absent, or permissions are absent.
+
+Live visible message sending requires rerunning the exact same command with
+`--live --confirm --approval-audit-id audit-...`. The approval audit matches
+`thread_id` and `message_hash`; the audit log stores capped/redacted preview
+and hash, not a hidden app-server mutation.
 
 ### Visible snapshot
 
@@ -242,7 +249,9 @@ The `openclaw-plugin/` package exposes fixed read-only tools for OpenClaw:
 - `desktop_bridge_codex_frontmost`
 - `desktop_bridge_codex_windows`
 - `desktop_bridge_codex_threads`
+- `desktop_bridge_codex_thread_map`
 - `desktop_bridge_codex_select_thread`
+- `desktop_bridge_codex_send_visible_message`
 - `desktop_bridge_codex_snapshot`
 - `desktop_bridge_codex_inspect`
 - `desktop_bridge_codex_ax_tree`

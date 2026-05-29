@@ -28,6 +28,7 @@ def rewrite_audit_timestamp(state_dir: Path, audit_id: str, timestamp: str) -> N
 @dataclass
 class FakeObserver:
     mode: str = "ok"
+    title_hidden: bool = False
 
     def status(self) -> CommandResult:
         return CommandResult(
@@ -52,21 +53,31 @@ class FakeObserver:
         return CommandResult(ok=True, data={"windows": [{"index": 0, "title": "Codex", "role": "AXWindow", "bounds": {"x": 1, "y": 2, "width": 3, "height": 4}, "codex_frontmost": True}], "count": 1})
 
     def threads(self, *, max_items: int) -> CommandResult:
+        thread = {
+            "visible_id": "visible-0-abc",
+            "index": 0,
+            "title": "Implement bridge",
+            "role": "AXStaticText",
+            "bounds": {"x": 10, "y": 20, "width": 100, "height": 40},
+            "center": {"x": 60, "y": 40},
+            "confidence": "medium",
+            "source": "ax",
+        }
+        if self.title_hidden:
+            thread.update(
+                {
+                    "title": "Visible thread row 1 (title unavailable)",
+                    "raw_title": "title_unavailable",
+                    "title_available": False,
+                    "selection_only": True,
+                    "updated_label": "1m",
+                    "confidence": "low",
+                }
+            )
         return CommandResult(
             ok=True,
             data={
-                "threads": [
-                    {
-                        "visible_id": "visible-0-abc",
-                        "index": 0,
-                        "title": "Implement bridge",
-                        "role": "AXStaticText",
-                        "bounds": {"x": 10, "y": 20, "width": 100, "height": 40},
-                        "center": {"x": 60, "y": 40},
-                        "confidence": "medium",
-                        "source": "ax",
-                    }
-                ][:max_items],
+                "threads": [thread][:max_items],
                 "count": min(max_items, 1),
                 "max_items": max_items,
                 "source": "ax",
@@ -102,6 +113,26 @@ class FakeObserver:
         if title != "SDK Docs":
             return CommandResult(ok=False, data={"submitted": False}, errors=[{"code": "codex_thread_title_not_unique", "message": "missing", "guidance": "rerun threads"}])
         return CommandResult(ok=True, data={"submitted": not dry_run, "would_submit": dry_run, "title": title, "prompt_preview": prompt})
+
+    def send_visible_message(self, *, thread_id: str, message: str, dry_run: bool = True, confirmed: bool = False) -> CommandResult:
+        if thread_id != "visible-0-abc":
+            return CommandResult(ok=False, data={"submitted": False}, errors=[{"code": "visible_thread_not_found", "message": "missing", "guidance": "rerun threads"}])
+        if not dry_run and not confirmed:
+            return CommandResult(ok=False, data={"submitted": False}, errors=[{"code": "visible_message_confirmation_required", "message": "confirm required", "guidance": "pass --confirm"}])
+        digest = bridge_cli._short_hash(message.strip())
+        return CommandResult(
+            ok=True,
+            data={
+                "thread_id": thread_id,
+                "target": self.threads(max_items=1).data["threads"][0],
+                "would_submit": dry_run,
+                "submitted": not dry_run,
+                "message_preview": message.strip(),
+                "message_hash": digest,
+                "provenance": {"source": "codex_visible_gui"},
+            },
+            provenance={"source": "codex_visible_gui", "dry_run": dry_run, "selected_visible_target_id": thread_id, "message_hash": digest},
+        )
 
     def snapshot(self, *, max_chars: int) -> CommandResult:
         return CommandResult(
@@ -282,7 +313,7 @@ class FakeAppServer:
     def threads(self, *, max_items: int) -> CommandResult:
         if self.mode != "ok":
             return CommandResult(ok=False, errors=[{"code": "app_server_unavailable", "message": "offline", "guidance": "start app-server"}])
-        return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Thread 1", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items, "thread_state": "active"})
+        return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "title": "Implement bridge", "source": "app_server"}][:max_items], "count": 1, "max_items": max_items, "thread_state": "active"})
 
     def loaded_threads(self, *, max_items: int) -> CommandResult:
         return CommandResult(ok=True, data={"threads": [{"index": 0, "id": "t1", "source": "app_server_loaded"}][:max_items], "count": 1, "max_items": max_items})
@@ -328,7 +359,7 @@ def test_capabilities_reports_read_only_surface(tmp_path: Path) -> None:
     assert snapshot["target"] == "codex"
     assert snapshot["mode"] == "read_only"
     assert "unguarded_send_prompts_or_messages" in payload["data"]["forbidden"]
-    assert payload["data"]["guarded_prompt_or_message_commands"] == []
+    assert payload["data"]["guarded_prompt_or_message_commands"] == ["codex.send_visible_message"]
     assert payload["data"]["data_minimization"]["append_only_audit_log"] is True
 
 
@@ -388,6 +419,26 @@ def test_threads_json_lists_visible_thread_candidates(tmp_path: Path) -> None:
     assert payload["data"]["threads"][0]["source"] == "ax"
 
 
+def test_thread_map_json_merges_visible_and_app_server_candidates(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "thread-map", "--json", "--max-items", "5"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["command"] == "codex.thread_map"
+    assert payload["data"]["visible_threads"][0]["visible_id"] == "visible-0-abc"
+    assert payload["data"]["app_server_threads"][0]["id"] == "t1"
+    assert payload["data"]["matches"][0]["visible_id"] == "visible-0-abc"
+    assert payload["data"]["matches"][0]["app_server_id"] == "t1"
+
+
+def test_thread_map_json_order_matches_title_hidden_visible_rows(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "thread-map", "--json", "--max-items", "5"], FakeObserver(title_hidden=True), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["matches"][0]["visible_id"] == "visible-0-abc"
+    assert payload["data"]["matches"][0]["app_server_id"] == "t1"
+    assert payload["data"]["matches"][0]["match_reason"] == "visible_order_title_hidden"
+
+
 def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> None:
     payload = run_cli(
         ["codex", "focus", "--json", "--dry-run"],
@@ -424,6 +475,105 @@ def test_continue_thread_support_fallback_requires_matching_dry_run_audit(tmp_pa
     assert approved["_exit_code"] == 0
     assert approved["command"] == "codex.continue_thread"
     assert approved["data"]["submitted"] is True
+
+
+def test_send_visible_message_requires_matching_dry_run_message_hash(tmp_path: Path) -> None:
+    rejected = run_cli(
+        ["codex", "send-visible-message", "--json", "--thread-id", "visible-0-abc", "--message", "hello", "--live", "--confirm"],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "approval_audit_required"
+    assert rejected["data"]["required_fields"] == ["thread_id", "message_hash"]
+
+    dry_run = run_cli(
+        ["codex", "send-visible-message", "--json", "--thread-id", "visible-0-abc", "--message", "hello", "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+    approved = run_cli(
+        [
+            "codex",
+            "send-visible-message",
+            "--json",
+            "--thread-id",
+            "visible-0-abc",
+            "--message",
+            "hello",
+            "--live",
+            "--confirm",
+            "--approval-audit-id",
+            dry_run["audit_id"],
+        ],
+        FakeObserver(),
+        tmp_path,
+    )
+    mismatch = run_cli(
+        [
+            "codex",
+            "send-visible-message",
+            "--json",
+            "--thread-id",
+            "visible-0-abc",
+            "--message",
+            "different",
+            "--live",
+            "--confirm",
+            "--approval-audit-id",
+            dry_run["audit_id"],
+        ],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert dry_run["_exit_code"] == 0
+    assert dry_run["data"]["would_submit"] is True
+    assert approved["_exit_code"] == 0
+    assert approved["data"]["submitted"] is True
+    assert mismatch["_exit_code"] == 2
+    assert "message_hash" in mismatch["errors"][0]["message"]
+
+    records = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    for record in records:
+        assert "message" not in record["args"]
+        assert "message_hash" in record["args"]
+    assert any("message_preview" in record["args"] for record in records)
+
+
+def test_send_visible_message_live_requires_confirm_even_with_approval(tmp_path: Path) -> None:
+    dry_run = run_cli(
+        ["codex", "send-visible-message", "--json", "--thread-id", "visible-0-abc", "--message", "hello", "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+    rejected = run_cli(
+        ["codex", "send-visible-message", "--json", "--thread-id", "visible-0-abc", "--message", "hello", "--live", "--approval-audit-id", dry_run["audit_id"]],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "visible_message_confirmation_required"
+
+
+def test_send_visible_message_accepts_message_file_without_auditing_path_or_raw_message(tmp_path: Path) -> None:
+    message_file = tmp_path / "approved-message.txt"
+    message_file.write_text("hello from file", encoding="utf-8")
+
+    payload = run_cli(
+        ["codex", "send-visible-message", "--json", "--thread-id", "visible-0-abc", "--message-file", str(message_file), "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert payload["_exit_code"] == 0
+    records = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert "message_file" not in records[-1]["args"]
+    assert "message" not in records[-1]["args"]
+    assert records[-1]["args"]["message_preview"] == "hello from file"
+    assert str(message_file) not in (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
 
 
 def test_focus_permission_error_is_graceful_json(tmp_path: Path) -> None:

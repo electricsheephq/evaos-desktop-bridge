@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -12,6 +13,7 @@ from evaos_desktop_bridge.connector_server import (
     _live_guarded_approval_error,
     _live_guarded_without_approval,
     _make_handler,
+    _prepare_connector_params,
     _remote_kill_switch_error,
     build_bridge_argv,
     normalize_connector_command,
@@ -43,6 +45,8 @@ def test_connector_accepts_openclaw_tool_name_aliases() -> None:
     assert normalize_connector_command("desktop_see") == "desktopSee"
     assert normalize_connector_command("iphone_swipe") == "iphoneSwipe"
     assert normalize_connector_command("desktop_bridge_audit_tail") == "auditTail"
+    assert normalize_connector_command("desktop_bridge_codex_thread_map") == "codexThreadMap"
+    assert normalize_connector_command("desktop_bridge_codex_send_visible_message") == "codexSendVisibleMessage"
     assert build_bridge_argv("customer_mac_status") == ["customer-mac", "status", "--json"]
     assert build_bridge_argv("desktop_see", {"max_chars": 800, "max_nodes": 40}) == [
         "customer-mac",
@@ -57,6 +61,13 @@ def test_connector_accepts_openclaw_tool_name_aliases() -> None:
 
 
 def test_connector_builds_codex_read_only_app_server_argv() -> None:
+    assert build_bridge_argv("codexThreadMap", {"max_items": 3}) == [
+        "codex",
+        "thread-map",
+        "--json",
+        "--max-items",
+        "3",
+    ]
     assert build_bridge_argv("codexAppServerLoadedThreads", {"max_items": 3}) == [
         "codex",
         "app-server",
@@ -81,6 +92,48 @@ def test_connector_builds_codex_read_only_app_server_argv() -> None:
         assert "Unsupported connector command" in str(exc)
     else:
         raise AssertionError("expected Codex remote start to stay unexposed")
+    assert build_bridge_argv("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message": "hello"}) == [
+        "codex",
+        "send-visible-message",
+        "--json",
+        "--thread-id",
+        "visible-0-abc",
+        "--message",
+        "hello",
+        "--dry-run",
+    ]
+    assert build_bridge_argv("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message": "hello", "dry_run": False, "confirm": True, "approval_audit_id": "audit-1"}) == [
+        "codex",
+        "send-visible-message",
+        "--json",
+        "--thread-id",
+        "visible-0-abc",
+        "--message",
+        "hello",
+        "--live",
+        "--confirm",
+        "--approval-audit-id",
+        "audit-1",
+    ]
+    try:
+        build_bridge_argv("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message_file": "/tmp/message.txt"})
+    except ValueError as exc:
+        assert "message_file is reserved" in str(exc)
+    else:
+        raise AssertionError("expected client-supplied message_file to fail closed")
+    assert build_bridge_argv(
+        "codexSendVisibleMessage",
+        {"thread_id": "visible-0-abc", "message_file": "/tmp/message.txt", "_prepared_message_file": True},
+    ) == [
+        "codex",
+        "send-visible-message",
+        "--json",
+        "--thread-id",
+        "visible-0-abc",
+        "--message-file",
+        "/tmp/message.txt",
+        "--dry-run",
+    ]
     assert build_bridge_argv("iphone_swipe", {"direction": "left", "dry_run": False}) == [
         "customer-mac",
         "iphone-mirroring",
@@ -178,6 +231,7 @@ def test_connector_full_access_allows_live_remote_control_without_approval(tmp_p
     assert _live_guarded_approval_error("desktopType", {"text": "hello", "dry_run": False}, state_dir=tmp_path) is None
     assert _live_guarded_approval_error("iphoneSwipe", {"direction": "left", "dry_run": False}, state_dir=tmp_path) is None
     assert _live_guarded_approval_error("codexContinueThread", {"title": "SDK Docs", "prompt": "continue", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+    assert _live_guarded_approval_error("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message": "hello", "dry_run": False, "confirm": True}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
     assert _live_guarded_approval_error("customerMacIphoneMirroringSendApprovedMessage", {"text": "hello", "recipient_context": "test", "dry_run": False}, state_dir=tmp_path) is None
 
 
@@ -235,6 +289,86 @@ def test_connector_approved_message_requires_matching_dry_run_audit(tmp_path: Pa
         {"text": "Different", "recipient_context": "Bumble canary", "target_label": "Send", "dry_run": False, "approval_audit_id": dry_run_audit},
         state_dir=tmp_path,
     ) == "approval_audit_id does not match text."
+
+
+def test_connector_codex_visible_message_requires_matching_hash_and_confirm(tmp_path: Path) -> None:
+    message_hash = hashlib.sha256("hello".encode("utf-8")).hexdigest()[:16]
+    dry_run_audit = append_audit(
+        command="codex.send_visible_message",
+        target="codex",
+        args={"thread_id": "visible-0-abc", "message_hash": message_hash, "dry_run": True, "json": True, "approval_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+
+    assert _live_guarded_without_approval("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message": "hello", "dry_run": False, "confirm": True}) is True
+    assert _live_guarded_approval_error(
+        "codexSendVisibleMessage",
+        {"thread_id": "visible-0-abc", "message": "hello", "dry_run": False, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) == "Live Codex visible message actions require confirm=true."
+    assert _live_guarded_approval_error(
+        "codexSendVisibleMessage",
+        {"thread_id": "visible-0-abc", "message": "hello", "dry_run": False, "confirm": True, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) is None
+    assert _live_guarded_approval_error(
+        "codexSendVisibleMessage",
+        {"thread_id": "visible-0-abc", "message": "different", "dry_run": False, "confirm": True, "approval_audit_id": dry_run_audit},
+        state_dir=tmp_path,
+    ) == "approval_audit_id does not match message_hash."
+
+
+def test_connector_codex_visible_message_moves_raw_message_to_temp_file(tmp_path: Path) -> None:
+    prepared, temp_paths = _prepare_connector_params(
+        "codexSendVisibleMessage",
+        {"thread_id": "visible-0-abc", "message": "secret prompt"},
+        state_dir=tmp_path,
+    )
+
+    assert "message" not in prepared
+    assert prepared["message_file"].startswith(str(tmp_path))
+    assert prepared["_prepared_message_file"] is True
+    assert temp_paths == [Path(prepared["message_file"])]
+    assert temp_paths[0].read_text(encoding="utf-8") == "secret prompt"
+    argv = build_bridge_argv("codexSendVisibleMessage", prepared)
+    assert "--message-file" in argv
+    assert "secret prompt" not in argv
+    temp_paths[0].unlink()
+
+
+def test_connector_rejects_client_supplied_codex_visible_message_file(tmp_path: Path) -> None:
+    try:
+        _prepare_connector_params(
+            "codexSendVisibleMessage",
+            {"thread_id": "visible-0-abc", "message_file": "/etc/passwd"},
+            state_dir=tmp_path,
+        )
+    except ValueError as exc:
+        assert "message_file is reserved" in str(exc)
+    else:
+        raise AssertionError("expected connector to reject client-supplied message_file")
+
+
+def test_connector_cleans_temp_message_file_if_write_fails(tmp_path: Path, monkeypatch) -> None:
+    def fail_write(_fd: int, _payload: bytes) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("evaos_desktop_bridge.connector_server.os.write", fail_write)
+
+    try:
+        _prepare_connector_params(
+            "codexSendVisibleMessage",
+            {"thread_id": "visible-0-abc", "message": "secret prompt"},
+            state_dir=tmp_path,
+        )
+    except OSError as exc:
+        assert "disk full" in str(exc)
+    else:
+        raise AssertionError("expected failing temp write to propagate")
+    assert list((tmp_path / "tmp").glob("codex-visible-message-*")) == []
 
 
 def test_connector_approval_audit_expires(tmp_path: Path) -> None:

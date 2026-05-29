@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import secrets
 import socket
+import tempfile
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +26,7 @@ CUSTOMER_MAC_CONTROL_URL = os.environ.get(
 GUARDED_REMOTE_COMMANDS = frozenset(
     {
         "codexSelectThread",
+        "codexSendVisibleMessage",
         "codexContinueThread",
         "customerMacAppFocus",
         "customerMacLocalSiteOpen",
@@ -145,6 +148,8 @@ CONNECTOR_COMMAND_ALIASES = {
     "desktop_bridge_codex_frontmost": "codexFrontmost",
     "desktop_bridge_codex_windows": "codexWindows",
     "desktop_bridge_codex_threads": "codexThreads",
+    "desktop_bridge_codex_thread_map": "codexThreadMap",
+    "desktop_bridge_codex_send_visible_message": "codexSendVisibleMessage",
     "desktop_bridge_codex_continue_thread": "codexContinueThread",
     "desktop_bridge_codex_select_thread": "codexSelectThread",
     "desktop_bridge_codex_snapshot": "codexSnapshot",
@@ -206,6 +211,7 @@ def normalize_connector_command(command: str) -> str:
 
 CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "codexSelectThread": ("codex.select_thread", ("thread_id",)),
+    "codexSendVisibleMessage": ("codex.send_visible_message", ("thread_id", "message_hash")),
     "codexContinueThread": ("codex.continue_thread", ("title", "prompt")),
     "customerMacAppFocus": ("customer_mac.app_focus", ("app_name",)),
     "customerMacLocalSiteOpen": ("customer_mac.local_site_open", ("url",)),
@@ -280,6 +286,8 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         return argv
     if command == "codexThreads":
         return ["codex", "threads", "--json", "--max-items", str(_clamp_int(params.get("max_items"), 50, 1, 200))]
+    if command == "codexThreadMap":
+        return ["codex", "thread-map", "--json", "--max-items", str(_clamp_int(params.get("max_items"), 50, 1, 200))]
     if command == "codexSelectThread":
         return [
             "codex",
@@ -302,6 +310,29 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
             *_dry_run_arg(params),
             *_approval_arg(params),
         ]
+    if command == "codexSendVisibleMessage":
+        argv = [
+            "codex",
+            "send-visible-message",
+            "--json",
+            "--thread-id",
+            _required_string(params, "thread_id"),
+        ]
+        message_file = params.get("message_file")
+        if isinstance(message_file, str) and message_file.strip():
+            if params.get("_prepared_message_file") is not True:
+                raise ValueError("message_file is reserved for connector internals; provide message.")
+            argv.extend(["--message-file", message_file.strip()])
+        else:
+            argv.extend(["--message", _required_string(params, "message")])
+        if params.get("dry_run") is False:
+            argv.append("--live")
+            if params.get("confirm") is True:
+                argv.append("--confirm")
+        else:
+            argv.append("--dry-run")
+        argv.extend(_approval_arg(params))
+        return argv
     if command == "codexSnapshot":
         return ["codex", "snapshot", "--json", "--max-chars", str(_clamp_int(params.get("max_chars"), 4000, 1, 20000))]
     if command == "codexInspect":
@@ -463,6 +494,34 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
     raise ValueError(f"Unsupported connector command: {command}")
 
 
+def _prepare_connector_params(command: str, params: dict[str, Any], *, state_dir: Path | None) -> tuple[dict[str, Any], list[Path]]:
+    command = normalize_connector_command(command)
+    if command != "codexSendVisibleMessage":
+        return params, []
+    if isinstance(params.get("message_file"), str) and params.get("message_file", "").strip():
+        raise ValueError("message_file is reserved for connector internals; provide message.")
+    if not isinstance(params.get("message"), str):
+        raise ValueError("message is required")
+    root = (state_dir or default_state_dir()) / "tmp"
+    root.mkdir(parents=True, exist_ok=True)
+    fd, path_text = tempfile.mkstemp(prefix="codex-visible-message-", suffix=".txt", dir=str(root), text=True)
+    path = Path(path_text)
+    try:
+        try:
+            os.write(fd, str(params["message"]).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.chmod(path, 0o600)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    prepared = dict(params)
+    prepared.pop("message", None)
+    prepared["message_file"] = str(path)
+    prepared["_prepared_message_file"] = True
+    return prepared, [path]
+
+
 def run_connector_server(
     *,
     host: str,
@@ -555,8 +614,16 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                         ),
                     )
                     return
-                argv = build_bridge_argv(command, params)
-                exit_code, output = command_runner(argv)
+                prepared_params, temp_paths = _prepare_connector_params(command, params, state_dir=state_dir)
+                try:
+                    argv = build_bridge_argv(command, prepared_params)
+                    exit_code, output = command_runner(argv)
+                finally:
+                    for temp_path in temp_paths:
+                        try:
+                            temp_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
                 try:
                     response = json.loads(output)
                 except json.JSONDecodeError:
@@ -724,6 +791,8 @@ def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_
         return None
     if params.get("dry_run") is not False:
         return None
+    if command == "codexSendVisibleMessage" and params.get("confirm") is not True:
+        return "Live Codex visible message actions require confirm=true."
     if command in CODEX_REMOTE_CONTROL_COMMANDS:
         source = params.get("source_audit_id")
         if params.get("confirm") is not True:
@@ -811,6 +880,8 @@ def _contains_risk_word(value: str) -> bool:
 def _approval_field_value(command: str, params: dict[str, Any], field: str) -> Any:
     if field == "prompt" and command == "codexContinueThread":
         return params.get("prompt") or "continue"
+    if field == "message_hash" and command == "codexSendVisibleMessage":
+        return hashlib.sha256(str(params.get("message") or "").strip().encode("utf-8")).hexdigest()[:16]
     if field == "direction" and command == "customerMacIphoneMirroringScroll":
         return params.get("direction") or "down"
     if field == "target_label" and command == "customerMacIphoneMirroringSendApprovedMessage":

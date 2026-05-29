@@ -24,6 +24,8 @@
       "desktop_bridge_codex_frontmost",
       "desktop_bridge_codex_windows",
       "desktop_bridge_codex_threads",
+      "desktop_bridge_codex_thread_map",
+      "desktop_bridge_codex_send_visible_message",
       "desktop_bridge_codex_continue_thread",
       "desktop_bridge_codex_select_thread",
       "desktop_bridge_codex_snapshot",

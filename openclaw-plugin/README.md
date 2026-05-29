@@ -22,7 +22,9 @@ use the Workbench connector's customer-granted control session:
 - `desktop_bridge_codex_frontmost`
 - `desktop_bridge_codex_windows`
 - `desktop_bridge_codex_threads`
+- `desktop_bridge_codex_thread_map`
 - `desktop_bridge_codex_select_thread`
+- `desktop_bridge_codex_send_visible_message`
 - `desktop_bridge_codex_snapshot`
 - `desktop_bridge_codex_inspect`
 - `desktop_bridge_codex_ax_tree`
@@ -150,7 +152,7 @@ Local plugin tools call fixed bridge argv mappings with `shell: false`. Remote
 plugin tools post fixed command keys to `/v1/commands` on the paired Mac
 connector. Numeric caps are clamped. A `before_tool_call` firewall blocks common
 shell/computer escape hatches that would bypass the bridge boundary and requests
-approval for legacy guarded customer Mac actions. New `desktop_*` and
+approval for guarded Codex visible GUI message sends and legacy guarded customer Mac actions. New `desktop_*` and
 `iphone_*` actions are governed by the Workbench control session: Full Access
 allows live action without `approval_audit_id`, Ask Permission gates risky
 clicks, taps, hotkeys, typing, sends, and other high-impact actions, and the

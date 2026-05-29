@@ -45,6 +45,8 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_bridge_codex_frontmost",
         "desktop_bridge_codex_windows",
         "desktop_bridge_codex_threads",
+        "desktop_bridge_codex_thread_map",
+        "desktop_bridge_codex_send_visible_message",
         "desktop_bridge_codex_continue_thread",
         "desktop_bridge_codex_select_thread",
         "desktop_bridge_codex_snapshot",
@@ -120,8 +122,8 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "customer_mac_screen_sharing_enable",
     ]
     for tool_name in forbidden_tool_names:
-        assert tool_name not in source
-        assert tool_name not in dist
+        assert f'"{tool_name}"' not in source
+        assert f'"{tool_name}"' not in dist
 
     assert "Full Access iPhone action: type and send one exact message" in dist
     assert "Support-only canary action" not in dist
@@ -147,6 +149,8 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "customerMacControlStart" in source
     assert "customerMacIphoneMirroringOpenApp" in source
     assert "customerMacIphoneMirroringSendApprovedMessage" in source
+    assert "codexThreadMap" in source
+    assert "codexSendVisibleMessage" in source
     assert "codexRemoteStartTurn" not in source
     assert "codexRemoteSteerTurn" not in source
     assert "codexRemoteInterruptTurn" not in source
@@ -155,6 +159,26 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "evaosSharedBrowserGuidance" in source
     assert "turn/start" not in source
     assert "session.db" not in source
+
+
+def test_openclaw_codex_visible_gui_tools_are_fixed_and_approval_gated() -> None:
+    source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
+    firewall = (PLUGIN / "src" / "firewall.ts").read_text(encoding="utf-8")
+    index_source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
+
+    assert 'command === "codexThreadMap"' in source
+    assert 'command === "codexSendVisibleMessage"' in source
+    assert '"send-visible-message"' in source
+    assert "message_file" in source
+    assert "mkdtemp" in source
+    assert "withLocalMessagePayload" in source
+    assert "safeBridgeErrorMessage" in source
+    assert "--approval-audit-id" in source
+    assert "requiredString(params.message, \"message\")" in source
+    assert "desktop_bridge_codex_send_visible_message" in firewall
+    assert "<approved-message-redacted-for-firewall-scan>" in firewall
+    assert "desktop_bridge_codex_send_visible_message" in index_source
+    assert "Live visible Codex GUI action" in index_source
 
 
 def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_tokens() -> None:

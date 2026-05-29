@@ -20,7 +20,7 @@ tags:
 
 ## Summary
 
-The bridge gives Eva/OpenClaw customer-granted control of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam by default, and provides narrow guarded visible focus/select actions. The Codex app-server lane now has separately named, approval-gated controller commands for loaded Desktop threads only. Desktop Control Engine V2 adds customer-controlled Full Access and Ask Permission modes for audited Mac and iPhone Mirroring operation through the Workbench connector. Full Access unlocks the new `desktop_*` and `iphone_*` computer-use tools after the customer starts a visible session; legacy Codex/message fallback commands remain dry-run/approval gated.
+The bridge gives Eva/OpenClaw customer-granted control of visible desktop agent apps. The completed handoff observes Codex Desktop through macOS-visible state, exposes a read-only app-server seam by default, and provides narrow guarded visible focus/select plus approved-message GUI actions. The Codex app-server lane remains read-only for mutation while issue #136 is open. Desktop Control Engine V2 adds customer-controlled Full Access and Ask Permission modes for audited Mac and iPhone Mirroring operation through the Workbench connector. Full Access unlocks the new `desktop_*` and `iphone_*` computer-use tools after the customer starts a visible session; Codex visible message commands remain dry-run/approval gated.
 
 ## Current Status
 
@@ -99,7 +99,7 @@ The MVP must not:
 
 | Threat | Control |
 | --- | --- |
-| Silent prompt sending | No command types, pastes, clicks send controls, or exposes prompt APIs. |
+| Silent prompt sending | Codex message sending is only available through `send-visible-message`, which requires visible GUI target, composer preflight, dry-run audit, live `--confirm`, and matching `approval_audit_id`. |
 | Support Codex fallback drift | The only prompt-like fallback is fixed to exact `continue` and requires a matching dry-run audit id. |
 | Hidden Codex state mutation | App-server methods are denied unless on the read-only allowlist. |
 | Codex controller abuse | `turn/start`, `turn/steer`, and `turn/interrupt` are not registered in the CLI, connector, or OpenClaw plugin while #136 remains blocked; no generic RPC tool exists. |
@@ -110,6 +110,7 @@ The MVP must not:
 | Plugin shell escape | OpenClaw wrapper exposes fixed command mappings only and uses `execFile` with `shell: false`. |
 | Generic desktop-control bypass | Plugin `before_tool_call` firewall blocks suspicious shell/computer calls containing desktop-control, Codex app-server, prompt-send, token, or session database patterns. |
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
+| Stale visible message target | `send-visible-message` re-reads visible candidates, requires Codex frontmost and a visible composer, and records target/message hashes plus before/after snapshot pointers. |
 | Cross-customer Mac exposure | Connector is bound locally by default; paired-VM mode requires Headscale ACLs and a connector token. |
 | Accidental live control | Live desktop/phone tools require an active Workbench control session; kill switch blocks future live commands. |
 | Accidental broad iPhone control | iPhone actions operate through the visible iPhone Mirroring window and are governed by Full Access / Ask Permission mode. |
