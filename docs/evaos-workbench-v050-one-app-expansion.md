@@ -2,16 +2,35 @@
 
 This release train keeps the existing Workbench gateways stable while new OS-level surfaces are built behind flags. Incomplete lanes must stay dark-launched until their canary gates pass.
 
+## Information Architecture
+
+The v0.5 expansion keeps the first screen operational: customers land in the gateway workspace, not a marketing page or placeholder dashboard. New OS surfaces appear only when their flags are enabled and their evidence path is real.
+
+| State | Sidebar / Settings | Detail Behavior | Degraded Behavior |
+| --- | --- | --- | --- |
+| Signed out | Gateway list, Mac & iPhone, sign-in affordance | Brokered gateways show the existing sign-in panel and store only an opaque desktop session after login | No provider, session, or runtime truth is inferred from cached UI state |
+| Signed in, normal customer | Gateway list; Providers under Settings when enabled; Session Center under Workspace when enabled | Runtime tabs load broker-issued launch URLs in isolated WebViews; Session Center reads broker/bridge evidence | Runtime errors stay on the affected card/tab and do not hide other gateways |
+| Signed in, admin/support customer switch | Same normal-customer layout plus customer-target switcher in the sidebar footer | Switching customer resets loaded runtime URLs and WebView identity to the selected customer | Wrong-customer cookies are discarded through per-customer non-persistent WebView stores |
+| Existing gateway fallback | OpenClaw, Hermes, Mission Control, OpenDesign, Shared Browser, and Terminal remain direct gateway entries | Existing launch/reconnect/reload/open behavior stays stable regardless of dark-launched surfaces | Feature rollback disables only the new surface; direct gateway launch remains available |
+| Creative Studio enabled | Creative Studio appears in Gateways | Opens the hosted ComfyUI Cloud route; the macOS app does not bundle ComfyUI, GPUs, or workflows | Disable the flag to remove the entry without affecting brokered runtimes |
+
+Surface ownership:
+
+- Sidebar `Gateways`: brokered runtimes plus hosted Creative Studio when enabled.
+- Sidebar `Mac & iPhone`: local bridge readiness and named local-control surfaces only.
+- Settings-style surface `Providers`: provider metadata, connect/revoke/switch/grant actions, and no raw provider secrets.
+- Workspace `Session Center`: read-only session records, attention states, queue/audit/Codex evidence, and jump-back routes.
+
 ## Feature Flags
 
 All flags default to `false` and are read from `UserDefaults` on app launch.
 
-| Flag | UserDefaults key | Primary issue | Surface |
-| --- | --- | --- | --- |
-| `providers_hub` | `EvaDesktop.feature.providers_hub` | `#96` | Native Providers settings surface |
-| `shared_browser_2` | `EvaDesktop.feature.shared_browser_2` | `#97` | Enhanced metadata on the existing Shared Browser gateway |
-| `session_center` | `EvaDesktop.feature.session_center` | `#100` | Native Session Center registry surface |
-| `creative_studio` | `EvaDesktop.feature.creative_studio` | `#102` | Hosted Creative Studio gateway surface |
+| Flag | UserDefaults key | Dashboard env | Default | Owner | Primary issue | Surface / Placement | Rollout criteria | Rollback action | Public copy |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `providers_hub` | `EvaDesktop.feature.providers_hub` | `VITE_EVAOS_PROVIDERS_HUB` | Off | Workbench + Broker | `#96` | Providers / Settings | Broker provider-profile proof, provider connect/revoke canary, OpenClaw/Hermes grant discovery, rollback runbook | Disable flag and keep existing gateway tabs unchanged | Connect provider accounts once so Eva agents can reuse brokered access without raw secrets in Workbench. |
+| `shared_browser_2` | `EvaDesktop.feature.shared_browser_2` | `VITE_EVAOS_SHARED_BROWSER_2` | Off | Workbench + Dashboard + ws-proxy | `#97` | Shared Browser / Gateway metadata | Runtime-status health proof, KasmVNC/noVNC canary, provider handoff canary, customer rollback proof | Hide enhanced metadata while leaving the base Shared Browser gateway visible | Use one shared VM browser for sign-in, CAPTCHA, and collaborative web tasks. |
+| `session_center` | `EvaDesktop.feature.session_center` | `VITE_EVAOS_SESSION_CENTER` | Off | Workbench + Dashboard | `#100` | Session Center / Workspace | Runtime/session truth, queue/audit/Codex evidence, relaunch restore, dashboard parity, signed-in Workbench canary | Disable flag and keep direct gateway launch paths available | See active Eva sessions, attention states, and where to jump back in. |
+| `creative_studio` | `EvaDesktop.feature.creative_studio` | `VITE_EVAOS_CREATIVE_STUDIO` | Off | Workbench + Creative Studio | `#102` | Creative Studio / Gateways | Hosted ComfyUI path, login/degraded-state proof, support canary, no local GPU dependency | Disable flag and remove Creative Studio from the gateway list | Open the hosted creative workflow studio from Workbench. |
 
 Enable locally with:
 
