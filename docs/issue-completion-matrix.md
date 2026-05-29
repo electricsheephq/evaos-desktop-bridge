@@ -30,13 +30,14 @@ Milestone: `Repository validation hygiene`
 
 | Issue | Acceptance | Implemented |
 | --- | --- | --- |
-| `#159` Swift CodeQL cost control | Docs/Python/plugin-only PRs do not start Swift CodeQL. Swift/app PRs, main pushes, scheduled scans, and manual dispatch retain Swift CodeQL. Superseded PR pushes cancel in-progress CodeQL runs. Default setup is disabled after advanced workflows merge. | `.github/workflows/codeql.yml` runs Actions/JavaScript/Python analysis on Linux for relevant PR paths plus main/schedule/manual. `.github/workflows/codeql-swift.yml` runs macOS Swift analysis only for Swift/workbench PR paths plus main/schedule/manual, using a manual `swift build --package-path apps/eva-desktop-mac --arch arm64`. `.github/workflows/eva-desktop-workbench.yml` keeps the Swift build/smoke PR gate and cancels superseded PR pushes. `docs/codeql-ci-policy.md` records the post-merge default-setup disable step. |
+| `#159` Swift CodeQL cost control | Docs/Python/plugin-only PRs do not start Swift CodeQL. Swift/app PRs, main pushes, scheduled scans, and manual dispatch retain Swift CodeQL. Superseded PR pushes cancel in-progress CodeQL runs. Default setup is disabled before advanced workflow SARIF upload validation. | `.github/workflows/codeql.yml` runs Actions/JavaScript/Python analysis on Linux for relevant PR paths plus main/schedule/manual. `.github/workflows/codeql-swift.yml` runs macOS Swift analysis only for Swift/workbench PR paths plus main/schedule/manual, using a manual `swift build --package-path apps/eva-desktop-mac --arch arm64`. `.github/workflows/eva-desktop-workbench.yml` keeps the Swift build/smoke PR gate and cancels superseded PR pushes. `docs/codeql-ci-policy.md` records the default-setup migration step. |
 
 Verification:
 
 ```bash
 ruby -e 'require "yaml"; %w[.github/workflows/codeql.yml .github/workflows/codeql-swift.yml .github/workflows/eva-desktop-workbench.yml].each { |p| YAML.load_file(p); puts p }'
 swift build --package-path apps/eva-desktop-mac --arch arm64
+gh api repos/electricsheephq/evaos-desktop-bridge/code-scanning/default-setup -H "Accept: application/vnd.github+json"
 git diff --check
 ```
 

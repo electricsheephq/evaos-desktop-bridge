@@ -10,9 +10,9 @@ The repository uses advanced CodeQL workflows instead of GitHub CodeQL default s
 - The existing `Eva Desktop Workbench` PR workflow remains the fast compile/smoke gate for Swift changes.
 - PR runs use `concurrency.cancel-in-progress` so superseded pushes stop burning runner minutes.
 
-## Post-Merge Repository Setting
+## Repository Setting Migration
 
-After the advanced workflows land on `main`, disable GitHub CodeQL default setup so it does not duplicate the workflow scans:
+GitHub rejects advanced CodeQL SARIF uploads while CodeQL default setup is enabled. Disable default setup when migrating to these advanced workflows:
 
 ```bash
 gh api \
@@ -29,7 +29,7 @@ gh api repos/electricsheephq/evaos-desktop-bridge/code-scanning/default-setup \
   -H "Accept: application/vnd.github+json"
 ```
 
-Expected state after rollout: `not-configured`.
+Expected migration state: `not-configured`.
 
 ## Rationale
 
