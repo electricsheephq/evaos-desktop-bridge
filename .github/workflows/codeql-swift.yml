@@ -1,21 +1,21 @@
 name: CodeQL Swift
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/codeql-swift.yml"
-      - ".github/workflows/eva-desktop-workbench.yml"
-      - "apps/eva-desktop-mac/**"
   push:
     branches:
       - main
+    tags:
+      - "v*"
+  release:
+    types:
+      - published
   schedule:
     - cron: "47 10 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: codeql-swift-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: codeql-swift-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   actions: read

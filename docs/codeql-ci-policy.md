@@ -5,8 +5,8 @@ The repository uses advanced CodeQL workflows instead of GitHub CodeQL default s
 ## Policy
 
 - Pull requests that touch Python, JavaScript/TypeScript, OpenClaw plugin, tests, or workflow files run `CodeQL Core` on Linux.
-- Pull requests that touch `apps/eva-desktop-mac/**` or the Swift/workbench workflow files run `CodeQL Swift` on macOS.
-- Swift CodeQL also runs on every push to `main`, on a daily schedule, and by manual dispatch.
+- Pull requests do not run Swift CodeQL; the existing `Eva Desktop Workbench` PR workflow remains the fast Swift compile/smoke gate.
+- Swift CodeQL runs on every push to `main`, version tag push, published GitHub release, daily schedule, and manual dispatch.
 - The existing `Eva Desktop Workbench` PR workflow remains the fast compile/smoke gate for Swift changes.
 - PR runs use `concurrency.cancel-in-progress` so superseded pushes stop burning runner minutes.
 
@@ -33,4 +33,4 @@ Expected migration state: `not-configured`.
 
 ## Rationale
 
-GitHub's Swift CodeQL analysis uses macOS runners. GitHub recommends building only the code you want to analyze because GitHub-hosted macOS runners cost more than Linux and Windows runners. Swift CodeQL supports `autobuild` or `manual`, and `swift build --arch arm64` is a supported targeted build pattern. This repo's Swift app lives under `apps/eva-desktop-mac`, so the advanced Swift workflow builds the `EvaDesktop` product for one architecture.
+GitHub's Swift CodeQL analysis uses macOS runners. GitHub recommends building only the code you want to analyze because GitHub-hosted macOS runners cost more than Linux and Windows runners. Swift CodeQL supports `autobuild` or `manual`, and `swift build --arch arm64` is a supported targeted build pattern. This repo's Swift app lives under `apps/eva-desktop-mac`, so the advanced Swift workflow builds the `EvaDesktop` product for one architecture only when the repository is cutting or validating a release stream.
