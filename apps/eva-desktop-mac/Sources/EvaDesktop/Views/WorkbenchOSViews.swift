@@ -34,6 +34,16 @@ struct ProvidersHubView: View {
                 }
             }
 
+            CapabilityManifestPanel(
+                statusText: model.capabilityManifestStatusText,
+                summary: model.capabilityManifestSummary
+            ) {
+                Task {
+                    await model.refreshCapabilityManifest()
+                }
+            }
+            .disabled(!model.isSignedIn || model.isRefreshingCapabilityManifest)
+
             WorkbenchInfoPanel(
                 title: "Credential Boundary",
                 systemImage: "key.slash",
@@ -50,6 +60,80 @@ struct ProvidersHubView: View {
             return .electricSheepDanger
         }
         return .electricSheepGoldSoft
+    }
+}
+
+private struct CapabilityManifestPanel: View {
+    let statusText: String
+    let summary: WorkbenchCapabilityManifestSummary?
+    let refresh: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                RuntimeIconBadge(systemImage: "checklist.checked", tint: tint)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Capability Manifest")
+                        .font(.headline)
+                        .foregroundStyle(Color.electricSheepPrimaryText)
+                    Text(statusText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                }
+                Spacer()
+                Button {
+                    refresh()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if let summary {
+                Text("\(summary.agentID) -> \(summary.ownerID)")
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepSecondaryText)
+                Text("Expires \(summary.expiresAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepMutedText)
+                grantLine("Allowed", tools: summary.tools(for: .allowed))
+                grantLine("Approval", tools: summary.tools(for: .requiresApproval))
+                grantLine("Denied", tools: summary.tools(for: .denied))
+            } else {
+                Text("Signed manifests are fetched from the broker and cached locally. Workbench renders only safe grant metadata; raw JWTs and provider secrets stay hidden.")
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .background(Color.electricSheepSurfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.electricSheepLineWarm, lineWidth: 1)
+        )
+    }
+
+    private var tint: Color {
+        let lowercased = statusText.lowercased()
+        if lowercased.contains("ready") || lowercased.contains("cached") {
+            return .electricSheepSuccess
+        }
+        if lowercased.contains("unavailable") || lowercased.contains("expired") || lowercased.contains("policy") {
+            return .electricSheepDanger
+        }
+        return .electricSheepGoldSoft
+    }
+
+    @ViewBuilder
+    private func grantLine(_ label: String, tools: [String]) -> some View {
+        if !tools.isEmpty {
+            Text("\(label): \(tools.prefix(4).joined(separator: ", "))\(tools.count > 4 ? " +" + String(tools.count - 4) : "")")
+                .font(.caption)
+                .foregroundStyle(Color.electricSheepMutedText)
+                .lineLimit(2)
+        }
     }
 }
 

@@ -19,30 +19,35 @@ public enum RuntimeSessionBrokerError: Error, LocalizedError {
 
 public struct RuntimeSessionBrokerClient: Sendable {
     public static let productionEndpoint = URL(string: "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")!
+    public static let productionCapabilityEndpoint = URL(string: "https://cortex-electricsheep.fly.dev/api/v1")!
 
     public let endpoint: URL
+    public let capabilityEndpoint: URL
     public let urlSession: URLSession
 
     public init(
         endpoint: URL,
+        capabilityEndpoint: URL = RuntimeSessionBrokerClient.productionCapabilityEndpoint,
         urlSession: URLSession = .shared
     ) {
         self.endpoint = endpoint
+        self.capabilityEndpoint = capabilityEndpoint
         self.urlSession = urlSession
     }
 
     public init(
         projectFunctionEndpoint: URL = RuntimeSessionBrokerClient.productionEndpoint,
+        capabilityEndpoint: URL = RuntimeSessionBrokerClient.productionCapabilityEndpoint,
         urlSession: URLSession = .shared
     ) {
-        self.init(endpoint: projectFunctionEndpoint, urlSession: urlSession)
+        self.init(endpoint: projectFunctionEndpoint, capabilityEndpoint: capabilityEndpoint, urlSession: urlSession)
     }
 
     public init(
         dashboardBaseURL _: URL,
         urlSession: URLSession = .shared
     ) {
-        self.init(endpoint: RuntimeSessionBrokerClient.productionEndpoint, urlSession: urlSession)
+        self.init(endpoint: RuntimeSessionBrokerClient.productionEndpoint, capabilityEndpoint: Self.capabilityEndpoint(), urlSession: urlSession)
     }
 
     public func launchURL(
@@ -144,6 +149,17 @@ public struct RuntimeSessionBrokerClient: Sendable {
         try await post(DesktopCustomerTargetsRequest(), desktopSession: desktopSession)
     }
 
+    public func capabilityManifest(
+        agentID: String,
+        desktopSession: DesktopSession?
+    ) async throws -> WorkbenchCapabilityManifestFetchResponse {
+        try await get(
+            pathComponents: ["capabilities", RuntimeSessionBrokerClient.normalizedCapabilityAgentID(agentID)],
+            desktopSession: desktopSession,
+            decoder: EvaDesktopISO8601.decoder()
+        )
+    }
+
     public func claimDeviceCode(_ deviceCode: String) async throws -> DesktopSession {
         let normalizedCode = deviceCode
             .uppercased()
@@ -231,5 +247,51 @@ public struct RuntimeSessionBrokerClient: Sendable {
         } catch {
             throw RuntimeSessionBrokerError.invalidResponse
         }
+    }
+
+    private func get<Response: Decodable>(
+        pathComponents: [String],
+        desktopSession: DesktopSession?,
+        decoder: JSONDecoder = JSONDecoder()
+    ) async throws -> Response {
+        guard let desktopSession, !desktopSession.isExpired else {
+            throw RuntimeSessionBrokerError.missingSession
+        }
+
+        var url = capabilityEndpoint
+        for component in pathComponents {
+            url.appendPathComponent(component)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw RuntimeSessionBrokerError.httpStatus(httpResponse.statusCode)
+        }
+
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+    }
+
+    public static func normalizedCapabilityAgentID(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
+        let scalars = trimmed.unicodeScalars.filter { allowed.contains($0) }
+        let normalized = String(String.UnicodeScalarView(scalars))
+        return normalized.isEmpty ? "openclaw" : String(normalized.prefix(200))
+    }
+
+    private static func capabilityEndpoint() -> URL {
+        return productionCapabilityEndpoint
     }
 }

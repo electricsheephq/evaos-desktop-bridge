@@ -307,6 +307,69 @@ try capabilityStore.clear(allowUserInteraction: false)
 let clearedManifestToken = try capabilityStore.loadToken(allowUserInteraction: false)
 precondition(clearedManifestToken == nil)
 
+let capabilityFetchWithoutSummaryJSON = """
+{
+  "ok": true,
+  "agent_id": "openclaw",
+  "owner_id": "andrew-main",
+  "manifest_jwt": "\(manifestJWT)",
+  "expires_at": "2026-05-30T18:00:00Z",
+  "approval_channel": "evaos://approvals/openclaw",
+  "grant_count": 3,
+  "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 }
+}
+""".data(using: .utf8)!
+let decodedCapabilityFetch = try EvaDesktopISO8601.decoder().decode(WorkbenchCapabilityManifestFetchResponse.self, from: capabilityFetchWithoutSummaryJSON)
+precondition(decodedCapabilityFetch.validatedCacheToken() == manifestJWT)
+precondition(decodedCapabilityFetch.brokerSafeSummary == nil)
+precondition(decodedCapabilityFetch.grantCount == 3)
+
+let capabilityFetchWithSummaryJSON = """
+{
+  "ok": true,
+  "agent_id": "openclaw",
+  "owner_id": "andrew-main",
+  "manifest_jwt": "\(manifestJWT)",
+  "expires_at": "2026-05-30T18:00:00Z",
+  "approval_channel": "evaos://approvals/openclaw",
+  "grant_count": 3,
+  "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 },
+  "safe_summary": {
+    "agent_id": "openclaw",
+    "owner_id": "andrew-main",
+    "expires_at": "2026-05-30T18:00:00Z",
+    "approval_channel": "evaos://approvals/openclaw",
+    "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 },
+    "grants": {
+      "allowed": ["gmail.read"],
+      "requires_approval": ["gmail.send"],
+      "denied": ["drive.write"]
+    }
+  }
+}
+""".data(using: .utf8)!
+let decodedCapabilityFetchWithSummary = try EvaDesktopISO8601.decoder().decode(WorkbenchCapabilityManifestFetchResponse.self, from: capabilityFetchWithSummaryJSON)
+precondition(decodedCapabilityFetchWithSummary.validatedCacheToken() == manifestJWT)
+precondition(decodedCapabilityFetchWithSummary.brokerSafeSummary?.tools(for: .requiresApproval) == ["gmail.send"])
+precondition(decodedCapabilityFetchWithSummary.brokerSafeSummary?.totalGrantCount == 3)
+
+let invalidCapabilityFetchJSON = """
+{
+  "ok": false,
+  "agent_id": "openclaw",
+  "owner_id": "andrew-main",
+  "manifest_jwt": " ",
+  "expires_at": "2026-05-30T18:00:00Z",
+  "approval_channel": "evaos://approvals/openclaw",
+  "grant_count": 0,
+  "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 }
+}
+""".data(using: .utf8)!
+let invalidCapabilityFetch = try EvaDesktopISO8601.decoder().decode(WorkbenchCapabilityManifestFetchResponse.self, from: invalidCapabilityFetchJSON)
+precondition(invalidCapabilityFetch.validatedCacheToken() == nil)
+precondition(RuntimeSessionBrokerClient.normalizedCapabilityAgentID(" bad.agent!/ ") == "badagent")
+precondition(RuntimeSessionBrokerClient.normalizedCapabilityAgentID("   ") == "openclaw")
+
 precondition(resolver.sanitizedCustomerId(" Jackie David ") == "jackie-david")
 precondition(resolver.sanitizedCustomerId("David_Poku!") == "david-poku")
 precondition(resolver.sanitizedCustomerId("") == "golden")
@@ -419,6 +482,7 @@ precondition(workbenchModelSource.contains("resetRuntimeWebViewIfNeeded(runtime,
 precondition(workbenchModelSource.contains("func reset(runtime: RuntimeKey, customerId: String)"))
 precondition(workbenchModelSource.contains("webView.removeFromSuperview()"))
 precondition(workbenchModelSource.contains("resetApprovalCenterState(statusText: \"Unchecked\")"))
+precondition(workbenchModelSource.contains("resetCapabilityManifestState(statusText: \"Unchecked\", clearCache: true)"))
 precondition(workbenchModelSource.contains("bridgeKey([\"queue\", \"list\", \"--json\", \"--limit\", \"10\"])"))
 precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"status\", \"--json\"])"))
 precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"threads\", \"--json\", \"--max-items\", \"5\"])"))
@@ -427,6 +491,12 @@ precondition(workbenchModelSource.contains("FileHandle(forWritingTo: stdoutURL)"
 precondition(!workbenchModelSource.contains("turn/start"))
 precondition(!workbenchModelSource.contains("turn/steer"))
 precondition(!workbenchModelSource.contains("turn/interrupt"))
+precondition(workbenchModelSource.contains("await refreshCapabilityManifest(trigger: \"provider_profiles\")"))
+precondition(workbenchModelSource.contains("await refreshCapabilityManifest(trigger: \"provider_connect\")"))
+precondition(workbenchModelSource.contains("await refreshCapabilityManifest(trigger: \"provider_action\")"))
+precondition(workbenchModelSource.contains("capabilityManifestStatusText = \"Cached: summary pending\""))
+precondition(workbenchModelSource.contains("capabilityManifestStatusText = \"Ready: \\(summary.totalGrantCount) grants\""))
+precondition(workbenchModelSource.contains("capabilityManifestStore.clear"))
 precondition(!workbenchModelSource.contains("Complete `/auth openai-codex`"))
 precondition(workbenchModelSource.contains("lastSignInURL"))
 precondition(workbenchModelSource.contains("func reopenSignIn()"))
@@ -462,6 +532,7 @@ try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.6.7", bu
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
+precondition(broker.capabilityEndpoint.absoluteString == "https://cortex-electricsheep.fly.dev/api/v1")
 let macControl = CustomerMacControlClient()
 precondition(macControl.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/customer-mac-control")
 
@@ -473,6 +544,16 @@ precondition(keychainSource.contains("context.interactionNotAllowed = true"))
 let brokerSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Services/RuntimeSessionBrokerClient.swift", encoding: .utf8)
 precondition(brokerSource.contains("RuntimeLaunchRequest(customerId: customerId, runtime: runtime)"))
 precondition(brokerSource.contains("request.setValue(\"Bearer \\(desktopSession.accessToken)\", forHTTPHeaderField: \"Authorization\")"))
+precondition(brokerSource.contains("func capabilityManifest("))
+precondition(brokerSource.contains("request.httpMethod = \"GET\""))
+precondition(brokerSource.contains("pathComponents: [\"capabilities\", RuntimeSessionBrokerClient.normalizedCapabilityAgentID(agentID)]"))
+let manifestModelSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Models/WorkbenchCapabilityManifest.swift", encoding: .utf8)
+precondition(manifestModelSource.contains("safeSummary"))
+precondition(manifestModelSource.contains("manifestJWT"))
+precondition(osViewsSource.contains("Capability Manifest"))
+precondition(osViewsSource.contains("capabilityManifestStatusText"))
+precondition(!osViewsSource.contains("manifestJWT"))
+precondition(!osViewsSource.contains("manifest_jwt"))
 
 let encodedLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .liveBrowser))
 let launchJSON = String(data: encodedLaunch, encoding: .utf8) ?? ""

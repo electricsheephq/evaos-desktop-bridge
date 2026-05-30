@@ -103,6 +103,129 @@ public struct WorkbenchCapabilityManifestSummary: Equatable, Sendable {
     public let approvalChannel: String
     public let budget: WorkbenchCapabilityBudget
     public let grants: [WorkbenchCapabilityGrantDecision: [String]]
+
+    public var totalGrantCount: Int {
+        grants.values.reduce(0) { total, tools in
+            total + tools.count
+        }
+    }
+
+    public func tools(for decision: WorkbenchCapabilityGrantDecision) -> [String] {
+        grants[decision] ?? []
+    }
+}
+
+public struct WorkbenchCapabilityManifestWireSummary: Codable, Equatable, Sendable {
+    public let agentID: String
+    public let ownerID: String
+    public let expiresAt: Date
+    public let approvalChannel: String
+    public let budget: WorkbenchCapabilityBudget
+    public let grants: [String: [String]]
+
+    public var safeSummary: WorkbenchCapabilityManifestSummary? {
+        guard
+            !Self.isBlank(agentID),
+            !Self.isBlank(ownerID),
+            !Self.isBlank(approvalChannel)
+        else {
+            return nil
+        }
+
+        var grouped: [WorkbenchCapabilityGrantDecision: [String]] = [
+            .allowed: [],
+            .requiresApproval: [],
+            .denied: []
+        ]
+
+        for (rawDecision, rawTools) in grants {
+            guard let decision = WorkbenchCapabilityGrantDecision(rawValue: rawDecision) else {
+                return nil
+            }
+            let tools = rawTools
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .sorted()
+            grouped[decision, default: []].append(contentsOf: tools)
+        }
+
+        for decision in grouped.keys {
+            grouped[decision]?.sort()
+        }
+
+        guard grouped.values.contains(where: { !$0.isEmpty }) else {
+            return nil
+        }
+
+        return WorkbenchCapabilityManifestSummary(
+            agentID: agentID,
+            ownerID: ownerID,
+            expiresAt: expiresAt,
+            approvalChannel: approvalChannel,
+            budget: budget,
+            grants: grouped
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case agentID = "agent_id"
+        case ownerID = "owner_id"
+        case expiresAt = "expires_at"
+        case approvalChannel = "approval_channel"
+        case budget
+        case grants
+    }
+
+    private static func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+public struct WorkbenchCapabilityManifestFetchResponse: Codable, Equatable, Sendable {
+    public let ok: Bool?
+    public let agentID: String
+    public let ownerID: String
+    public let manifestJWT: String
+    public let expiresAt: Date
+    public let approvalChannel: String
+    public let grantCount: Int?
+    public let budget: WorkbenchCapabilityBudget
+    public let safeSummary: WorkbenchCapabilityManifestWireSummary?
+
+    public var brokerSafeSummary: WorkbenchCapabilityManifestSummary? {
+        safeSummary?.safeSummary
+    }
+
+    public func validatedCacheToken() -> String? {
+        let token = manifestJWT.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            ok != false,
+            !token.isEmpty,
+            !Self.isBlank(agentID),
+            !Self.isBlank(ownerID),
+            !Self.isBlank(approvalChannel),
+            grantCount.map({ $0 > 0 }) ?? true
+        else {
+            return nil
+        }
+        return token
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case agentID = "agent_id"
+        case ownerID = "owner_id"
+        case manifestJWT = "manifest_jwt"
+        case expiresAt = "expires_at"
+        case approvalChannel = "approval_channel"
+        case grantCount = "grant_count"
+        case budget
+        case safeSummary = "safe_summary"
+    }
+
+    private static func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 public enum WorkbenchCapabilityManifestError: Error, Equatable {

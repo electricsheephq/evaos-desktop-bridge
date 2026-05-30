@@ -7,9 +7,11 @@ agents. The broker issues a short-lived HS256 JWT per agent. Workbench,
 OpenClaw, and Hermes consume the same claims before a tool call crosses the
 runtime boundary.
 
-This slice defines and verifies the local contract only. It does not add
-broker endpoints, OpenClaw/Hermes runtime plugins, Approval Center decisions,
-or budget enforcement.
+The current Workbench slice fetches and caches broker-issued manifests from the
+authenticated Cortex broker path, but it remains a display/cache client. It does
+not embed the broker signing secret, add runtime enforcement, add
+OpenClaw/Hermes runtime plugins, submit Approval Center decisions, or enforce
+budgets.
 
 ## JWT Claims
 
@@ -62,8 +64,60 @@ Workbench core exposes `WorkbenchCapabilityManifestVerifier` and
 
 `WorkbenchCapabilityManifestStore` caches the signed manifest token in the
 Workbench Keychain service `com.electricsheephq.EvaDesktop.capabilities`, using
-the account `capability-manifest`. This PR does not add the future live broker
-fetch/refresh path yet.
+the account `capability-manifest`. Cache state is cleared on sign-out, broker
+401/403, customer switch, and Workbench broker-client rebuild.
+
+## Workbench Broker Fetch
+
+Workbench requests manifests with the signed-in desktop session:
+
+```http
+GET https://cortex-electricsheep.fly.dev/api/v1/capabilities/{agent_id}
+Authorization: Bearer <desktop_session>
+Accept: application/json
+```
+
+The response shape accepted by Workbench is:
+
+```json
+{
+  "ok": true,
+  "agent_id": "openclaw",
+  "owner_id": "andrew-main",
+  "manifest_jwt": "<signed jwt>",
+  "expires_at": "2026-05-30T18:00:00Z",
+  "approval_channel": "evaos://approvals/openclaw",
+  "grant_count": 3,
+  "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 },
+  "safe_summary": {
+    "agent_id": "openclaw",
+    "owner_id": "andrew-main",
+    "expires_at": "2026-05-30T18:00:00Z",
+    "approval_channel": "evaos://approvals/openclaw",
+    "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 },
+    "grants": {
+      "allowed": ["gmail.read"],
+      "requires_approval": ["gmail.send"],
+      "denied": ["drive.write"]
+    }
+  }
+}
+```
+
+Workbench validates that the response is successful, has a non-empty token,
+agent, owner, approval channel, and non-zero grant count when `grant_count` is
+present. The raw `manifest_jwt` is saved to Keychain only and is not rendered.
+
+Workbench renders grant metadata only from `safe_summary`. If the broker returns
+a valid token without `safe_summary`, Workbench stores the token and shows
+`Cached: summary pending`. This avoids shipping the broker HS256 signing secret
+inside the macOS app while still allowing the broker to phase in safe display
+metadata.
+
+HTTP 401/403 clears the signed-in Workbench session and manifest cache. HTTP 404
+clears the manifest cache and reports `No policy for agent`. Other failures
+leave the last Keychain write untouched but clear rendered summary state and
+report `Unavailable`.
 
 ## Runtime Fit
 
@@ -82,7 +136,8 @@ Hermes should map decisions into its existing `pre_tool_call` hook:
 
 Workbench should render safe summaries only: agent id, owner id, expiry,
 approval channel, budget, and grouped tool names. It must not render signing
-secrets, raw provider tokens, auth DB paths, or session DB contents.
+secrets, raw manifest JWTs, raw provider tokens, auth DB paths, or session DB
+contents.
 
 ## Deferred Slices
 
