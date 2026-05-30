@@ -148,7 +148,7 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "tool, risk, and actual destination" in script
     assert "agent QA launch smoke" in script
     assert "disables Workbench Keychain access" in script
-    assert "off removable media" in script
+    assert "from a separate location" in script
     assert "verify_app_signature" in script
     assert 'codesign --verify --deep --strict "$bundle"' in script
     assert 'verify_app_signature "$APP_BUNDLE"' in script
