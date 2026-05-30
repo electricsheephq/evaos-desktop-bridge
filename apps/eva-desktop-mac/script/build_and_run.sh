@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.8"
-BUILD_NUMBER="48"
+VERSION="0.6.9"
+BUILD_NUMBER="49"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -464,9 +464,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds Workbench Capability Manifest fetch/cache support for broker-issued agent policy tokens.</li>
-  <li>Renders only broker-provided safe grant summaries while raw manifest JWTs stay in Keychain.</li>
-  <li>Clears stale manifest state on sign-out, broker auth failures, customer switches, and Workbench broker-client rebuilds.</li>
+  <li>Adds live Workbench Approval Center polling for authenticated broker approval requests.</li>
+  <li>Allows one-time approve or deny decisions from Workbench while durable allow-always remains withheld until policy scope is destination-constrained.</li>
+  <li>Keeps approval rows display-only in app state, with spoof-resistant destination previews derived from broker-shaped action payloads.</li>
 </ul>
 EOF
 
