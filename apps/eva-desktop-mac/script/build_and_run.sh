@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.10"
-BUILD_NUMBER="50"
+VERSION="0.6.11"
+BUILD_NUMBER="51"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -464,9 +464,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Hardens Codex Desktop visible GUI post-send waiting so stable composer-visible idle ends cleanly instead of timing out.</li>
-  <li>Reports notification overlays, focus steals, permission prompts, or operator re-entry during read-only waits as inconclusive/contaminated evidence to rerun in a quiet window.</li>
-  <li>Keeps Codex app-server mutation withheld; this release only improves the audited visible GUI fallback lane and its evidence quality.</li>
+  <li>Adds Approval Center local notifications for new pending broker approvals while the operator is away from the Approval Center view.</li>
+  <li>Suppresses duplicate or already-visible approval banners and prunes resolved approval notification state.</li>
+  <li>Keeps notification text limited to tool, risk, and actual destination instead of exposing approval payload body excerpts.</li>
 </ul>
 EOF
 
