@@ -464,9 +464,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds live Workbench Approval Center polling for authenticated broker approval requests.</li>
-  <li>Allows one-time approve or deny decisions from Workbench while durable allow-always remains withheld until policy scope is destination-constrained.</li>
-  <li>Keeps approval rows display-only in app state, with spoof-resistant destination previews derived from broker-shaped action payloads.</li>
+  <li>Hardens Codex Desktop visible GUI post-send waiting so stable composer-visible idle ends cleanly instead of timing out.</li>
+  <li>Reports notification overlays, focus steals, permission prompts, or operator re-entry during read-only waits as inconclusive/contaminated evidence to rerun in a quiet window.</li>
+  <li>Keeps Codex app-server mutation withheld; this release only improves the audited visible GUI fallback lane and its evidence quality.</li>
 </ul>
 EOF
 
