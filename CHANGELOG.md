@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.8 - 2026-05-30
+
 - Add the issue #143 Workbench Capability Manifest fetch/cache slice: Workbench now fetches broker-issued manifests from the authenticated Cortex capability endpoint, caches only the signed JWT in Keychain, renders broker-provided safe summaries, clears stale manifest state on session/customer/client-boundary changes, and keeps runtime enforcement/OpenClaw/Hermes plugins deferred.
 
 ## 0.6.7 - 2026-05-30
