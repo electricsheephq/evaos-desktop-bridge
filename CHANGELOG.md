@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.11 - 2026-05-30
+
 - Add the issue #144 Approval Center notification slice: Workbench now keeps a
   model-owned broker polling loop active while signed in, sends one local
   notification when a new pending approval appears away from the Approval Center,
