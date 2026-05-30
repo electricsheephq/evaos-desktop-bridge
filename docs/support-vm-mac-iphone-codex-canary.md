@@ -186,6 +186,15 @@ false red rows. The primitive suite proves raw control; the scenario suites
 prove the agent-style visual loop. Do not treat blind tap/swipe rows as real
 app-task certification.
 
+For Codex visible GUI acceptance, this rule is strict. The test is controlling
+the real Codex Desktop window, so a notification banner, focus steal, permission
+prompt, lock screen, or operator re-entry can cover the composer or target row at
+the exact moment the bridge is reading/clicking/typing. Classify that as
+`contaminated` or `inconclusive`, capture the evidence screenshot, and rerun in a
+quiet yielded window. Do not downgrade the visible GUI lane, file a product
+regression, or reopen a fixed issue from a run where the Desktop was interrupted
+by an overlay or user activity.
+
 The OpenClaw plugin reads those environment variables directly. The bridge CLI
 itself is local-first; when testing from a bare support shell, call the
 connector HTTP endpoint:

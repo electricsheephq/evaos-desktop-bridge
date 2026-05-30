@@ -195,6 +195,13 @@ Known 0.6.7 release-reality result from the 2026-05-29 fresh canary:
   Calculator state from the materialized screenshot artifact before allowing
   the next live scenario action.
 
+Live GUI-control rows are only valid when the operator has yielded the screen.
+For Codex Desktop visible-message tests in particular, notification banners,
+Focus/Spotlight overlays, permission prompts, lock-screen transitions, or manual
+operator interaction can hide the composer or selected row while the bridge is
+acting. Mark those rows `contaminated` or `inconclusive`, keep the screenshot as
+evidence, and rerun in a quiet window; do not treat them as product failures.
+
 The command timeout is per primitive command, not a task budget. A multi-minute
 agent task is expected to issue many bounded commands. Current defaults are 60s
 for visual `see` commands, 30s for click/tap, 20s for drag/swipe/browser/menu
