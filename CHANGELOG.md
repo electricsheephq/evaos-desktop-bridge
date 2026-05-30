@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.9 - 2026-05-30
+
 - Wire Approval Center to the live broker: Workbench now polls authenticated
   pending approvals, submits allow-once/deny decisions to Cortex while
   allow-always is intentionally withheld in the UI,
