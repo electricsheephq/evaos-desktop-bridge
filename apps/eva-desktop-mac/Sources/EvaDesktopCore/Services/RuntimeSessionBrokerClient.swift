@@ -160,6 +160,33 @@ public struct RuntimeSessionBrokerClient: Sendable {
         )
     }
 
+    public func pendingApprovals(
+        desktopSession: DesktopSession?,
+        limit: Int = 50
+    ) async throws -> WorkbenchApprovalRequestsResponse {
+        try await get(
+            pathComponents: ["approvals", "pending"],
+            queryItems: [URLQueryItem(name: "limit", value: String(max(1, min(limit, 100))))],
+            desktopSession: desktopSession,
+            decoder: EvaDesktopISO8601.decoder()
+        )
+    }
+
+    @discardableResult
+    public func decideApproval(
+        approvalID: String,
+        decision: WorkbenchApprovalDecision,
+        scope: WorkbenchApprovalScope? = nil,
+        desktopSession: DesktopSession?
+    ) async throws -> WorkbenchApprovalRequest {
+        try await postCapability(
+            pathComponents: ["approvals", approvalID, "decide"],
+            body: WorkbenchApprovalDecisionRequest(decision: decision, scope: scope),
+            desktopSession: desktopSession,
+            decoder: EvaDesktopISO8601.decoder()
+        )
+    }
+
     public func claimDeviceCode(_ deviceCode: String) async throws -> DesktopSession {
         let normalizedCode = deviceCode
             .uppercased()
@@ -251,6 +278,46 @@ public struct RuntimeSessionBrokerClient: Sendable {
 
     private func get<Response: Decodable>(
         pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
+        desktopSession: DesktopSession?,
+        decoder: JSONDecoder = JSONDecoder()
+    ) async throws -> Response {
+        guard let desktopSession, !desktopSession.isExpired else {
+            throw RuntimeSessionBrokerError.missingSession
+        }
+
+        var url = capabilityEndpoint
+        for component in pathComponents {
+            url.appendPathComponent(component)
+        }
+        if !queryItems.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.queryItems = queryItems
+            url = components.url ?? url
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw RuntimeSessionBrokerError.httpStatus(httpResponse.statusCode)
+        }
+
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch {
+            throw RuntimeSessionBrokerError.invalidResponse
+        }
+    }
+
+    private func postCapability<Request: Encodable, Response: Decodable>(
+        pathComponents: [String],
+        body: Request,
         desktopSession: DesktopSession?,
         decoder: JSONDecoder = JSONDecoder()
     ) async throws -> Response {
@@ -264,9 +331,11 @@ public struct RuntimeSessionBrokerClient: Sendable {
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
