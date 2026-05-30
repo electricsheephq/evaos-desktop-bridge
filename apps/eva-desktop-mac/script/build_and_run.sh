@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:-run}"
 case "$MODE" in
-  --package-beta|package-beta|--package-release|package-release|--notarize-release|notarize-release|--verify|verify)
+  --package-beta|package-beta|--package-release|package-release|--notarize-release|notarize-release|--verify|verify|--verify-agent-qa|verify-agent-qa)
     STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"
     ;;
   *)
@@ -52,6 +52,7 @@ APPCAST_OUTPUT="$DIST_DIR/appcast.xml"
 NOTARY_STATUS_JSON="$DIST_DIR/notarization-status.json"
 NOTARY_LOG_JSON="$DIST_DIR/notarization-log.json"
 NOTARY_RELEASE_JSON="$DIST_DIR/notarization-release.json"
+AGENT_QA_APP_BUNDLE="${EVAOS_WORKBENCH_AGENT_QA_APP_BUNDLE:-$HOME/Applications/evaOS Workbench Agent QA.app}"
 
 detect_apple_development_identity() {
   security find-identity -p codesigning -v 2>/dev/null \
@@ -355,6 +356,9 @@ notarized yet.
   security delete-generic-password \\
     -s com.electricsheephq.EvaDesktop.session \\
     -a desktop-session
+  security delete-generic-password \\
+    -s com.electricsheephq.EvaDesktop.capabilities \\
+    -a capability-manifest
   \`\`\`
 
 ## Agent Control Boundary
@@ -432,6 +436,9 @@ the sign-in screen or remove only the Workbench session item:
 security delete-generic-password \\
   -s com.electricsheephq.EvaDesktop.session \\
   -a desktop-session
+security delete-generic-password \\
+  -s com.electricsheephq.EvaDesktop.capabilities \\
+  -a capability-manifest
 \`\`\`
 EOF
 }
@@ -611,6 +618,20 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
+prepare_agent_qa_launch_bundle() {
+  mkdir -p "$(dirname "$AGENT_QA_APP_BUNDLE")"
+  rm -rf "$AGENT_QA_APP_BUNDLE"
+  cp -R "$APP_BUNDLE" "$AGENT_QA_APP_BUNDLE"
+  /usr/bin/defaults write "$BUNDLE_ID" EvaDesktop.disableKeychainForAgentQA -bool true
+  /bin/launchctl setenv EVAOS_WORKBENCH_DISABLE_KEYCHAIN 1 2>/dev/null || true
+  printf '%s\n' "$AGENT_QA_APP_BUNDLE"
+}
+
+cleanup_agent_qa_launch_state() {
+  /usr/bin/defaults delete "$BUNDLE_ID" EvaDesktop.disableKeychainForAgentQA 2>/dev/null || true
+  /bin/launchctl unsetenv EVAOS_WORKBENCH_DISABLE_KEYCHAIN 2>/dev/null || true
+}
+
 case "$MODE" in
   run)
     open_app
@@ -631,6 +652,15 @@ case "$MODE" in
     sleep 1
     pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null
     ;;
+  --verify-agent-qa|verify-agent-qa)
+    agent_qa_bundle="$(prepare_agent_qa_launch_bundle)"
+    trap cleanup_agent_qa_launch_state EXIT
+    /usr/bin/open -n -g "$agent_qa_bundle"
+    sleep 2
+    pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null
+    cleanup_agent_qa_launch_state
+    trap - EXIT
+    ;;
   --package-beta|package-beta)
     package_beta
     ;;
@@ -641,7 +671,7 @@ case "$MODE" in
     notarize_release
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package-beta|--package-release|--notarize-release]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--verify-agent-qa|--package-beta|--package-release|--notarize-release]" >&2
     exit 2
     ;;
 esac

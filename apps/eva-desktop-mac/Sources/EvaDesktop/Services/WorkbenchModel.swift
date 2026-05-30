@@ -8,6 +8,27 @@ import Foundation
 import SwiftUI
 import WebKit
 
+private enum WorkbenchAgentQAOptions {
+    private static let disableKeychainDefaultKey = "EvaDesktop.disableKeychainForAgentQA"
+    private static let disableKeychainEnvironmentKeys = [
+        "EVAOS_WORKBENCH_DISABLE_KEYCHAIN",
+        "EVA_DESKTOP_DISABLE_KEYCHAIN"
+    ]
+    private static let truthyValues: Set<String> = ["1", "true", "yes", "on"]
+
+    static var disablesKeychain: Bool {
+        if UserDefaults.standard.bool(forKey: disableKeychainDefaultKey) {
+            return true
+        }
+        return disableKeychainEnvironmentKeys.contains { key in
+            guard let rawValue = ProcessInfo.processInfo.environment[key] else {
+                return false
+            }
+            return truthyValues.contains(rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        }
+    }
+}
+
 @MainActor
 final class WorkbenchModel: ObservableObject {
     @Published var dashboardBaseURLString: String = UserDefaults.standard.string(forKey: "EvaDesktop.dashboardBaseURL") ?? "https://www.electricsheephq.com" {
@@ -109,6 +130,7 @@ final class WorkbenchModel: ObservableObject {
 
     private let keychain = KeychainSessionStore()
     private let capabilityManifestStore = WorkbenchCapabilityManifestStore()
+    private let keychainDisabledForAgentQA = WorkbenchAgentQAOptions.disablesKeychain
     private var broker: RuntimeSessionBrokerClient
     private var resolver: RuntimeURLResolver
     private let bridge = BridgeCommandService()
@@ -135,10 +157,12 @@ final class WorkbenchModel: ObservableObject {
                 self?.handleRuntimeNavigationEvent(runtime, event: event)
             }
         }
-        session = try? keychain.load(allowUserInteraction: false)
-        if session?.isExpired == true {
-            try? keychain.clear(allowUserInteraction: false)
-            session = nil
+        if !keychainDisabledForAgentQA {
+            session = try? keychain.load(allowUserInteraction: false)
+            if session?.isExpired == true {
+                try? keychain.clear(allowUserInteraction: false)
+                session = nil
+            }
         }
     }
 
@@ -740,7 +764,9 @@ final class WorkbenchModel: ObservableObject {
             guard let token = response.validatedCacheToken() else {
                 throw RuntimeSessionBrokerError.invalidResponse
             }
-            try capabilityManifestStore.saveToken(token)
+            if !keychainDisabledForAgentQA {
+                try capabilityManifestStore.saveToken(token)
+            }
             capabilityManifestSummary = response.brokerSafeSummary
             if let summary = response.brokerSafeSummary {
                 capabilityManifestStatusText = "Ready: \(summary.totalGrantCount) grants"
@@ -1484,7 +1510,9 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func clearLocalSessionState(allowKeychainInteraction: Bool) {
-        try? keychain.clear(allowUserInteraction: allowKeychainInteraction)
+        if !keychainDisabledForAgentQA {
+            try? keychain.clear(allowUserInteraction: allowKeychainInteraction)
+        }
         resetCapabilityManifestState(statusText: "Sign in first", clearCache: true, allowKeychainInteraction: allowKeychainInteraction)
         session = nil
         resetSessionCenterState(statusText: "Sign in first")
@@ -1521,7 +1549,9 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func saveAuthenticatedSession(_ newSession: DesktopSession) throws {
-        try keychain.save(newSession)
+        if !keychainDisabledForAgentQA {
+            try keychain.save(newSession)
+        }
         session = newSession
         resetSessionCenterState(statusText: "Unchecked")
         resetApprovalCenterState(statusText: "Unchecked")
@@ -1574,7 +1604,7 @@ final class WorkbenchModel: ObservableObject {
         clearCache: Bool,
         allowKeychainInteraction: Bool = false
     ) {
-        if clearCache {
+        if clearCache && !keychainDisabledForAgentQA {
             try? capabilityManifestStore.clear(allowUserInteraction: allowKeychainInteraction)
         }
         capabilityManifestSummary = nil

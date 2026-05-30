@@ -26,6 +26,9 @@ A release is not ready to send to testers until all of these are true:
   `https://www.electricsheephq.com/evaos-workbench/`.
 - The live ZIP has been downloaded, unzipped, rpath-checked, codesign-checked,
   and launch-smoked.
+- Agent launch smoke uses `./script/build_and_run.sh --verify-agent-qa` or an
+  app copied to the internal disk, not `dist/evaOS.app` launched directly from
+  `/Volumes/LEXAR`.
 - Stale public ZIP paths for broken or stale builds are removed or aliased to
   the current fixed ZIP.
 - For Workbench `0.2.3+`, Copy Agent Prompt is verified to use
@@ -94,6 +97,25 @@ spctl --assess --type execute dist/evaOS.app
 
 Friendly beta may ship before notarization only when the release notes and
 install page call out the non-stapled state.
+
+## Agent Launch Smoke
+
+macOS can prompt for both Keychain item access and removable-volume access while
+agents are testing locally. Do not spend autonomous test loops on those prompts.
+For non-authenticated smoke, run:
+
+```bash
+cd apps/eva-desktop-mac
+./script/build_and_run.sh --verify-agent-qa
+```
+
+That path copies the app bundle to `~/Applications`, disables Workbench Keychain
+reads/writes for the launched process, and confirms the app process starts. For
+real signed-in acceptance, install the Developer ID signed build on the internal
+disk and use a stable signing identity; if an old beta item still prompts, clear
+only the Workbench `com.electricsheephq.EvaDesktop.session` and
+`com.electricsheephq.EvaDesktop.capabilities` generic-password items before
+signing in again.
 
 ## Dashboard Artifact And Lovable
 
