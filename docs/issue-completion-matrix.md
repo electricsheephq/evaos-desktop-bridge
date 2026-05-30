@@ -83,6 +83,7 @@ Milestone: `#144 P0 Epic: M5 Approval Center`
 | Issue | Acceptance | Implemented |
 | --- | --- | --- |
 | `#144` Approval Center contract slice | Define the Workbench-local approval request model and destination-preview rules. Rows must show actual recipients/URLs/paths/scopes, not display names or summaries. Missing destinations fail closed as not actionable. Keep broker endpoints and live decision submission deferred. | `WorkbenchApprovalRequest` and `WorkbenchApprovalPreviewBuilder` derive spoof-resistant actual-destination previews for email, message, URL, file, purchase, secret, budget, and permission actions. `ApprovalCenterView` is feature-flagged by `approval_center` and renders read-only cards with disabled decision buttons until broker endpoints land. `docs/approval-center-contract.md` documents the no-display-name-only boundary and deferred runtime/broker wiring. |
+| `#144` Approval Center live broker + notification slices | Poll production broker approvals from signed-in Workbench, submit guarded human decisions, and alert the operator when new pending approvals arrive while away from the Approval Center. | Workbench polls the authenticated broker path, submits `allow-once` / `deny`, clears stale rows on session reset, keeps `allow-always` withheld pending destination-constrained policies, and uses `WorkbenchApprovalNotificationPlanner` plus `ApprovalCenterNotificationService` to emit one local notification per new away-from-view pending approval without body/payload leakage. |
 
 Verification:
 

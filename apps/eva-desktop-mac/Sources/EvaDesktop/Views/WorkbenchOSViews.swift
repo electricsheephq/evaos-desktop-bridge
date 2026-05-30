@@ -263,13 +263,6 @@ struct ApprovalCenterView: View {
                 detail: "Approval rows must show the real recipient, URL, file path, payment target, secret name, budget, or permission scope. Display names and summaries alone are not enough."
             )
         }
-        .task(id: model.isSignedIn) {
-            guard model.isSignedIn else { return }
-            while !Task.isCancelled {
-                await model.refreshApprovalCenterState()
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-            }
-        }
     }
 
     private var approvalTint: Color {
