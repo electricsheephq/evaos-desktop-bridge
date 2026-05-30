@@ -143,12 +143,11 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "safe for destination-constrained Allow always" in script
-    assert "actionable, warning-free destination details" in script
-    assert "broad owner, agent, and tool grants" in script
-    assert "agent QA launch smoke" in script
-    assert "disables Workbench Keychain access" in script
-    assert "from a separate location" in script
+    assert "Approval Center expiration deadlines" in script
+    assert "non-deny choices after a request has expired" in script
+    assert "payload-safe local notification" in script
+    assert "copied internal-disk app with Workbench Keychain disabled" in script
+    assert "Keychain or Lexar permission prompts" in script
     assert "verify_app_signature" in script
     assert 'codesign --verify --deep --strict "$bundle"' in script
     assert 'verify_app_signature "$APP_BUNDLE"' in script

@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.12"
-BUILD_NUMBER="52"
+VERSION="0.6.13"
+BUILD_NUMBER="53"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -471,10 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Enables the Approval Center durable decision button only when broker evidence marks a request as safe for destination-constrained Allow always.</li>
-  <li>Requires actionable, warning-free destination details before Workbench offers a durable approval path.</li>
-  <li>Keeps durable broker policy writes constrained to the approved destination instead of creating broad owner, agent, and tool grants.</li>
-  <li>Preserves the agent QA launch smoke that disables Workbench Keychain access and launches a copied app bundle from a separate location.</li>
+  <li>Shows Approval Center expiration deadlines from broker expires_at evidence and disables non-deny choices after a request has expired.</li>
+  <li>Sends one payload-safe local notification when a pending approval is close to expiring while the operator is away from Approval Center.</li>
+  <li>Routes agent QA launches from removable volumes through a copied internal-disk app with Workbench Keychain disabled, preventing Keychain or Lexar permission prompts from blocking autonomous validation.</li>
 </ul>
 EOF
 
