@@ -162,6 +162,21 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         [.allowOnce, .deny]
     }
 
+    public func displayOnly() -> WorkbenchApprovalRequest {
+        WorkbenchApprovalRequest(
+            id: id,
+            ownerID: ownerID,
+            agentID: agentID,
+            toolName: toolName,
+            riskClass: riskClass,
+            actionPayload: [:],
+            destinationPreview: destinationPreview,
+            createdAt: createdAt,
+            sourcePointer: sourcePointer,
+            auditId: auditId
+        )
+    }
+
     public var isActionable: Bool {
         destinationPreview.isActionable
     }
@@ -491,7 +506,7 @@ private enum WorkbenchApprovalPayloadFlattener {
                 output["recipient_email"] = email
             }
             for (childKey, childValue) in object {
-                flatten(childValue, key: normalizedKey(childKey), into: &output)
+                flatten(childValue, key: nestedKey(parent: key, child: childKey), into: &output)
             }
         case .array(let values):
             if isRecipientKey(key), let email = firstEmail(in: .array(values)) {
@@ -572,6 +587,14 @@ private enum WorkbenchApprovalPayloadFlattener {
 
     private static func normalizedKey(_ key: String) -> String {
         key.lowercased().replacingOccurrences(of: "-", with: "_")
+    }
+
+    private static func nestedKey(parent: String, child: String) -> String {
+        let childKey = normalizedKey(child)
+        guard !parent.isEmpty else {
+            return childKey
+        }
+        return "\(parent)_\(childKey)"
     }
 
     private static func store(_ value: String, key: String, into output: inout [String: String]) {

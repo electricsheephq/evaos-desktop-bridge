@@ -246,7 +246,8 @@ struct ApprovalCenterView: View {
                     ForEach(model.approvalRequests) { request in
                         ApprovalRequestCard(
                             request: request,
-                            isBusy: model.approvalDecisionInFlight == request.id
+                            isSubmitting: model.approvalDecisionInFlight == request.id,
+                            isDisabled: model.approvalDecisionInFlight != nil
                         ) { decision in
                             Task {
                                 await model.decideApprovalRequest(request, decision: decision)
@@ -313,7 +314,8 @@ private struct WorkbenchSurface<Content: View>: View {
 
 private struct ApprovalRequestCard: View {
     let request: WorkbenchApprovalRequest
-    let isBusy: Bool
+    let isSubmitting: Bool
+    let isDisabled: Bool
     let decide: (WorkbenchApprovalDecision) -> Void
 
     var body: some View {
@@ -371,10 +373,10 @@ private struct ApprovalRequestCard: View {
                     Button(role: decision == .deny ? .destructive : nil) {
                         decide(decision)
                     } label: {
-                        Text(isBusy ? "Submitting" : decision.displayText)
+                        Text(isSubmitting ? "Submitting" : decision.displayText)
                     }
                         .buttonStyle(.bordered)
-                        .disabled(isBusy || (decision != .deny && !request.isActionable))
+                        .disabled(isDisabled || (decision != .deny && !request.isActionable))
                         .help(decisionHelp(for: decision))
                 }
                 Button(WorkbenchApprovalDecision.allowAlways.displayText) {}

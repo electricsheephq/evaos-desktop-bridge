@@ -5,7 +5,8 @@ All notable repo release changes should be recorded here before a release branch
 ## Unreleased
 
 - Wire Approval Center to the live broker: Workbench now polls authenticated
-  pending approvals, submits allow-once/allow-always/deny decisions to Cortex,
+  pending approvals, submits allow-once/deny decisions to Cortex while
+  allow-always is intentionally withheld in the UI,
   keeps allow buttons disabled when actual destination evidence is missing, and
   preserves spoof-resistant preview derivation for broker-shaped payloads.
 - Clarify live GUI-control canary protocol: Codex Desktop notification overlays,

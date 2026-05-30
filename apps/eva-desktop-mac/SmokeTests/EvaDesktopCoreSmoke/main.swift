@@ -342,6 +342,28 @@ precondition(brokerNestedApproval.destinationPreview.primary == "attacker@exampl
 precondition(brokerNestedApproval.destinationPreview.secondary == "Wire instructions")
 precondition(brokerNestedApproval.actionPayload["recipient_email"] == "attacker@example.net")
 precondition(brokerNestedApproval.sourcePointer == "approval:00000000-0000-4000-8000-000000000001")
+let displayOnlyBrokerNestedApproval = brokerNestedApproval.displayOnly()
+precondition(displayOnlyBrokerNestedApproval.actionPayload.isEmpty)
+precondition(displayOnlyBrokerNestedApproval.destinationPreview.primary == "attacker@example.net")
+
+let nestedURLOnlyApprovalJSON = """
+{
+  "id": "approval-nested-url-only",
+  "owner_id": "andrew-main",
+  "agent_id": "research-agent",
+  "tool_name": "browser.open",
+  "risk_class": "critical",
+  "action_payload": {
+    "metadata": {
+      "url": "https://evil.example/hidden"
+    }
+  },
+  "created_at": "2026-05-30T03:03:00Z"
+}
+"""
+let nestedURLOnlyApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(nestedURLOnlyApprovalJSON.utf8))
+precondition(nestedURLOnlyApproval.destinationPreview.kind == .missingDestination)
+precondition(nestedURLOnlyApproval.actionPayload["metadata_url"] == "https://evil.example/hidden")
 
 let approvalHTTPConfig = URLSessionConfiguration.ephemeral
 approvalHTTPConfig.protocolClasses = [SmokeURLProtocol.self]

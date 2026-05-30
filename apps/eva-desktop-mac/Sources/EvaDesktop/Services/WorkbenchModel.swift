@@ -838,7 +838,7 @@ final class WorkbenchModel: ObservableObject {
 
         do {
             let response = try await broker.pendingApprovals(desktopSession: session, limit: 50)
-            approvalRequests = response.requests
+            approvalRequests = response.requests.map { $0.displayOnly() }
             approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
