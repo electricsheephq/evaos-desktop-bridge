@@ -31,6 +31,7 @@ final class WorkbenchModel: ObservableObject {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
             providerHubStatusText = "Unchecked"
             sharedBrowserStatusText = "Unchecked"
+            resetCapabilityManifestState(statusText: "Unchecked", clearCache: true)
             resetApprovalCenterState(statusText: "Unchecked")
             webViewRefreshToken = UUID()
         }
@@ -83,6 +84,10 @@ final class WorkbenchModel: ObservableObject {
     @Published var providerProfiles: [WorkbenchProviderProfileState] = WorkbenchProviderCatalog.defaultStates
     @Published var providerHubStatusText = "Unchecked"
     @Published var providerActionInFlight: WorkbenchProviderKey?
+    @Published var capabilityManifestSummary: WorkbenchCapabilityManifestSummary?
+    @Published var capabilityManifestStatusText = "Unchecked"
+    @Published var capabilityManifestAgentID = "openclaw"
+    @Published var isRefreshingCapabilityManifest = false
     @Published var sharedBrowserStatusText = "Unchecked"
     @Published var sharedBrowserRoomText = "Not opened"
     @Published var sharedBrowserCurrentURLText = "Unavailable"
@@ -102,6 +107,7 @@ final class WorkbenchModel: ObservableObject {
     private var activeAuthCoordinator: DesktopAuthCoordinator?
 
     private let keychain = KeychainSessionStore()
+    private let capabilityManifestStore = WorkbenchCapabilityManifestStore()
     private var broker: RuntimeSessionBrokerClient
     private var resolver: RuntimeURLResolver
     private let bridge = BridgeCommandService()
@@ -533,6 +539,7 @@ final class WorkbenchModel: ObservableObject {
         guard isSignedIn else {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
             providerHubStatusText = "Sign in to connect providers."
+            resetCapabilityManifestState(statusText: "Sign in first", clearCache: false)
             return
         }
         providerHubStatusText = "Refreshing..."
@@ -544,12 +551,14 @@ final class WorkbenchModel: ObservableObject {
                 rawSecretsStoredInWorkbench: response.rawSecretsStoredInWorkbench,
                 profiles: visibleProfiles
             )
+            await refreshCapabilityManifest(trigger: "provider_profiles")
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
             providerHubStatusText = "Session expired. Sign in again."
         } catch {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
             providerHubStatusText = "Unavailable: \(error.localizedDescription)"
+            resetCapabilityManifestState(statusText: "Unavailable", clearCache: false)
         }
     }
 
@@ -571,6 +580,7 @@ final class WorkbenchModel: ObservableObject {
                     desktopSession: session
                 )
                 providerProfiles = visibleProviderProfiles(response.profiles)
+                await refreshCapabilityManifest(trigger: "provider_connect")
                 let runtime = try await openProviderAuthHandoff(response.connectURL)
                 if let targetURL = response.targetURL {
                     try await broker.openSharedBrowserURL(
@@ -667,17 +677,53 @@ final class WorkbenchModel: ObservableObject {
                     rawSecretsStoredInWorkbench: response.rawSecretsStoredInWorkbench,
                     profiles: visibleProfiles
                 )
+                await refreshCapabilityManifest(trigger: "provider_action")
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 clearLocalSessionState(allowKeychainInteraction: false)
                 providerHubStatusText = "Session expired. Sign in again."
             } catch {
                 providerHubStatusText = "Provider update failed: \(error.localizedDescription)"
+                resetCapabilityManifestState(statusText: "Needs refresh", clearCache: false)
             }
         }
     }
 
     private func visibleProviderProfiles(_ profiles: [WorkbenchProviderProfileState]) -> [WorkbenchProviderProfileState] {
         WorkbenchProviderCatalog.visibleStates(from: profiles)
+    }
+
+    func refreshCapabilityManifest(trigger _: String = "manual") async {
+        guard isSignedIn else {
+            resetCapabilityManifestState(statusText: "Sign in first", clearCache: false)
+            return
+        }
+        guard !isRefreshingCapabilityManifest else { return }
+        let agentID = RuntimeSessionBrokerClient.normalizedCapabilityAgentID(capabilityManifestAgentID)
+        capabilityManifestAgentID = agentID
+        isRefreshingCapabilityManifest = true
+        capabilityManifestStatusText = "Refreshing..."
+        defer { isRefreshingCapabilityManifest = false }
+
+        do {
+            let response = try await broker.capabilityManifest(agentID: agentID, desktopSession: session)
+            guard let token = response.validatedCacheToken() else {
+                throw RuntimeSessionBrokerError.invalidResponse
+            }
+            try capabilityManifestStore.saveToken(token)
+            capabilityManifestSummary = response.brokerSafeSummary
+            if let summary = response.brokerSafeSummary {
+                capabilityManifestStatusText = "Ready: \(summary.totalGrantCount) grants"
+            } else {
+                capabilityManifestStatusText = "Cached: summary pending"
+            }
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
+            clearLocalSessionState(allowKeychainInteraction: false)
+            capabilityManifestStatusText = "Session expired. Sign in again."
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 404 {
+            resetCapabilityManifestState(statusText: "No policy for agent", clearCache: true)
+        } catch {
+            resetCapabilityManifestState(statusText: "Unavailable", clearCache: false)
+        }
     }
 
     func refreshSharedBrowserStatus() async {
@@ -1351,11 +1397,13 @@ final class WorkbenchModel: ObservableObject {
         runtimeURLs.removeAll()
         runtimeErrors.removeAll()
         fallbackReloadAttempts.removeAll()
+        resetCapabilityManifestState(statusText: "Unchecked", clearCache: true)
         webViewRefreshToken = UUID()
     }
 
     private func clearLocalSessionState(allowKeychainInteraction: Bool) {
         try? keychain.clear(allowUserInteraction: allowKeychainInteraction)
+        resetCapabilityManifestState(statusText: "Sign in first", clearCache: true, allowKeychainInteraction: allowKeychainInteraction)
         session = nil
         resetSessionCenterState(statusText: "Sign in first")
         resetApprovalCenterState(statusText: "Sign in first")
@@ -1408,6 +1456,7 @@ final class WorkbenchModel: ObservableObject {
         providerProfiles = WorkbenchProviderCatalog.defaultStates
         providerHubStatusText = "Unchecked"
         providerActionInFlight = nil
+        resetCapabilityManifestState(statusText: "Unchecked", clearCache: false)
         sharedBrowserStatusText = "Unchecked"
         sharedBrowserRoomText = "Not opened"
         sharedBrowserCurrentURLText = "Unavailable"
@@ -1433,6 +1482,19 @@ final class WorkbenchModel: ObservableObject {
         approvalRequests.removeAll()
         approvalCenterStatusText = statusText
         isRefreshingApprovalCenter = false
+    }
+
+    private func resetCapabilityManifestState(
+        statusText: String,
+        clearCache: Bool,
+        allowKeychainInteraction: Bool = false
+    ) {
+        if clearCache {
+            try? capabilityManifestStore.clear(allowUserInteraction: allowKeychainInteraction)
+        }
+        capabilityManifestSummary = nil
+        capabilityManifestStatusText = statusText
+        isRefreshingCapabilityManifest = false
     }
 
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
