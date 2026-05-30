@@ -369,7 +369,7 @@ let approvalHTTPConfig = URLSessionConfiguration.ephemeral
 approvalHTTPConfig.protocolClasses = [SmokeURLProtocol.self]
 let approvalHTTPClient = RuntimeSessionBrokerClient(
     endpoint: URL(string: "https://session.example.test/desktop-runtime-session")!,
-    capabilityEndpoint: URL(string: "https://supabase.example.test/functions/v1/cortex-proxy")!,
+    capabilityEndpoint: URL(string: "https://supabase.example.test/functions/v1/cortex-proxy/")!,
     urlSession: URLSession(configuration: approvalHTTPConfig)
 )
 let approvalHTTPSession = DesktopSession(
@@ -397,7 +397,7 @@ SmokeURLProtocol.handler = { request in
     let url = request.url!
     let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
     precondition(request.httpMethod == "POST")
-    precondition(url.path == "/functions/v1/cortex-proxy")
+    precondition(url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "functions/v1/cortex-proxy")
     let proxyPayload = try! JSONSerialization.jsonObject(with: SmokeURLProtocol.bodyData(from: request)) as! [String: Any]
     if proxyPayload["method"] as? String == "GET" {
         precondition(proxyPayload["path"] as? String == "/api/v1/approvals/pending?limit=7")
@@ -771,6 +771,7 @@ precondition(brokerSource.contains("request.setValue(\"Bearer \\(desktopSession.
 precondition(brokerSource.contains("func capabilityManifest("))
 precondition(brokerSource.contains("\"method\": method"))
 precondition(brokerSource.contains("usesCapabilityProxy"))
+precondition(brokerSource.contains("trimmingCharacters(in: CharacterSet(charactersIn: \"/\"))"))
 precondition(brokerSource.contains("pathComponents: [\"capabilities\", RuntimeSessionBrokerClient.normalizedCapabilityAgentID(agentID)]"))
 precondition(brokerSource.contains("func pendingApprovals("))
 precondition(brokerSource.contains("pathComponents: [\"approvals\", \"pending\"]"))

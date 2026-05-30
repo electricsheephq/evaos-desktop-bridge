@@ -399,7 +399,9 @@ public struct RuntimeSessionBrokerClient: Sendable {
     }
 
     private var usesCapabilityProxy: Bool {
-        capabilityEndpoint.path.hasSuffix("/functions/v1/cortex-proxy")
+        let normalizedPath = capabilityEndpoint.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return normalizedPath == "functions/v1/cortex-proxy"
+            || normalizedPath.hasSuffix("/functions/v1/cortex-proxy")
     }
 
     private func capabilityPath(
