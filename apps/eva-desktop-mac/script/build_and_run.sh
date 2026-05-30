@@ -474,7 +474,7 @@ write_sparkle_appcast() {
   <li>Adds Approval Center local notifications for new pending broker approvals while the operator is away from the Approval Center view.</li>
   <li>Suppresses duplicate or already-visible approval banners and prunes resolved approval notification state.</li>
   <li>Keeps notification text limited to tool, risk, and actual destination instead of exposing approval payload body excerpts.</li>
-  <li>Adds an agent QA launch smoke that disables Workbench Keychain access and launches a copied app bundle off removable media.</li>
+  <li>Adds an agent QA launch smoke that disables Workbench Keychain access and launches a copied app bundle from a separate location.</li>
 </ul>
 EOF
 
