@@ -369,7 +369,7 @@ let approvalHTTPConfig = URLSessionConfiguration.ephemeral
 approvalHTTPConfig.protocolClasses = [SmokeURLProtocol.self]
 let approvalHTTPClient = RuntimeSessionBrokerClient(
     endpoint: URL(string: "https://session.example.test/desktop-runtime-session")!,
-    capabilityEndpoint: URL(string: "https://cortex.example.test/api/v1")!,
+    capabilityEndpoint: URL(string: "https://supabase.example.test/functions/v1/cortex-proxy/")!,
     urlSession: URLSession(configuration: approvalHTTPConfig)
 )
 let approvalHTTPSession = DesktopSession(
@@ -396,19 +396,21 @@ SmokeURLProtocol.handler = { request in
     precondition(request.value(forHTTPHeaderField: "Accept") == "application/json")
     let url = request.url!
     let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-    if request.httpMethod == "GET" {
-        precondition(url.path == "/api/v1/approvals/pending")
-        precondition(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "limit" })?.value == "7")
+    precondition(request.httpMethod == "POST")
+    precondition(url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "functions/v1/cortex-proxy")
+    let proxyPayload = try! JSONSerialization.jsonObject(with: SmokeURLProtocol.bodyData(from: request)) as! [String: Any]
+    if proxyPayload["method"] as? String == "GET" {
+        precondition(proxyPayload["path"] as? String == "/api/v1/approvals/pending?limit=7")
         let body = """
         {"ok": true, "owner_id": "andrew-main", "requests": [\(approvalRowJSON)]}
         """
         return (response, Data(body.utf8))
     }
-    precondition(request.httpMethod == "POST")
-    precondition(url.path == "/api/v1/approvals/00000000-0000-4000-8000-000000000001/decide")
-    let body = String(data: SmokeURLProtocol.bodyData(from: request), encoding: .utf8) ?? ""
-    precondition(body.contains("\"decision\":\"allow-once\""))
-    precondition(body.contains("\"scope\":\"this-call\""))
+    precondition(proxyPayload["method"] as? String == "POST")
+    precondition(proxyPayload["path"] as? String == "/api/v1/approvals/00000000-0000-4000-8000-000000000001/decide")
+    let proxyBody = proxyPayload["body"] as! [String: Any]
+    precondition(proxyBody["decision"] as? String == "allow-once")
+    precondition(proxyBody["scope"] as? String == "this-call")
     return (response, Data(approvalRowJSON.utf8))
 }
 let pendingApprovalHTTPResponse = try await approvalHTTPClient.pendingApprovals(
@@ -422,7 +424,7 @@ let decidedApprovalHTTPResponse = try await approvalHTTPClient.decideApproval(
     desktopSession: approvalHTTPSession
 )
 precondition(decidedApprovalHTTPResponse.id == "00000000-0000-4000-8000-000000000001")
-precondition(SmokeURLProtocol.seenRequests.map(\.httpMethod) == ["GET", "POST"])
+precondition(SmokeURLProtocol.seenRequests.map(\.httpMethod) == ["POST", "POST"])
 SmokeURLProtocol.handler = nil
 
 let spoofedPreviewJSON = """
@@ -754,7 +756,7 @@ try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.6.9", bu
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")
-precondition(broker.capabilityEndpoint.absoluteString == "https://cortex-electricsheep.fly.dev/api/v1")
+precondition(broker.capabilityEndpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/cortex-proxy")
 let macControl = CustomerMacControlClient()
 precondition(macControl.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/customer-mac-control")
 
@@ -767,7 +769,9 @@ let brokerSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Services/R
 precondition(brokerSource.contains("RuntimeLaunchRequest(customerId: customerId, runtime: runtime)"))
 precondition(brokerSource.contains("request.setValue(\"Bearer \\(desktopSession.accessToken)\", forHTTPHeaderField: \"Authorization\")"))
 precondition(brokerSource.contains("func capabilityManifest("))
-precondition(brokerSource.contains("request.httpMethod = \"GET\""))
+precondition(brokerSource.contains("\"method\": method"))
+precondition(brokerSource.contains("usesCapabilityProxy"))
+precondition(brokerSource.contains("trimmingCharacters(in: CharacterSet(charactersIn: \"/\"))"))
 precondition(brokerSource.contains("pathComponents: [\"capabilities\", RuntimeSessionBrokerClient.normalizedCapabilityAgentID(agentID)]"))
 precondition(brokerSource.contains("func pendingApprovals("))
 precondition(brokerSource.contains("pathComponents: [\"approvals\", \"pending\"]"))
