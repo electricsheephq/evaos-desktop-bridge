@@ -30,6 +30,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: sidebarSelection) { _, newValue in
+            model.setApprovalCenterVisible(newValue == .approvalCenter)
             if case .runtime(let runtime) = newValue {
                 model.selectedRuntime = runtime
                 model.loadSelectedRuntime()
@@ -46,7 +47,9 @@ struct ContentView: View {
             model.selectedRuntime = request.runtime
         }
         .task {
+            model.setApprovalCenterVisible(sidebarSelection == .approvalCenter)
             await model.bootstrap()
+            model.startApprovalCenterPolling()
         }
         .onOpenURL { url in
             model.handleAuthCallback(url)

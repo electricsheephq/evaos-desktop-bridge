@@ -452,6 +452,67 @@ precondition(spoofedPreviewApproval.destinationPreview.kind == .emailRecipient)
 precondition(spoofedPreviewApproval.destinationPreview.primary == "outside@example.com")
 precondition(spoofedPreviewApproval.destinationPreview.secondary == "Broker-shaped request")
 
+let awayNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+    requests: [brokerNestedApproval],
+    previousPendingIDs: [],
+    notifiedRequestIDs: [],
+    approvalCenterVisible: false
+)
+precondition(awayNotificationPlan.notifications.count == 1)
+precondition(awayNotificationPlan.notifications[0].requestID == "00000000-0000-4000-8000-000000000001")
+precondition(awayNotificationPlan.notifications[0].title == "Approval needed: gmail.send")
+precondition(awayNotificationPlan.notifications[0].body.contains("attacker@example.net"))
+precondition(!awayNotificationPlan.notifications[0].body.contains("Wire instructions"))
+precondition(awayNotificationPlan.pendingRequestIDs == ["00000000-0000-4000-8000-000000000001"])
+precondition(awayNotificationPlan.notifiedRequestIDs == ["00000000-0000-4000-8000-000000000001"])
+
+let duplicateAwayNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+    requests: [brokerNestedApproval],
+    previousPendingIDs: awayNotificationPlan.pendingRequestIDs,
+    notifiedRequestIDs: awayNotificationPlan.notifiedRequestIDs,
+    approvalCenterVisible: false
+)
+precondition(duplicateAwayNotificationPlan.notifications.isEmpty)
+
+let visibleNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+    requests: [emailApproval],
+    previousPendingIDs: [],
+    notifiedRequestIDs: [],
+    approvalCenterVisible: true
+)
+precondition(visibleNotificationPlan.notifications.isEmpty)
+precondition(visibleNotificationPlan.pendingRequestIDs == ["approval-email-1"])
+precondition(visibleNotificationPlan.notifiedRequestIDs == ["approval-email-1"])
+
+let clearedNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+    requests: [],
+    previousPendingIDs: awayNotificationPlan.pendingRequestIDs,
+    notifiedRequestIDs: awayNotificationPlan.notifiedRequestIDs,
+    approvalCenterVisible: false
+)
+precondition(clearedNotificationPlan.notifications.isEmpty)
+precondition(clearedNotificationPlan.pendingRequestIDs.isEmpty)
+precondition(clearedNotificationPlan.notifiedRequestIDs.isEmpty)
+
+let longDestinationApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-long-url",
+    ownerID: "andrew-main",
+    agentID: "browser-agent",
+    toolName: "browser.fetch",
+    riskClass: .warning,
+    actionPayload: ["url": "https://example.com/" + String(repeating: "destination-", count: 20)],
+    createdAt: "2026-05-30T03:04:00Z",
+    sourcePointer: "approval:approval-long-url"
+)
+let longDestinationNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+    requests: [longDestinationApproval],
+    previousPendingIDs: [],
+    notifiedRequestIDs: [],
+    approvalCenterVisible: false
+)
+precondition(longDestinationNotificationPlan.notifications[0].body.contains("..."))
+precondition(longDestinationNotificationPlan.notifications[0].body.count < 180)
+
 let manifestPayload = """
 {
   "agent_id": "email-sorter-2026-05",
@@ -621,12 +682,14 @@ precondition(!contentViewSource.contains("CreativeStudioPlaceholderView"))
 precondition(contentViewSource.contains("model.runtimeNavigationRequest"))
 precondition(contentViewSource.contains("sidebarSelection = .runtime(request.runtime)"))
 precondition(contentViewSource.contains("case .approvalCenter"))
+precondition(contentViewSource.contains("model.setApprovalCenterVisible"))
+precondition(contentViewSource.contains("model.startApprovalCenterPolling()"))
 let osViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
 precondition(!osViewsSource.contains("struct SharedBrowser2View"))
 precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
 precondition(osViewsSource.contains("struct ApprovalCenterView"))
 precondition(osViewsSource.contains("model.decideApprovalRequest"))
-precondition(osViewsSource.contains("try? await Task.sleep(nanoseconds: 5_000_000_000)"))
+precondition(!osViewsSource.contains("try? await Task.sleep(nanoseconds: 5_000_000_000)"))
 precondition(osViewsSource.contains("Display names and summaries alone are not enough"))
 precondition(osViewsSource.contains("Allow always is withheld"))
 let noPendingTintIndex = osViewsSource.range(of: "model.approvalCenterStatusText == \"No pending approvals\"")!.lowerBound
@@ -706,6 +769,9 @@ precondition(workbenchModelSource.contains("resetRuntimeWebViewIfNeeded(runtime,
 precondition(workbenchModelSource.contains("func reset(runtime: RuntimeKey, customerId: String)"))
 precondition(workbenchModelSource.contains("webView.removeFromSuperview()"))
 precondition(workbenchModelSource.contains("resetApprovalCenterState(statusText: \"Unchecked\")"))
+precondition(workbenchModelSource.contains("approvalNotificationService.deliver"))
+precondition(workbenchModelSource.contains("subtracting(candidateNotificationIDs)"))
+precondition(workbenchModelSource.contains("15_000_000_000"))
 precondition(workbenchModelSource.contains("resetCapabilityManifestState(statusText: \"Unchecked\", clearCache: true)"))
 precondition(workbenchModelSource.contains("bridgeKey([\"queue\", \"list\", \"--json\", \"--limit\", \"10\"])"))
 precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"status\", \"--json\"])"))

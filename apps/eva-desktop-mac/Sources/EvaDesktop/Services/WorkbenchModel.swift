@@ -114,8 +114,13 @@ final class WorkbenchModel: ObservableObject {
     private let bridge = BridgeCommandService()
     private let macControl = CustomerMacControlClient()
     private let updateClient = WorkbenchUpdateClient()
+    private let approvalNotificationService = ApprovalCenterNotificationService()
     private let connectorProcess = WorkbenchConnectorProcessManager()
     private var fallbackReloadAttempts: [RuntimeKey: Int] = [:]
+    private var approvalCenterVisible = false
+    private var approvalCenterPollingTask: Task<Void, Never>?
+    private var approvalPendingRequestIDs: Set<String> = []
+    private var approvalNotifiedRequestIDs: Set<String> = []
     private let connectorRefreshBuildKey = "EvaDesktop.lastConnectorRefreshAppBuild"
 
     init() {
@@ -205,6 +210,31 @@ final class WorkbenchModel: ObservableObject {
         await refreshFlaggedOSShellState()
         await loadRuntime(selectedRuntime)
         await checkForUpdates(silent: true)
+    }
+
+    func setApprovalCenterVisible(_ visible: Bool) {
+        approvalCenterVisible = visible
+        guard visible else { return }
+        let currentIDs = Set(approvalRequests.map(\.id))
+        approvalPendingRequestIDs = currentIDs
+        approvalNotifiedRequestIDs.formUnion(currentIDs)
+    }
+
+    func startApprovalCenterPolling() {
+        guard featureFlags.isEnabled(.approvalCenter), approvalCenterPollingTask == nil else {
+            return
+        }
+
+        approvalCenterPollingTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.isSignedIn {
+                    await self.refreshApprovalCenterState()
+                }
+                let interval: UInt64 = self.approvalCenterVisible ? 5_000_000_000 : 15_000_000_000
+                try? await Task.sleep(nanoseconds: interval)
+            }
+        }
     }
 
     func reconnectSelectedRuntime() {
@@ -838,8 +868,21 @@ final class WorkbenchModel: ObservableObject {
 
         do {
             let response = try await broker.pendingApprovals(desktopSession: session, limit: 50)
-            approvalRequests = response.requests.map { $0.displayOnly() }
+            let displayRequests = response.requests.map { $0.displayOnly() }
+            approvalRequests = displayRequests
             approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
+            let notificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+                requests: displayRequests,
+                previousPendingIDs: approvalPendingRequestIDs,
+                notifiedRequestIDs: approvalNotifiedRequestIDs,
+                approvalCenterVisible: approvalCenterVisible
+            )
+            approvalPendingRequestIDs = notificationPlan.pendingRequestIDs
+            let candidateNotificationIDs = Set(notificationPlan.notifications.map(\.requestID))
+            let deliveredNotificationIDs = await approvalNotificationService.deliver(notificationPlan.notifications)
+            approvalNotifiedRequestIDs = notificationPlan.notifiedRequestIDs
+                .subtracting(candidateNotificationIDs)
+                .union(deliveredNotificationIDs)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
             approvalCenterStatusText = "Session expired"
@@ -870,6 +913,8 @@ final class WorkbenchModel: ObservableObject {
                 desktopSession: session
             )
             approvalRequests.removeAll { $0.id == request.id }
+            approvalPendingRequestIDs.remove(request.id)
+            approvalNotifiedRequestIDs.remove(request.id)
             approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
@@ -1520,6 +1565,8 @@ final class WorkbenchModel: ObservableObject {
         approvalCenterStatusText = statusText
         isRefreshingApprovalCenter = false
         approvalDecisionInFlight = nil
+        approvalPendingRequestIDs.removeAll()
+        approvalNotifiedRequestIDs.removeAll()
     }
 
     private func resetCapabilityManifestState(

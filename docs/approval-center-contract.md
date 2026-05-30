@@ -6,9 +6,10 @@ Approval Center is the human-in-the-loop surface for risky agent actions after a
 Capability Manifest grant returns `requires_approval`. It is separate from Mac
 TCC permissions and customer Full Access / Ask Permission desktop control.
 
-This slice defines the Workbench-local contract and UI surface only. It does not
-add broker approval endpoints, runtime resolution callbacks, policy-row writes,
-notifications, or live allow/deny submission.
+The Workbench slice consumes authenticated broker pending approvals, submits
+`allow-once` / `deny` decisions, and can notify the operator when new pending
+approvals arrive away from the Approval Center. It does not add runtime
+resolution callbacks or durable `allow-always` policy-row writes.
 
 ## Required Preview
 
@@ -72,15 +73,33 @@ renders pending approval request cards with:
 - actual destination preview;
 - capped body/message excerpt when present;
 - provenance pointer and created timestamp;
-- disabled decision buttons until broker decision endpoints land.
+- `allow-once` and `deny` decision buttons when the row has actual destination
+  evidence.
+
+`allow-always` remains visible but withheld until policy rows are
+destination-constrained enough for recipient-bearing tools.
+
+## Local Notifications
+
+When signed in and the feature flag is enabled, Workbench keeps a model-owned
+broker polling loop active. The loop polls every 5 seconds while Approval Center
+is visible and every 15 seconds while the operator is elsewhere in the app.
+
+If a new pending approval appears while Approval Center is not visible,
+Workbench requests local notification authorization if needed and emits one
+notification for that approval id. Notification text includes only the tool
+name, risk class, and actual destination. It intentionally omits message body
+excerpts and raw payload values so macOS notification banners do not leak full
+approval payloads.
+
+Rows seen while Approval Center is visible are marked as already surfaced, and
+resolved or disappeared rows are pruned from pending notification state to avoid
+duplicate banners.
 
 ## Deferred Slices
 
-- broker `POST /api/v1/approvals/request`
-- broker `GET /api/v1/approvals/pending`
-- broker `POST /api/v1/approvals/{id}/decide`
 - OpenClaw `requireApproval` resolution wiring
 - Hermes `_ApprovalEntry` resolution wiring
-- `allow-always` policy-row writes
-- local notifications for pending or timed-out approvals
-- manual spoofed-recipient QA against live broker/runtime payloads
+- destination-constrained `allow-always` policy-row writes
+- timed-out approval notifications
+- final manual spoofed-recipient QA against live runtime payloads

@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #144 Approval Center notification slice: Workbench now keeps a
+  model-owned broker polling loop active while signed in, sends one local
+  notification when a new pending approval appears away from the Approval Center,
+  suppresses duplicates and visible-row alerts, and keeps notification text to
+  tool/risk/destination only instead of leaking payload body excerpts.
+
 ## 0.6.10 - 2026-05-30
 
 - Harden Codex visible GUI post-send waiting for #176: stable composer-visible
