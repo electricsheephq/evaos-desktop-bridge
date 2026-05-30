@@ -474,6 +474,7 @@ write_sparkle_appcast() {
   <li>Adds Approval Center local notifications for new pending broker approvals while the operator is away from the Approval Center view.</li>
   <li>Suppresses duplicate or already-visible approval banners and prunes resolved approval notification state.</li>
   <li>Keeps notification text limited to tool, risk, and actual destination instead of exposing approval payload body excerpts.</li>
+  <li>Adds an agent QA launch smoke that disables Workbench Keychain access and launches a copied app bundle off removable media.</li>
 </ul>
 EOF
 
@@ -618,6 +619,14 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
+verify_app_signature() {
+  local bundle="$1"
+  if ! codesign --verify --deep --strict "$bundle"; then
+    echo "codesign verification failed for $bundle" >&2
+    exit 2
+  fi
+}
+
 prepare_agent_qa_launch_bundle() {
   mkdir -p "$(dirname "$AGENT_QA_APP_BUNDLE")"
   rm -rf "$AGENT_QA_APP_BUNDLE"
@@ -648,6 +657,7 @@ case "$MODE" in
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
   --verify|verify)
+    verify_app_signature "$APP_BUNDLE"
     open_app
     sleep 1
     pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null
@@ -655,6 +665,7 @@ case "$MODE" in
   --verify-agent-qa|verify-agent-qa)
     agent_qa_bundle="$(prepare_agent_qa_launch_bundle)"
     trap cleanup_agent_qa_launch_state EXIT
+    verify_app_signature "$agent_qa_bundle"
     /usr/bin/open -n -g "$agent_qa_bundle"
     sleep 2
     pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null

@@ -146,6 +146,13 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Approval Center local notifications" in script
     assert "Suppresses duplicate or already-visible approval banners" in script
     assert "tool, risk, and actual destination" in script
+    assert "agent QA launch smoke" in script
+    assert "disables Workbench Keychain access" in script
+    assert "off removable media" in script
+    assert "verify_app_signature" in script
+    assert 'codesign --verify --deep --strict "$bundle"' in script
+    assert 'verify_app_signature "$APP_BUNDLE"' in script
+    assert 'verify_app_signature "$agent_qa_bundle"' in script
     assert "verification skipped for local mode" in script
     assert 'export PATH="$BRIDGE_DIR/bin:$PATH"' in script
     assert "/opt/homebrew/bin/peekaboo /usr/local/bin/peekaboo" in script
