@@ -464,9 +464,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Keeps Providers, Session Center, and Creative Studio dark-launched until the cc-switch/cmux/ComfyUI-backed behavior passes canary.</li>
-  <li>Keeps a single Shared Browser entry with the upgraded shared runtime path and customer-facing naming.</li>
-  <li>Preserves the signed Sparkle updater, Mac &amp; iPhone settings, private pairing, audited controls, and Workbench kill switch.</li>
+  <li>Adds Workbench Capability Manifest fetch/cache support for broker-issued agent policy tokens.</li>
+  <li>Renders only broker-provided safe grant summaries while raw manifest JWTs stay in Keychain.</li>
+  <li>Clears stale manifest state on sign-out, broker auth failures, customer switches, and Workbench broker-client rebuilds.</li>
 </ul>
 EOF
 
