@@ -93,6 +93,10 @@ assessment.
 The app reads Keychain non-interactively at launch. If macOS cannot trust the
 current local build to access an older desktop session item, the app treats that
 as signed out instead of showing a Keychain prompt during normal startup.
+For agent-driven QA where no persisted login is needed, launch with
+`EVAOS_WORKBENCH_DISABLE_KEYCHAIN=1` or use
+`./script/build_and_run.sh --verify-agent-qa` so Workbench does not read or
+write its session and capability Keychain items during that run.
 
 Repeated Keychain prompts are a signing problem, not an authentication feature.
 For a durable local or release build, sign the finished app bundle with a stable
@@ -108,6 +112,9 @@ screen, or run the same cleanup manually and sign in again:
 security delete-generic-password \
   -s com.electricsheephq.EvaDesktop.session \
   -a desktop-session
+security delete-generic-password \
+  -s com.electricsheephq.EvaDesktop.capabilities \
+  -a capability-manifest
 ```
 
 ## Session Model

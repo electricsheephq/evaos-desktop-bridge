@@ -217,6 +217,8 @@ Symptom: macOS asks for Keychain access every time the app launches.
 
 Likely cause: the local app bundle was rebuilt with a different ad-hoc code
 identity than the one that created the existing desktop session item.
+Notarization and Developer ID signing are still required for distribution, but
+they do not by themselves grant Keychain access to stale local items.
 
 Current app behavior:
 
@@ -224,6 +226,10 @@ Current app behavior:
 - If macOS refuses the read without user interaction, Workbench treats the user
   as signed out instead of opening a prompt.
 - User-initiated sign-in and sign-out may still touch Keychain normally.
+- Agent QA can disable Workbench Keychain reads/writes entirely with
+  `EVAOS_WORKBENCH_DISABLE_KEYCHAIN=1`, the compatibility alias
+  `EVA_DESKTOP_DISABLE_KEYCHAIN=1`, or the
+  `EvaDesktop.disableKeychainForAgentQA` defaults key.
 
 Repair steps:
 
@@ -235,14 +241,29 @@ Repair steps:
 
 2. Prefer installing and using a stable Apple Development or Developer ID
    signing identity.
-3. If a stale local dev item keeps prompting, use `Reset Local Session` on the
-   Workbench sign-in screen, or clear only the Workbench desktop session item
-   and sign in again:
+3. For autonomous agent smoke tests, do not launch `dist/evaOS.app` directly
+   from `/Volumes/LEXAR`. Copy or install the app onto the internal disk first,
+   or use the dedicated launch smoke:
+
+   ```bash
+   cd apps/eva-desktop-mac
+   ./script/build_and_run.sh --verify-agent-qa
+   ```
+
+   That mode copies the built app to `~/Applications/evaOS Workbench Agent QA.app`,
+   temporarily disables Workbench Keychain access for the launch, and avoids the
+   removable-volume prompt that macOS can show for apps launched from Lexar.
+4. If a stale local dev item keeps prompting during a real signed-in run, use
+   `Reset Local Session` on the Workbench sign-in screen, or clear only the
+   Workbench desktop session and capability cache items and sign in again:
 
    ```bash
    security delete-generic-password \
      -s com.electricsheephq.EvaDesktop.session \
      -a desktop-session
+   security delete-generic-password \
+     -s com.electricsheephq.EvaDesktop.capabilities \
+     -a capability-manifest
    ```
 
 ## UI Regression Checklist

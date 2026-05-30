@@ -43,13 +43,36 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
 def test_keychain_auth_failures_clear_non_interactively() -> None:
     keychain_store = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Services" / "KeychainSessionStore.swift").read_text(encoding="utf-8")
     model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
+    script = (APP_ROOT / "script" / "build_and_run.sh").read_text(encoding="utf-8")
+    runbook = (ROOT / "docs" / "evaos-workbench-build-release-runbook.md").read_text(encoding="utf-8")
 
     assert "errSecInteractionNotAllowed" in keychain_store
     assert "errSecAuthFailed" in keychain_store
+    assert "EVAOS_WORKBENCH_DISABLE_KEYCHAIN" in model
+    assert "EVA_DESKTOP_DISABLE_KEYCHAIN" in model
+    assert "keychainDisabledForAgentQA" in model
+    assert re.search(
+        r"if\s+!keychainDisabledForAgentQA\s*\{\s*session\s*=\s*try\?\s*keychain\.load\(allowUserInteraction:\s*false\)",
+        model,
+        re.MULTILINE,
+    )
+    assert re.search(
+        r"if\s+!keychainDisabledForAgentQA\s*\{\s*try\s+keychain\.save\(newSession\)",
+        model,
+        re.MULTILINE,
+    )
+    assert "try capabilityManifestStore.saveToken(token)" in model
+    assert "if clearCache && !keychainDisabledForAgentQA" in model
     assert "session = try? keychain.load(allowUserInteraction: false)" in model
     assert "func resetLocalSession()" in model
     assert "clearLocalSessionState(allowKeychainInteraction: false)" in model
     assert "keychain.clear(allowUserInteraction: allowKeychainInteraction)" in model
+    assert "--verify-agent-qa" in script
+    assert "EvaDesktop.disableKeychainForAgentQA" in script
+    assert "EVAOS_WORKBENCH_DISABLE_KEYCHAIN" in script
+    assert "$HOME/Applications/evaOS Workbench Agent QA.app" in script
+    assert "do not launch `dist/evaOS.app` directly" in runbook
+    assert "from `/Volumes/LEXAR`" in runbook
     assert "pairedDevices = []" in model
 
 

@@ -11,6 +11,9 @@ All notable repo release changes should be recorded here before a release branch
   notification when a new pending approval appears away from the Approval Center,
   suppresses duplicates and visible-row alerts, and keeps notification text to
   tool/risk/destination only instead of leaking payload body excerpts.
+- Add an agent QA launch path that disables Workbench Keychain session/capability
+  access for non-authenticated smoke tests and copies the app off Lexar before
+  launch, avoiding blocking Keychain and removable-volume permission prompts.
 
 ## 0.6.10 - 2026-05-30
 
