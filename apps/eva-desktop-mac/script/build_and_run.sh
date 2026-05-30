@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Shows Approval Center expiration deadlines from broker expires_at evidence and disables non-deny choices after a request has expired.</li>
-  <li>Sends one payload-safe local notification when a pending approval is close to expiring while the operator is away from Approval Center.</li>
-  <li>Routes agent QA launches from removable volumes through a copied internal-disk app with Workbench Keychain disabled, preventing Keychain or Lexar permission prompts from blocking autonomous validation.</li>
+  <li>Shows per-agent LLM token and dollar usage cards in Providers from broker-proxied usage evidence.</li>
+  <li>Compares active agents against Capability Manifest budget caps and highlights paused or near-cap states.</li>
+  <li>Plans local budget-paused notifications and renders broker budget-pause approval rows with Increase cap and Stop agent actions.</li>
 </ul>
 EOF
 
