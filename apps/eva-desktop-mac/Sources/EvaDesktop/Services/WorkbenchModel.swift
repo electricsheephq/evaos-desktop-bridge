@@ -924,23 +924,33 @@ final class WorkbenchModel: ObservableObject {
             return
         }
         guard approvalDecisionInFlight == nil else { return }
-        guard request.isActionable || decision == .deny else {
+        let currentRequest = approvalRequests.first { $0.id == request.id }
+        guard decision != .allowAlways || currentRequest != nil else {
+            approvalCenterStatusText = "Approval request changed; refresh before deciding"
+            return
+        }
+        let requestForDecision = currentRequest ?? request
+        guard requestForDecision.isActionable || decision == .deny else {
             approvalCenterStatusText = "Missing destination; deny or ask runtime to resubmit"
             return
         }
+        guard decision != .allowAlways || requestForDecision.canAllowAlways else {
+            approvalCenterStatusText = "Allow always requires a durable destination constraint"
+            return
+        }
 
-        approvalDecisionInFlight = request.id
+        approvalDecisionInFlight = requestForDecision.id
         defer { approvalDecisionInFlight = nil }
 
         do {
             _ = try await broker.decideApproval(
-                approvalID: request.id,
+                approvalID: requestForDecision.id,
                 decision: decision,
                 desktopSession: session
             )
-            approvalRequests.removeAll { $0.id == request.id }
-            approvalPendingRequestIDs.remove(request.id)
-            approvalNotifiedRequestIDs.remove(request.id)
+            approvalRequests.removeAll { $0.id == requestForDecision.id }
+            approvalPendingRequestIDs.remove(requestForDecision.id)
+            approvalNotifiedRequestIDs.remove(requestForDecision.id)
             approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)

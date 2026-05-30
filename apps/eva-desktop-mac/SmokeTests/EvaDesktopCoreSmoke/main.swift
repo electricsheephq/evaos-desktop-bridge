@@ -138,6 +138,7 @@ let emailApproval = WorkbenchApprovalRequest.pending(
         "subject": "Wire instructions",
         "body": String(repeating: "Confirm destination before sending. ", count: 20)
     ],
+    allowAlwaysSupported: true,
     createdAt: "2026-05-29T21:20:00Z",
     sourcePointer: "approval:approval-email-1"
 )
@@ -147,8 +148,9 @@ precondition(!emailApproval.destinationPreview.primary.contains("ceo@electricshe
 precondition(emailApproval.destinationPreview.secondary == "Wire instructions")
 precondition(emailApproval.destinationPreview.bodyExcerpt?.count == 220)
 precondition(emailApproval.isActionable)
+precondition(emailApproval.canAllowAlways)
 precondition(emailApproval.attentionState == .needsAttention)
-precondition(emailApproval.availableDecisions == [.allowOnce, .deny])
+precondition(emailApproval.availableDecisions == [.allowOnce, .allowAlways, .deny])
 
 let malformedApproval = WorkbenchApprovalRequest.pending(
     id: "approval-email-2",
@@ -184,6 +186,7 @@ let displayOnlyNestedRecipientApprovalJSON = """
   "agent_id": "email-sorter-2026-05",
   "tool_name": "gmail.send",
   "risk_class": "critical",
+  "allow_always_supported": true,
   "action_payload": {
     "to": {
       "display": "Trusted CFO <cfo@electricsheephq.com>"
@@ -253,6 +256,7 @@ let credentialURLApproval = WorkbenchApprovalRequest.pending(
 precondition(credentialURLApproval.destinationPreview.kind == .url)
 precondition(credentialURLApproval.destinationPreview.secondary == "evil.example")
 precondition(credentialURLApproval.destinationPreview.warning?.contains("embedded credentials") == true)
+precondition(!credentialURLApproval.canAllowAlways)
 
 let malformedURLApproval = WorkbenchApprovalRequest.pending(
     id: "approval-url-2",
@@ -383,6 +387,7 @@ let approvalRowJSON = """
   "agent_id": "email-sorter-2026-05",
   "tool_name": "gmail.send",
   "risk_class": "critical",
+  "allow_always_supported": true,
   "action_payload": {
     "to": [{"name": "Trusted CFO", "email": "attacker@example.net"}],
     "subject": "Wire instructions"
@@ -418,6 +423,7 @@ let pendingApprovalHTTPResponse = try await approvalHTTPClient.pendingApprovals(
     limit: 7
 )
 precondition(pendingApprovalHTTPResponse.requests.first?.destinationPreview.primary == "attacker@example.net")
+precondition(pendingApprovalHTTPResponse.requests.first?.canAllowAlways == true)
 let decidedApprovalHTTPResponse = try await approvalHTTPClient.decideApproval(
     approvalID: "00000000-0000-4000-8000-000000000001",
     decision: .allowOnce,
@@ -691,7 +697,7 @@ precondition(osViewsSource.contains("struct ApprovalCenterView"))
 precondition(osViewsSource.contains("model.decideApprovalRequest"))
 precondition(!osViewsSource.contains("try? await Task.sleep(nanoseconds: 5_000_000_000)"))
 precondition(osViewsSource.contains("Display names and summaries alone are not enough"))
-precondition(osViewsSource.contains("Allow always is withheld"))
+precondition(osViewsSource.contains("Allow always requires a durable destination constraint"))
 let noPendingTintIndex = osViewsSource.range(of: "model.approvalCenterStatusText == \"No pending approvals\"")!.lowerBound
 let pendingTintIndex = osViewsSource.range(of: "model.approvalCenterStatusText.contains(\"pending\")")!.lowerBound
 precondition(noPendingTintIndex < pendingTintIndex)
@@ -756,6 +762,8 @@ precondition(workbenchModelSource.contains("broker.runtimeStatus("))
 precondition(workbenchModelSource.contains("Opening Shared Browser for provider sign-in"))
 precondition(workbenchModelSource.contains("shared VM browser"))
 precondition(workbenchModelSource.contains("opened inside Workbench"))
+precondition(workbenchModelSource.contains("let currentRequest = approvalRequests.first { $0.id == request.id }"))
+precondition(workbenchModelSource.contains("requestForDecision.canAllowAlways"))
 precondition(workbenchModelSource.contains("session = try? keychain.load(allowUserInteraction: false)"))
 precondition(workbenchModelSource.contains("try? keychain.clear(allowUserInteraction: false)"))
 precondition(workbenchModelSource.contains("try keychain.save(newSession)"))

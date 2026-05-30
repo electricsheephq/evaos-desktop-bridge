@@ -372,10 +372,12 @@ private struct ApprovalRequestCard: View {
                         .disabled(isDisabled || (decision != .deny && !request.isActionable))
                         .help(decisionHelp(for: decision))
                 }
-                Button(WorkbenchApprovalDecision.allowAlways.displayText) {}
-                    .buttonStyle(.bordered)
-                    .disabled(true)
-                    .help("Allow always is withheld until broker policy can constrain the durable grant beyond owner, agent, and tool.")
+                if !request.canAllowAlways {
+                    Text("Allow always requires a durable destination constraint")
+                        .font(.caption2)
+                        .foregroundStyle(Color.electricSheepMutedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -427,7 +429,7 @@ private struct ApprovalRequestCard: View {
         case .allowOnce:
             return "Allow only this pending tool call."
         case .allowAlways:
-            return "Allow always is withheld until durable policy scope is constrained."
+            return "Allow this agent to use this tool again only for the same broker-constrained destination."
         case .deny:
             return "Deny this pending tool call."
         }

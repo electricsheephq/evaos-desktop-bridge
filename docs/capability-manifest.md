@@ -46,6 +46,12 @@ Allowed grant decisions are exactly:
 
 Missing tool grants fail closed as `denied`.
 
+Destination-constrained Approval Center decisions are not represented as global
+`allowed` grants in this claim. Until OpenClaw and Hermes consume destination
+fingerprints directly, those policy rows continue to resolve as
+`requires_approval` so a durable recipient/URL-specific approval cannot widen
+into blanket tool access.
+
 ## Local Verifiers
 
 Python bridge code exposes `verify_hs256_manifest`, `decision_for_tool`, and
