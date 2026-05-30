@@ -239,12 +239,19 @@ struct ApprovalCenterView: View {
                 WorkbenchInfoPanel(
                     title: "No Pending Approvals",
                     systemImage: "checkmark.seal",
-                    detail: "The Workbench destination-preview contract is ready. Live broker pending-approval fetch and decision submission remain gated behind issue #144."
+                    detail: "Workbench is polling the broker for pending approvals. Risky runtime actions will appear here when they need a human decision."
                 )
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
                     ForEach(model.approvalRequests) { request in
-                        ApprovalRequestCard(request: request)
+                        ApprovalRequestCard(
+                            request: request,
+                            isBusy: model.approvalDecisionInFlight == request.id
+                        ) { decision in
+                            Task {
+                                await model.decideApprovalRequest(request, decision: decision)
+                            }
+                        }
                     }
                 }
             }
@@ -254,6 +261,13 @@ struct ApprovalCenterView: View {
                 systemImage: "eye",
                 detail: "Approval rows must show the real recipient, URL, file path, payment target, secret name, budget, or permission scope. Display names and summaries alone are not enough."
             )
+        }
+        .task(id: model.isSignedIn) {
+            guard model.isSignedIn else { return }
+            while !Task.isCancelled {
+                await model.refreshApprovalCenterState()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
         }
     }
 
@@ -299,6 +313,8 @@ private struct WorkbenchSurface<Content: View>: View {
 
 private struct ApprovalRequestCard: View {
     let request: WorkbenchApprovalRequest
+    let isBusy: Bool
+    let decide: (WorkbenchApprovalDecision) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -352,11 +368,19 @@ private struct ApprovalRequestCard: View {
 
             HStack(spacing: 8) {
                 ForEach(request.availableDecisions, id: \.self) { decision in
-                    Button(decision.displayText) {}
+                    Button(role: decision == .deny ? .destructive : nil) {
+                        decide(decision)
+                    } label: {
+                        Text(isBusy ? "Submitting" : decision.displayText)
+                    }
                         .buttonStyle(.bordered)
-                        .disabled(true)
-                        .help("Decision submission is deferred until the broker Approval Center endpoint lands.")
+                        .disabled(isBusy || (decision != .deny && !request.isActionable))
+                        .help(decisionHelp(for: decision))
                 }
+                Button(WorkbenchApprovalDecision.allowAlways.displayText) {}
+                    .buttonStyle(.bordered)
+                    .disabled(true)
+                    .help("Allow always is withheld until broker policy can constrain the durable grant beyond owner, agent, and tool.")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -397,6 +421,20 @@ private struct ApprovalRequestCard: View {
             return "exclamationmark.triangle"
         case .info:
             return "info.circle"
+        }
+    }
+
+    private func decisionHelp(for decision: WorkbenchApprovalDecision) -> String {
+        if decision != .deny && !request.isActionable {
+            return "Allow is disabled because this approval is missing actual destination evidence."
+        }
+        switch decision {
+        case .allowOnce:
+            return "Allow only this pending tool call."
+        case .allowAlways:
+            return "Allow always is withheld until durable policy scope is constrained."
+        case .deny:
+            return "Deny this pending tool call."
         }
     }
 }

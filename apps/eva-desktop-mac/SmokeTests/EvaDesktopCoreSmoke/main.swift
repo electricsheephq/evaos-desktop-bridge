@@ -2,6 +2,58 @@ import EvaDesktopCore
 import CryptoKit
 import Foundation
 
+final class SmokeURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    static var seenRequests: [URLRequest] = []
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        do {
+            SmokeURLProtocol.seenRequests.append(request)
+            guard let handler = SmokeURLProtocol.handler else {
+                throw RuntimeSessionBrokerError.invalidResponse
+            }
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+
+    static func bodyData(from request: URLRequest) -> Data {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return Data()
+        }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else {
+                break
+            }
+        }
+        return data
+    }
+}
+
 let resolver = RuntimeURLResolver()
 
 precondition(AppBrand.visibleName == "evaOS Workbench")
@@ -96,7 +148,7 @@ precondition(emailApproval.destinationPreview.secondary == "Wire instructions")
 precondition(emailApproval.destinationPreview.bodyExcerpt?.count == 220)
 precondition(emailApproval.isActionable)
 precondition(emailApproval.attentionState == .needsAttention)
-precondition(emailApproval.availableDecisions == [.allowOnce, .allowAlways, .deny])
+precondition(emailApproval.availableDecisions == [.allowOnce, .deny])
 
 let malformedApproval = WorkbenchApprovalRequest.pending(
     id: "approval-email-2",
@@ -125,6 +177,26 @@ let ambiguousRecipientApproval = WorkbenchApprovalRequest.pending(
 precondition(ambiguousRecipientApproval.destinationPreview.kind == .missingDestination)
 precondition(!ambiguousRecipientApproval.isActionable)
 
+let displayOnlyNestedRecipientApprovalJSON = """
+{
+  "id": "approval-display-only-nested",
+  "owner_id": "andrew-main",
+  "agent_id": "email-sorter-2026-05",
+  "tool_name": "gmail.send",
+  "risk_class": "critical",
+  "action_payload": {
+    "to": {
+      "display": "Trusted CFO <cfo@electricsheephq.com>"
+    },
+    "subject": "Display-only recipient"
+  },
+  "created_at": "2026-05-30T03:02:00Z"
+}
+"""
+let displayOnlyNestedRecipientApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(displayOnlyNestedRecipientApprovalJSON.utf8))
+precondition(displayOnlyNestedRecipientApproval.destinationPreview.kind == .missingDestination)
+precondition(!displayOnlyNestedRecipientApproval.isActionable)
+
 let urlApproval = WorkbenchApprovalRequest.pending(
     id: "approval-url-1",
     ownerID: "andrew-main",
@@ -141,6 +213,32 @@ let urlApproval = WorkbenchApprovalRequest.pending(
 precondition(urlApproval.destinationPreview.kind == .url)
 precondition(urlApproval.destinationPreview.primary == "https://evil.example/login?next=/oauth")
 precondition(urlApproval.destinationPreview.secondary == "evil.example")
+
+let brokerHrefApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-href",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.open",
+    riskClass: .warning,
+    actionPayload: ["href": "https://docs.example.com/oauth"],
+    createdAt: "2026-05-29T21:22:05Z",
+    sourcePointer: "approval:approval-url-href"
+)
+precondition(brokerHrefApproval.destinationPreview.kind == .url)
+precondition(brokerHrefApproval.destinationPreview.secondary == "docs.example.com")
+
+let brokerMessageApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-message-channel",
+    ownerID: "andrew-main",
+    agentID: "slack-agent",
+    toolName: "slack.message",
+    riskClass: .warning,
+    actionPayload: ["channel": "C12345", "message": "Heads up"],
+    createdAt: "2026-05-29T21:22:08Z",
+    sourcePointer: "approval:approval-message-channel"
+)
+precondition(brokerMessageApproval.destinationPreview.kind == .messageRecipient)
+precondition(brokerMessageApproval.destinationPreview.primary == "C12345")
 
 let credentialURLApproval = WorkbenchApprovalRequest.pending(
     id: "approval-url-credentials",
@@ -183,6 +281,12 @@ precondition(curlToolApproval.destinationPreview.kind == .missingDestination)
 
 precondition(WorkbenchApprovalCenterSummary.statusText(for: [emailApproval, urlApproval]) == "2 pending approvals")
 precondition(WorkbenchApprovalCenterSummary.statusText(for: []) == "No pending approvals")
+precondition(WorkbenchApprovalDecision.allowOnce.rawValue == "allow-once")
+precondition(WorkbenchApprovalDecision.allowAlways.defaultScope == .thisAgent)
+let encodedApprovalDecision = try JSONEncoder().encode(WorkbenchApprovalDecisionRequest(decision: .allowAlways))
+let approvalDecisionJSON = String(data: encodedApprovalDecision, encoding: .utf8) ?? ""
+precondition(approvalDecisionJSON.contains("\"decision\":\"allow-always\""))
+precondition(approvalDecisionJSON.contains("\"scope\":\"this-agent\""))
 
 let brokerShapedApprovalJSON = """
 {
@@ -204,6 +308,100 @@ let brokerShapedApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.sel
 precondition(brokerShapedApproval.destinationPreview.kind == .emailRecipient)
 precondition(brokerShapedApproval.destinationPreview.primary == "outside@example.com")
 precondition(brokerShapedApproval.auditId == "audit-approval-broker-1")
+
+let brokerPendingResponseJSON = """
+{
+  "ok": true,
+  "owner_id": "andrew-main",
+  "requests": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "owner_id": "andrew-main",
+      "agent_id": "email-sorter-2026-05",
+      "tool_name": "gmail.send",
+      "risk_class": "critical",
+      "action_payload": {
+        "to": [{"name": "Trusted CFO", "email": "attacker@example.net"}],
+        "subject": "Wire instructions",
+        "body": "Please send the payment details."
+      },
+      "destination_preview": {
+        "kind": "email",
+        "to": ["trusted@example.com"],
+        "subject": "Safe-looking subject"
+      },
+      "created_at": "2026-05-30T03:00:00Z"
+    }
+  ]
+}
+"""
+let brokerPendingResponse = try JSONDecoder().decode(WorkbenchApprovalRequestsResponse.self, from: Data(brokerPendingResponseJSON.utf8))
+let brokerNestedApproval = brokerPendingResponse.requests[0]
+precondition(brokerNestedApproval.destinationPreview.kind == .emailRecipient)
+precondition(brokerNestedApproval.destinationPreview.primary == "attacker@example.net")
+precondition(brokerNestedApproval.destinationPreview.secondary == "Wire instructions")
+precondition(brokerNestedApproval.actionPayload["recipient_email"] == "attacker@example.net")
+precondition(brokerNestedApproval.sourcePointer == "approval:00000000-0000-4000-8000-000000000001")
+
+let approvalHTTPConfig = URLSessionConfiguration.ephemeral
+approvalHTTPConfig.protocolClasses = [SmokeURLProtocol.self]
+let approvalHTTPClient = RuntimeSessionBrokerClient(
+    endpoint: URL(string: "https://session.example.test/desktop-runtime-session")!,
+    capabilityEndpoint: URL(string: "https://cortex.example.test/api/v1")!,
+    urlSession: URLSession(configuration: approvalHTTPConfig)
+)
+let approvalHTTPSession = DesktopSession(
+    accessToken: "desktop-token",
+    expiresAt: Date(timeIntervalSinceNow: 3600)
+)
+let approvalRowJSON = """
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "owner_id": "andrew-main",
+  "agent_id": "email-sorter-2026-05",
+  "tool_name": "gmail.send",
+  "risk_class": "critical",
+  "action_payload": {
+    "to": [{"name": "Trusted CFO", "email": "attacker@example.net"}],
+    "subject": "Wire instructions"
+  },
+  "created_at": "2026-05-30T03:00:00Z"
+}
+"""
+SmokeURLProtocol.seenRequests = []
+SmokeURLProtocol.handler = { request in
+    precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer desktop-token")
+    precondition(request.value(forHTTPHeaderField: "Accept") == "application/json")
+    let url = request.url!
+    let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+    if request.httpMethod == "GET" {
+        precondition(url.path == "/api/v1/approvals/pending")
+        precondition(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "limit" })?.value == "7")
+        let body = """
+        {"ok": true, "owner_id": "andrew-main", "requests": [\(approvalRowJSON)]}
+        """
+        return (response, Data(body.utf8))
+    }
+    precondition(request.httpMethod == "POST")
+    precondition(url.path == "/api/v1/approvals/00000000-0000-4000-8000-000000000001/decide")
+    let body = String(data: SmokeURLProtocol.bodyData(from: request), encoding: .utf8) ?? ""
+    precondition(body.contains("\"decision\":\"allow-once\""))
+    precondition(body.contains("\"scope\":\"this-call\""))
+    return (response, Data(approvalRowJSON.utf8))
+}
+let pendingApprovalHTTPResponse = try await approvalHTTPClient.pendingApprovals(
+    desktopSession: approvalHTTPSession,
+    limit: 7
+)
+precondition(pendingApprovalHTTPResponse.requests.first?.destinationPreview.primary == "attacker@example.net")
+let decidedApprovalHTTPResponse = try await approvalHTTPClient.decideApproval(
+    approvalID: "00000000-0000-4000-8000-000000000001",
+    decision: .allowOnce,
+    desktopSession: approvalHTTPSession
+)
+precondition(decidedApprovalHTTPResponse.id == "00000000-0000-4000-8000-000000000001")
+precondition(SmokeURLProtocol.seenRequests.map(\.httpMethod) == ["GET", "POST"])
+SmokeURLProtocol.handler = nil
 
 let spoofedPreviewJSON = """
 {
@@ -403,8 +601,10 @@ let osViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/Workben
 precondition(!osViewsSource.contains("struct SharedBrowser2View"))
 precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
 precondition(osViewsSource.contains("struct ApprovalCenterView"))
-precondition(osViewsSource.contains("Decision submission is deferred"))
+precondition(osViewsSource.contains("model.decideApprovalRequest"))
+precondition(osViewsSource.contains("try? await Task.sleep(nanoseconds: 5_000_000_000)"))
 precondition(osViewsSource.contains("Display names and summaries alone are not enough"))
+precondition(osViewsSource.contains("Allow always is withheld"))
 let noPendingTintIndex = osViewsSource.range(of: "model.approvalCenterStatusText == \"No pending approvals\"")!.lowerBound
 let pendingTintIndex = osViewsSource.range(of: "model.approvalCenterStatusText.contains(\"pending\")")!.lowerBound
 precondition(noPendingTintIndex < pendingTintIndex)
@@ -547,6 +747,9 @@ precondition(brokerSource.contains("request.setValue(\"Bearer \\(desktopSession.
 precondition(brokerSource.contains("func capabilityManifest("))
 precondition(brokerSource.contains("request.httpMethod = \"GET\""))
 precondition(brokerSource.contains("pathComponents: [\"capabilities\", RuntimeSessionBrokerClient.normalizedCapabilityAgentID(agentID)]"))
+precondition(brokerSource.contains("func pendingApprovals("))
+precondition(brokerSource.contains("pathComponents: [\"approvals\", \"pending\"]"))
+precondition(brokerSource.contains("pathComponents: [\"approvals\", approvalID, \"decide\"]"))
 let manifestModelSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Models/WorkbenchCapabilityManifest.swift", encoding: .utf8)
 precondition(manifestModelSource.contains("safeSummary"))
 precondition(manifestModelSource.contains("manifestJWT"))

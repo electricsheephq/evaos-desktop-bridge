@@ -101,6 +101,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var approvalRequests: [WorkbenchApprovalRequest] = []
     @Published var approvalCenterStatusText = "Unchecked"
     @Published var isRefreshingApprovalCenter = false
+    @Published var approvalDecisionInFlight: String?
     let featureFlags: WorkbenchFeatureFlags
 
     let webViews = WebViewStore()
@@ -835,11 +836,47 @@ final class WorkbenchModel: ObservableObject {
         isRefreshingApprovalCenter = true
         defer { isRefreshingApprovalCenter = false }
 
-        // Broker pending-approval endpoints are tracked by issue #144. This
-        // slice keeps Workbench read-only and renders only locally supplied
-        // approval request models until that backend path exists.
-        approvalRequests = []
-        approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
+        do {
+            let response = try await broker.pendingApprovals(desktopSession: session, limit: 50)
+            approvalRequests = response.requests
+            approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+            clearLocalSessionState(allowKeychainInteraction: false)
+            approvalCenterStatusText = "Session expired"
+        } catch {
+            approvalRequests = []
+            approvalCenterStatusText = "Approval Center unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    func decideApprovalRequest(_ request: WorkbenchApprovalRequest, decision: WorkbenchApprovalDecision) async {
+        guard isSignedIn else {
+            resetApprovalCenterState(statusText: "Sign in first")
+            return
+        }
+        guard approvalDecisionInFlight == nil else { return }
+        guard request.isActionable || decision == .deny else {
+            approvalCenterStatusText = "Missing destination; deny or ask runtime to resubmit"
+            return
+        }
+
+        approvalDecisionInFlight = request.id
+        defer { approvalDecisionInFlight = nil }
+
+        do {
+            _ = try await broker.decideApproval(
+                approvalID: request.id,
+                decision: decision,
+                desktopSession: session
+            )
+            approvalRequests.removeAll { $0.id == request.id }
+            approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+            clearLocalSessionState(allowKeychainInteraction: false)
+            approvalCenterStatusText = "Session expired"
+        } catch {
+            approvalCenterStatusText = "Decision failed: \(error.localizedDescription)"
+        }
     }
 
     func refreshBridgeStatus() {
@@ -1482,6 +1519,7 @@ final class WorkbenchModel: ObservableObject {
         approvalRequests.removeAll()
         approvalCenterStatusText = statusText
         isRefreshingApprovalCenter = false
+        approvalDecisionInFlight = nil
     }
 
     private func resetCapabilityManifestState(
