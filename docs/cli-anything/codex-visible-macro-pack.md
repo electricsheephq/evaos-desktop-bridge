@@ -77,6 +77,10 @@ Recommended first macros:
   support-only exact `continue` fallback lives in the connector canary, not this
   first macro pack.
 - Keep audit logs enabled.
+- Treat notification overlays, focus steals, permission prompts, lock-screen
+  transitions, or operator re-entry during live GUI canaries as contaminated /
+  inconclusive evidence. Rerun in a quiet operator window instead of treating
+  that run as proof the visible GUI lane is broken.
 
 ## Example macro skeleton
 

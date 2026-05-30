@@ -237,7 +237,7 @@ class FakeVisibleCodexObserver(MacOSCodexObserver):
         selected_after_select: bool = True,
         selection_only: bool = False,
         title_hidden_updated_label: str | None = None,
-        wait_states: list[str] | None = None,
+        wait_states: list[str | dict[str, object]] | None = None,
     ) -> None:
         self.commands: list[list[str]] = []
         self.sleep_calls: list[float] = []
@@ -306,7 +306,17 @@ class FakeVisibleCodexObserver(MacOSCodexObserver):
         return CommandResult(ok=True, data={"selected": not dry_run, "would_select": dry_run, "thread_id": thread_id, "target": self.threads(max_items=1).data["threads"][0]})
 
     def _visible_message_wait_observation(self, *, max_chars: int = 1000) -> dict[str, object]:
-        state = self._wait_states.pop(0) if self._wait_states else "submitted_waiting"
+        next_state = self._wait_states.pop(0) if self._wait_states else "submitted_waiting"
+        if isinstance(next_state, dict):
+            observation = dict(next_state)
+            observation.setdefault("timestamp", self.now())
+            observation.setdefault("codex_frontmost", True)
+            observation.setdefault("composer_visible", observation.get("state") == "idle")
+            observation.setdefault("active_indicators", ["Awaiting response"] if observation.get("state") == "submitted_waiting" else [])
+            observation.setdefault("screenshot_path", str(self.state_dir / "screenshots" / f"{observation.get('state', 'unknown')}.png"))
+            observation.setdefault("max_chars", max_chars)
+            return observation
+        state = str(next_state)
         return {
             "timestamp": self.now(),
             "state": state,
@@ -404,6 +414,66 @@ def test_send_visible_message_live_reports_wait_state_until_idle(tmp_path: Path)
     assert sum(1 for command in observer.commands if "keystroke" in " ".join(command)) == 1
 
 
+def test_send_visible_message_wait_exits_after_stable_implicit_idle(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(
+        tmp_path,
+        wait_states=[
+            "submitted_waiting",
+            {"state": "idle", "idle_confidence": "implicit_composer_visible", "composer_visible": True},
+            {"state": "idle", "idle_confidence": "implicit_composer_visible", "composer_visible": True},
+        ],
+    )
+
+    result = observer.send_visible_message(
+        thread_id="visible-0-abc",
+        message="hello",
+        dry_run=False,
+        confirmed=True,
+        wait_ms=5000,
+        poll_interval_ms=1000,
+    )
+
+    assert result.ok is True
+    assert result.data["post_send"]["state"] == "idle"
+    assert result.data["post_send"]["idle_confidence"] == "stable_implicit_composer_visible"
+    assert result.data["post_send"]["observation_count"] == 3
+    assert result.provenance["post_send_state"] == "idle"
+    assert observer.sleep_calls == [1.0, 1.0]
+    assert sum(1 for command in observer.commands if "keystroke" in " ".join(command)) == 1
+
+
+def test_send_visible_message_wait_reports_inconclusive_contamination(tmp_path: Path) -> None:
+    observer = FakeVisibleCodexObserver(
+        tmp_path,
+        wait_states=[
+            "submitted_waiting",
+            {
+                "state": "inconclusive",
+                "contamination_reason": "codex_not_frontmost",
+                "codex_frontmost": False,
+                "composer_visible": False,
+            },
+        ],
+    )
+
+    result = observer.send_visible_message(
+        thread_id="visible-0-abc",
+        message="hello",
+        dry_run=False,
+        confirmed=True,
+        wait_ms=5000,
+        poll_interval_ms=1000,
+    )
+
+    assert result.ok is True
+    assert result.data["post_send"]["state"] == "inconclusive"
+    assert result.data["post_send"]["contamination_reason"] == "codex_not_frontmost"
+    assert result.data["post_send"]["read_only_after_submit"] is True
+    assert result.provenance["post_send_state"] == "inconclusive"
+    assert observer.sleep_calls == [1.0]
+    assert sum(1 for command in observer.commands if "keystroke" in " ".join(command)) == 1
+
+
 def test_send_visible_message_live_wait_timeout_keeps_progress_evidence(tmp_path: Path) -> None:
     observer = FakeVisibleCodexObserver(tmp_path, wait_states=["submitted_waiting", "submitted_waiting"])
 
@@ -443,6 +513,57 @@ def test_send_visible_message_wait_caps_returned_observations_without_shortening
     assert len(result.data["post_send"]["observations"]) == 25
     assert result.data["post_send"]["observations_truncated"] is True
     assert len(observer.sleep_calls) == 32
+
+
+def test_visible_message_wait_observation_marks_frontmost_loss_inconclusive(tmp_path: Path) -> None:
+    class FrontmostLostObserver(MacOSCodexObserver):
+        def __init__(self, state_dir: Path) -> None:
+            super().__init__(
+                runner=lambda command, timeout=5.0: RunnerResult(returncode=0, stdout="", stderr=""),
+                state_dir=state_dir,
+                platform_name="Darwin",
+                accessibility_checker=lambda: True,
+                screen_recording_checker=lambda: True,
+                now=lambda: "2026-05-29T10:00:00Z",
+            )
+
+        def frontmost(self) -> CommandResult:
+            return CommandResult(ok=True, data={"frontmost_app": "Notification Center", "codex_frontmost": False})
+
+    observer = FrontmostLostObserver(tmp_path)
+
+    observation = observer._visible_message_wait_observation()
+
+    assert observation["state"] == "inconclusive"
+    assert observation["contamination_reason"] == "codex_not_frontmost"
+    assert observation["codex_frontmost"] is False
+
+
+def test_visible_message_wait_observation_marks_ax_loss_inconclusive(tmp_path: Path) -> None:
+    class AxUnavailableObserver(MacOSCodexObserver):
+        def __init__(self, state_dir: Path) -> None:
+            super().__init__(
+                runner=lambda command, timeout=5.0: RunnerResult(returncode=0, stdout="", stderr=""),
+                state_dir=state_dir,
+                platform_name="Darwin",
+                accessibility_checker=lambda: True,
+                screen_recording_checker=lambda: True,
+                now=lambda: "2026-05-29T10:00:00Z",
+            )
+
+        def frontmost(self) -> CommandResult:
+            return CommandResult(ok=True, data={"frontmost_app": "Codex", "codex_frontmost": True})
+
+        def ax_tree(self, *, max_nodes: int) -> CommandResult:
+            return CommandResult(ok=False, data={"nodes": []}, errors=[make_error(code="ax_tree_unavailable", message="missing", guidance="check permissions")])
+
+    observer = AxUnavailableObserver(tmp_path)
+
+    observation = observer._visible_message_wait_observation()
+
+    assert observation["state"] == "inconclusive"
+    assert observation["contamination_reason"] == "ax_unavailable"
+    assert observation["codex_frontmost"] is True
 
 
 def test_visible_message_wait_observation_scans_done_after_active_indicator_cap(tmp_path: Path) -> None:

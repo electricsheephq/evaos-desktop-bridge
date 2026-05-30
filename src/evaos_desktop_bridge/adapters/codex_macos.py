@@ -1335,6 +1335,7 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         total_observations = 0
         elapsed_ms = 0
         last_state = "unknown"
+        implicit_idle_streak = 0
         while True:
             observation = self._visible_message_wait_observation(max_chars=1000)
             observation["index"] = total_observations
@@ -1344,15 +1345,29 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
             state = str(observation.get("state") or "unknown")
             last_state = state
             explicit_idle = state == "idle" and observation.get("idle_confidence") == "explicit"
-            if state in {"done", "error", "unavailable"} or explicit_idle:
-                return {
+            stable_implicit_idle = False
+            if state == "idle" and observation.get("idle_confidence") == "implicit_composer_visible":
+                implicit_idle_streak += 1
+                stable_implicit_idle = implicit_idle_streak >= 2
+            elif state != "idle":
+                implicit_idle_streak = 0
+            if state in {"done", "error", "unavailable", "inconclusive"} or explicit_idle or stable_implicit_idle:
+                result = {
                     **base,
                     "state": state,
                     "last_observed_state": state,
                     "observations": observations,
                     "observation_count": total_observations,
                     "observations_truncated": total_observations > len(observations),
-                }, warnings
+                }
+                if stable_implicit_idle:
+                    result["idle_confidence"] = "stable_implicit_composer_visible"
+                elif observation.get("idle_confidence"):
+                    result["idle_confidence"] = observation.get("idle_confidence")
+                if observation.get("contamination_reason"):
+                    result["contamination_reason"] = observation.get("contamination_reason")
+                    warnings.append("Post-send Codex GUI observation became inconclusive; rerun in a quiet operator window before treating this as product failure.")
+                return result, warnings
             if elapsed_ms >= wait_ms:
                 break
             sleep_ms = min(poll_interval_ms, wait_ms - elapsed_ms)
@@ -1376,7 +1391,8 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         if not frontmost.ok or frontmost.data.get("codex_frontmost") is not True:
             return {
                 "timestamp": timestamp,
-                "state": "unavailable",
+                "state": "inconclusive",
+                "contamination_reason": "codex_not_frontmost",
                 "codex_frontmost": bool(frontmost.data.get("codex_frontmost")),
                 "composer_visible": False,
                 "active_indicators": [],
@@ -1387,7 +1403,8 @@ print(json.dumps({"ok": True, "windows": window_rows, "nodes": node_rows, "trunc
         if not ax.ok:
             return {
                 "timestamp": timestamp,
-                "state": "unavailable",
+                "state": "inconclusive",
+                "contamination_reason": "ax_unavailable",
                 "codex_frontmost": True,
                 "composer_visible": False,
                 "active_indicators": [],
