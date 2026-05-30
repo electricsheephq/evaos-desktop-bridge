@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.12 - 2026-05-30
+
 - Enable the issue #144 Approval Center durable decision UI only for approvals
   that have broker `allow_always_supported` evidence plus actionable,
   warning-free destination details. `Allow always` now stays hidden behind
