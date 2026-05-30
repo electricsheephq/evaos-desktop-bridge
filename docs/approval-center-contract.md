@@ -7,9 +7,10 @@ Capability Manifest grant returns `requires_approval`. It is separate from Mac
 TCC permissions and customer Full Access / Ask Permission desktop control.
 
 The Workbench slice consumes authenticated broker pending approvals, submits
-`allow-once` / `deny` decisions, and can notify the operator when new pending
-approvals arrive away from the Approval Center. It does not add runtime
-resolution callbacks or durable `allow-always` policy-row writes.
+`allow-once` / `deny` decisions, can notify the operator when new pending
+approvals arrive away from the Approval Center, and may submit `allow-always`
+only when the row has durable destination evidence. It does not add runtime
+resolution callbacks.
 
 ## Required Preview
 
@@ -41,6 +42,7 @@ fields.
 - `risk_class`
 - `action_payload`
 - `destination_preview`
+- `allow_always_supported`
 - `created_at`
 - `source_pointer`
 - optional `audit_id`
@@ -75,9 +77,16 @@ renders pending approval request cards with:
 - provenance pointer and created timestamp;
 - `allow-once` and `deny` decision buttons when the row has actual destination
   evidence.
+- `allow-always` only when the broker can write a destination-constrained
+  durable policy (`allow_always_supported: true`), and the preview has no
+  warning or redacted destination fields. Older brokers that omit the flag fail
+  closed and keep the durable button hidden.
 
-`allow-always` remains visible but withheld until policy rows are
-destination-constrained enough for recipient-bearing tools.
+The paired broker change for this Workbench contract is
+`electricsheephq/electric-sheep#2069`. That backend is responsible for deriving
+a destination kind, fingerprint, and summary from the server-side approval
+payload before resolving the request. Credential-bearing or otherwise redacted
+URLs fail closed and remain one-call-only.
 
 ## Local Notifications
 
@@ -100,6 +109,6 @@ duplicate banners.
 
 - OpenClaw `requireApproval` resolution wiring
 - Hermes `_ApprovalEntry` resolution wiring
-- destination-constrained `allow-always` policy-row writes
+- runtime consumption of destination-constrained `allow-always` policy rows
 - timed-out approval notifications
 - final manual spoofed-recipient QA against live runtime payloads

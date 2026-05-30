@@ -91,6 +91,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
     public let riskClass: WorkbenchApprovalRiskClass
     public let actionPayload: [String: String]
     public let destinationPreview: WorkbenchApprovalDestinationPreview
+    public let allowAlwaysSupported: Bool
     public let createdAt: String
     public let sourcePointer: String
     public let auditId: String?
@@ -103,6 +104,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         riskClass: WorkbenchApprovalRiskClass,
         actionPayload: [String: String],
         destinationPreview: WorkbenchApprovalDestinationPreview,
+        allowAlwaysSupported: Bool = false,
         createdAt: String,
         sourcePointer: String,
         auditId: String? = nil
@@ -114,6 +116,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         self.riskClass = riskClass
         self.actionPayload = actionPayload
         self.destinationPreview = destinationPreview
+        self.allowAlwaysSupported = allowAlwaysSupported
         self.createdAt = createdAt
         self.sourcePointer = sourcePointer
         self.auditId = auditId
@@ -127,6 +130,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         toolName = try container.decode(String.self, forKey: .toolName)
         riskClass = try container.decode(WorkbenchApprovalRiskClass.self, forKey: .riskClass)
         actionPayload = try WorkbenchApprovalPayloadFlattener.decodePayload(from: container, forKey: .actionPayload)
+        allowAlwaysSupported = try container.decodeIfPresent(Bool.self, forKey: .allowAlwaysSupported) ?? false
         createdAt = try container.decode(String.self, forKey: .createdAt)
         sourcePointer = try container.decodeIfPresent(String.self, forKey: .sourcePointer) ?? "approval:\(id)"
         auditId = try container.decodeIfPresent(String.self, forKey: .auditId)
@@ -140,6 +144,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         toolName: String,
         riskClass: WorkbenchApprovalRiskClass,
         actionPayload: [String: String],
+        allowAlwaysSupported: Bool = false,
         createdAt: String,
         sourcePointer: String,
         auditId: String? = nil
@@ -152,6 +157,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
             riskClass: riskClass,
             actionPayload: actionPayload,
             destinationPreview: WorkbenchApprovalPreviewBuilder.preview(toolName: toolName, payload: actionPayload),
+            allowAlwaysSupported: allowAlwaysSupported,
             createdAt: createdAt,
             sourcePointer: sourcePointer,
             auditId: auditId
@@ -159,7 +165,10 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
     }
 
     public var availableDecisions: [WorkbenchApprovalDecision] {
-        [.allowOnce, .deny]
+        if canAllowAlways {
+            return [.allowOnce, .allowAlways, .deny]
+        }
+        return [.allowOnce, .deny]
     }
 
     public func displayOnly() -> WorkbenchApprovalRequest {
@@ -171,6 +180,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
             riskClass: riskClass,
             actionPayload: [:],
             destinationPreview: destinationPreview,
+            allowAlwaysSupported: allowAlwaysSupported,
             createdAt: createdAt,
             sourcePointer: sourcePointer,
             auditId: auditId
@@ -179,6 +189,14 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
 
     public var isActionable: Bool {
         destinationPreview.isActionable
+    }
+
+    public var canAllowAlways: Bool {
+        guard allowAlwaysSupported, isActionable, destinationPreview.warning == nil else {
+            return false
+        }
+        return !containsRedactedDestinationEvidence(destinationPreview.primary)
+            && !containsRedactedDestinationEvidence(destinationPreview.secondary)
     }
 
     public var attentionState: WorkbenchMissionAttentionState {
@@ -207,10 +225,18 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         case riskClass = "risk_class"
         case actionPayload = "action_payload"
         case destinationPreview = "destination_preview"
+        case allowAlwaysSupported = "allow_always_supported"
         case createdAt = "created_at"
         case sourcePointer = "source_pointer"
         case auditId = "audit_id"
     }
+}
+
+private func containsRedactedDestinationEvidence(_ value: String?) -> Bool {
+    guard let value else { return false }
+    let lowered = value.lowercased()
+    return lowered.contains("[redacted]")
+        || lowered.contains("%5bredacted%5d")
 }
 
 public struct WorkbenchApprovalRequestsResponse: Codable, Equatable, Sendable {
@@ -404,6 +430,7 @@ public enum WorkbenchApprovalPreviewBuilder {
         }
         return String(trimmed.prefix(excerptLimit))
     }
+
 }
 
 public enum WorkbenchApprovalCenterSummary {
