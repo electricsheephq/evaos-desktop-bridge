@@ -2,6 +2,10 @@ import EvaDesktopCore
 import CryptoKit
 import Foundation
 
+func isoDate(_ value: String) -> Date {
+    EvaDesktopISO8601.parse(value)!
+}
+
 final class SmokeURLProtocol: URLProtocol {
     static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
     static var seenRequests: [URLRequest] = []
@@ -334,7 +338,8 @@ let brokerPendingResponseJSON = """
         "to": ["trusted@example.com"],
         "subject": "Safe-looking subject"
       },
-      "created_at": "2026-05-30T03:00:00Z"
+      "created_at": "2026-05-30T03:00:00Z",
+      "expires_at": "2026-05-30T03:15:00Z"
     }
   ]
 }
@@ -346,9 +351,12 @@ precondition(brokerNestedApproval.destinationPreview.primary == "attacker@exampl
 precondition(brokerNestedApproval.destinationPreview.secondary == "Wire instructions")
 precondition(brokerNestedApproval.actionPayload["recipient_email"] == "attacker@example.net")
 precondition(brokerNestedApproval.sourcePointer == "approval:00000000-0000-4000-8000-000000000001")
+precondition(brokerNestedApproval.expiresAt == "2026-05-30T03:15:00Z")
+precondition(brokerNestedApproval.expirationText(now: isoDate("2026-05-30T03:10:00Z")) == "Expires in 5 min")
 let displayOnlyBrokerNestedApproval = brokerNestedApproval.displayOnly()
 precondition(displayOnlyBrokerNestedApproval.actionPayload.isEmpty)
 precondition(displayOnlyBrokerNestedApproval.destinationPreview.primary == "attacker@example.net")
+precondition(displayOnlyBrokerNestedApproval.expiresAt == "2026-05-30T03:15:00Z")
 
 let nestedURLOnlyApprovalJSON = """
 {
@@ -518,6 +526,55 @@ let longDestinationNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
 )
 precondition(longDestinationNotificationPlan.notifications[0].body.contains("..."))
 precondition(longDestinationNotificationPlan.notifications[0].body.count < 180)
+
+let expiringApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-expiring",
+    ownerID: "andrew-main",
+    agentID: "email-sorter-2026-05",
+    toolName: "gmail.send",
+    riskClass: .critical,
+    actionPayload: ["to": "attacker@example.net"],
+    createdAt: "2026-05-30T12:00:00Z",
+    expiresAt: "2026-05-30T12:01:00Z",
+    sourcePointer: "approval:approval-expiring",
+    auditId: "audit-expiring"
+)
+precondition(expiringApproval.expirationText(now: isoDate("2026-05-30T12:00:30Z")) == "Expires in 30 sec")
+precondition(expiringApproval.expirationText(now: isoDate("2026-05-30T12:02:00Z")) == "Expired")
+precondition(expiringApproval.nextAction(now: isoDate("2026-05-30T12:00:30Z")).contains("expires soon"))
+let fractionalExpiryApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-expiring-fractional",
+    ownerID: "andrew-main",
+    agentID: "email-sorter-2026-05",
+    toolName: "gmail.send",
+    riskClass: .critical,
+    actionPayload: ["to": "operator@example.net"],
+    createdAt: "2026-05-30T12:00:00.123Z",
+    expiresAt: "2026-05-30T12:01:00.123Z",
+    sourcePointer: "approval:approval-expiring-fractional",
+    auditId: "audit-expiring-fractional"
+)
+precondition(fractionalExpiryApproval.expirationText(now: isoDate("2026-05-30T12:00:00.123Z")) == "Expires in 1 min")
+let expiringNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+    requests: [expiringApproval],
+    previousPendingIDs: ["approval-expiring"],
+    notifiedRequestIDs: ["approval-expiring"],
+    approvalCenterVisible: false,
+    now: isoDate("2026-05-30T12:00:30Z")
+)
+precondition(expiringNotificationPlan.notifications.count == 1)
+precondition(expiringNotificationPlan.notifications[0].notificationID == "approval-expiring:expiring")
+precondition(expiringNotificationPlan.notifications[0].title == "Approval expiring: gmail.send")
+precondition(expiringNotificationPlan.notifications[0].body.contains("30 sec"))
+precondition(expiringNotificationPlan.notifiedRequestIDs.contains("approval-expiring:expiring"))
+let duplicateExpiringNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
+    requests: [expiringApproval],
+    previousPendingIDs: expiringNotificationPlan.pendingRequestIDs,
+    notifiedRequestIDs: expiringNotificationPlan.notifiedRequestIDs,
+    approvalCenterVisible: false,
+    now: isoDate("2026-05-30T12:00:40Z")
+)
+precondition(duplicateExpiringNotificationPlan.notifications.isEmpty)
 
 let manifestPayload = """
 {
@@ -695,6 +752,7 @@ precondition(!osViewsSource.contains("struct SharedBrowser2View"))
 precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
 precondition(osViewsSource.contains("struct ApprovalCenterView"))
 precondition(osViewsSource.contains("model.decideApprovalRequest"))
+precondition(osViewsSource.contains("decision != .deny && (!request.isActionable || request.isExpired())"))
 precondition(!osViewsSource.contains("try? await Task.sleep(nanoseconds: 5_000_000_000)"))
 precondition(osViewsSource.contains("Display names and summaries alone are not enough"))
 precondition(osViewsSource.contains("Allow always requires a durable destination constraint"))
@@ -764,6 +822,7 @@ precondition(workbenchModelSource.contains("shared VM browser"))
 precondition(workbenchModelSource.contains("opened inside Workbench"))
 precondition(workbenchModelSource.contains("let currentRequest = approvalRequests.first { $0.id == request.id }"))
 precondition(workbenchModelSource.contains("requestForDecision.canAllowAlways"))
+precondition(workbenchModelSource.contains("decision == .deny || !requestForDecision.isExpired()"))
 precondition(workbenchModelSource.contains("session = try? keychain.load(allowUserInteraction: false)"))
 precondition(workbenchModelSource.contains("try? keychain.clear(allowUserInteraction: false)"))
 precondition(workbenchModelSource.contains("try keychain.save(newSession)"))
@@ -812,6 +871,17 @@ precondition(!releaseScriptSource.contains("internal canary"))
 precondition(!releaseScriptSource.contains("non-notarized"))
 precondition(releaseScriptSource.contains("args+=(--options runtime)"))
 precondition(releaseScriptSource.contains("CFBundleURLSchemes:0 string evaos"))
+precondition(releaseScriptSource.contains("--run-agent-qa"))
+precondition(releaseScriptSource.contains("run_agent_qa_app"))
+precondition(releaseScriptSource.contains("EVAOS_WORKBENCH_ALLOW_REMOVABLE_LAUNCH"))
+precondition(releaseScriptSource.contains("""
+  --logs|logs)
+    open_app_from_dist
+"""))
+precondition(releaseScriptSource.contains("""
+  --telemetry|telemetry)
+    open_app_from_dist
+"""))
 precondition(releaseScriptSource.contains("package_release()"))
 precondition(releaseScriptSource.contains("notarize_release()"))
 precondition(releaseScriptSource.contains("Developer ID signed, notarized, and stapled"))

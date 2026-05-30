@@ -4,6 +4,16 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add issue #144 Approval Center timeout awareness: Workbench now decodes
+  broker `expires_at` deadlines, renders deadline text on approval rows, and
+  sends one separate expiring notification for already-surfaced pending rows
+  without leaking payload excerpts.
+- Harden agent QA launch discipline: `build_and_run.sh run` now routes Lexar
+  or removable-volume launches through prompt-free agent QA by default, and
+  `--run-agent-qa`
+  launches a copied internal-disk bundle with Workbench Keychain access disabled
+  so autonomous UI checks do not get stuck behind Keychain or volume prompts.
+
 ## 0.6.12 - 2026-05-30
 
 - Enable the issue #144 Approval Center durable decision UI only for approvals

@@ -9,8 +9,10 @@ TCC permissions and customer Full Access / Ask Permission desktop control.
 The Workbench slice consumes authenticated broker pending approvals, submits
 `allow-once` / `deny` decisions, can notify the operator when new pending
 approvals arrive away from the Approval Center, and may submit `allow-always`
-only when the row has durable destination evidence. It does not add runtime
-resolution callbacks.
+only when the row has durable destination evidence. Broker rows include an
+`expires_at` deadline; Workbench renders that deadline and emits a separate
+expiring notification for already-surfaced rows when the operator is away. It
+does not add runtime resolution callbacks.
 
 ## Required Preview
 
@@ -44,6 +46,7 @@ fields.
 - `destination_preview`
 - `allow_always_supported`
 - `created_at`
+- optional `expires_at`
 - `source_pointer`
 - optional `audit_id`
 
@@ -74,6 +77,7 @@ renders pending approval request cards with:
 - agent id and tool name;
 - actual destination preview;
 - capped body/message excerpt when present;
+- deadline when the broker includes `expires_at`;
 - provenance pointer and created timestamp;
 - `allow-once` and `deny` decision buttons when the row has actual destination
   evidence.
@@ -105,10 +109,15 @@ Rows seen while Approval Center is visible are marked as already surfaced, and
 resolved or disappeared rows are pruned from pending notification state to avoid
 duplicate banners.
 
+If a previously surfaced row remains pending and its `expires_at` deadline is
+within the local warning window, Workbench emits one additional
+`Approval expiring` notification. The expiring notification uses a separate
+dedupe id from the initial `Approval needed` banner, includes only the remaining
+time plus the same provenance pointers, and does not include raw payload values.
+
 ## Deferred Slices
 
 - OpenClaw `requireApproval` resolution wiring
 - Hermes `_ApprovalEntry` resolution wiring
 - runtime consumption of destination-constrained `allow-always` policy rows
-- timed-out approval notifications
 - final manual spoofed-recipient QA against live runtime payloads

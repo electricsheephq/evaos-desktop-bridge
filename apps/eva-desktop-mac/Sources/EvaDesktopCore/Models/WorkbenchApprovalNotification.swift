@@ -1,13 +1,22 @@
 import Foundation
 
 public struct WorkbenchApprovalNotification: Equatable, Sendable {
+    public let notificationID: String
     public let requestID: String
     public let title: String
     public let body: String
     public let sourcePointer: String
     public let auditID: String?
 
-    public init(requestID: String, title: String, body: String, sourcePointer: String, auditID: String? = nil) {
+    public init(
+        notificationID: String? = nil,
+        requestID: String,
+        title: String,
+        body: String,
+        sourcePointer: String,
+        auditID: String? = nil
+    ) {
+        self.notificationID = notificationID ?? requestID
         self.requestID = requestID
         self.title = title
         self.body = body
@@ -39,10 +48,12 @@ public enum WorkbenchApprovalNotificationPlanner {
         requests: [WorkbenchApprovalRequest],
         previousPendingIDs: Set<String>,
         notifiedRequestIDs: Set<String>,
-        approvalCenterVisible: Bool
+        approvalCenterVisible: Bool,
+        now: Date = Date()
     ) -> WorkbenchApprovalNotificationPlan {
         let currentIDs = Set(requests.map(\.id))
-        var nextNotifiedIDs = notifiedRequestIDs.intersection(currentIDs)
+        let currentNotificationIDs = currentIDs.union(currentIDs.map(expiringNotificationID(for:)))
+        var nextNotifiedIDs = notifiedRequestIDs.intersection(currentNotificationIDs)
 
         if approvalCenterVisible {
             nextNotifiedIDs.formUnion(currentIDs)
@@ -53,11 +64,17 @@ public enum WorkbenchApprovalNotificationPlanner {
             )
         }
 
-        let notifications = requests
+        let newRequestNotifications = requests
             .filter { !previousPendingIDs.contains($0.id) && !nextNotifiedIDs.contains($0.id) }
             .map(notification(for:))
+        let expiringNotifications = requests
+            .filter { previousPendingIDs.contains($0.id) }
+            .filter { $0.isExpiringSoon(now: now) }
+            .filter { !nextNotifiedIDs.contains(expiringNotificationID(for: $0.id)) }
+            .map { expiringNotification(for: $0, now: now) }
+        let notifications = newRequestNotifications + expiringNotifications
 
-        nextNotifiedIDs.formUnion(notifications.map(\.requestID))
+        nextNotifiedIDs.formUnion(notifications.map(\.notificationID))
         return WorkbenchApprovalNotificationPlan(
             notifications: notifications,
             pendingRequestIDs: currentIDs,
@@ -73,6 +90,22 @@ public enum WorkbenchApprovalNotificationPlanner {
             sourcePointer: request.sourcePointer,
             auditID: request.auditId
         )
+    }
+
+    private static func expiringNotification(for request: WorkbenchApprovalRequest, now: Date) -> WorkbenchApprovalNotification {
+        let expirationText = request.expirationText(now: now) ?? "Expires soon"
+        return WorkbenchApprovalNotification(
+            notificationID: expiringNotificationID(for: request.id),
+            requestID: request.id,
+            title: "Approval expiring: \(capped(request.toolName, limit: 48))",
+            body: "\(expirationText). Open Approval Center to decide before the runtime times out.",
+            sourcePointer: request.sourcePointer,
+            auditID: request.auditId
+        )
+    }
+
+    private static func expiringNotificationID(for requestID: String) -> String {
+        "\(requestID):expiring"
     }
 
     private static func body(for request: WorkbenchApprovalRequest) -> String {

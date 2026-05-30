@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:-run}"
 case "$MODE" in
-  --package-beta|package-beta|--package-release|package-release|--notarize-release|notarize-release|--verify|verify|--verify-agent-qa|verify-agent-qa)
+  --package-beta|package-beta|--package-release|package-release|--notarize-release|notarize-release|--verify|verify|--verify-agent-qa|verify-agent-qa|--run-agent-qa|run-agent-qa)
     STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"
     ;;
   *)
@@ -619,6 +619,17 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
+open_app_from_dist() {
+  if [[ "$APP_BUNDLE" == /Volumes/* ]] && [ "${EVAOS_WORKBENCH_ALLOW_REMOVABLE_LAUNCH:-0}" != "1" ]; then
+    echo "Launching prompt-free agent QA copy instead of $APP_BUNDLE from a removable volume." >&2
+    echo "Install a Developer ID signed build on the internal disk for signed-in acceptance." >&2
+    echo "Set EVAOS_WORKBENCH_ALLOW_REMOVABLE_LAUNCH=1 only for an interactive human-approved run." >&2
+    run_agent_qa_app
+    return
+  fi
+  open_app
+}
+
 verify_app_signature() {
   local bundle="$1"
   if ! codesign --verify --deep --strict "$bundle"; then
@@ -641,26 +652,42 @@ cleanup_agent_qa_launch_state() {
   /bin/launchctl unsetenv EVAOS_WORKBENCH_DISABLE_KEYCHAIN 2>/dev/null || true
 }
 
+run_agent_qa_app() {
+  agent_qa_bundle="$(prepare_agent_qa_launch_bundle)"
+  trap cleanup_agent_qa_launch_state EXIT
+  verify_app_signature "$agent_qa_bundle"
+  /usr/bin/open -n "$agent_qa_bundle"
+  sleep 2
+  pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null
+  cleanup_agent_qa_launch_state
+  trap - EXIT
+  echo "Launched prompt-free agent QA app: $agent_qa_bundle"
+}
+
 case "$MODE" in
   run)
-    open_app
+    open_app_from_dist
     ;;
   --debug|debug)
     lldb -- "$APP_BINARY"
     ;;
   --logs|logs)
-    open_app
+    open_app_from_dist
     /usr/bin/log stream --info --style compact --predicate "process == \"$APP_EXECUTABLE_NAME\""
     ;;
   --telemetry|telemetry)
-    open_app
+    open_app_from_dist
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
   --verify|verify)
-    verify_app_signature "$APP_BUNDLE"
-    open_app
-    sleep 1
-    pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null
+    if [[ "$APP_BUNDLE" == /Volumes/* ]] && [ "${EVAOS_WORKBENCH_ALLOW_REMOVABLE_LAUNCH:-0}" != "1" ]; then
+      run_agent_qa_app
+    else
+      verify_app_signature "$APP_BUNDLE"
+      open_app
+      sleep 1
+      pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null
+    fi
     ;;
   --verify-agent-qa|verify-agent-qa)
     agent_qa_bundle="$(prepare_agent_qa_launch_bundle)"
@@ -672,6 +699,9 @@ case "$MODE" in
     cleanup_agent_qa_launch_state
     trap - EXIT
     ;;
+  --run-agent-qa|run-agent-qa)
+    run_agent_qa_app
+    ;;
   --package-beta|package-beta)
     package_beta
     ;;
@@ -682,7 +712,7 @@ case "$MODE" in
     notarize_release
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--verify-agent-qa|--package-beta|--package-release|--notarize-release]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--verify-agent-qa|--run-agent-qa|--package-beta|--package-release|--notarize-release]" >&2
     exit 2
     ;;
 esac

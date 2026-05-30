@@ -102,15 +102,25 @@ install page call out the non-stapled state.
 
 macOS can prompt for both Keychain item access and removable-volume access while
 agents are testing locally. Do not spend autonomous test loops on those prompts.
-For non-authenticated smoke, run:
+For non-authenticated visible UI smoke, run:
+
+```bash
+cd apps/eva-desktop-mac
+./script/build_and_run.sh --run-agent-qa
+```
+
+For process-only launch smoke, run:
 
 ```bash
 cd apps/eva-desktop-mac
 ./script/build_and_run.sh --verify-agent-qa
 ```
 
-That path copies the app bundle to `~/Applications`, disables Workbench Keychain
-reads/writes for the launched process, and confirms the app process starts. For
+Both paths copy the app bundle to `~/Applications` and disable Workbench
+Keychain reads/writes for the launched process. The default `run` path routes
+`dist/evaOS.app` launches from `/Volumes/LEXAR` through the same prompt-free
+agent-QA copy unless
+`EVAOS_WORKBENCH_ALLOW_REMOVABLE_LAUNCH=1` is set for a human-approved run. For
 real signed-in acceptance, install the Developer ID signed build on the internal
 disk and use a stable signing identity; if an old beta item still prompts, clear
 only the Workbench `com.electricsheephq.EvaDesktop.session` and
