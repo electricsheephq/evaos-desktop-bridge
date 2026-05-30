@@ -471,10 +471,10 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds Approval Center local notifications for new pending broker approvals while the operator is away from the Approval Center view.</li>
-  <li>Suppresses duplicate or already-visible approval banners and prunes resolved approval notification state.</li>
-  <li>Keeps notification text limited to tool, risk, and actual destination instead of exposing approval payload body excerpts.</li>
-  <li>Adds an agent QA launch smoke that disables Workbench Keychain access and launches a copied app bundle from a separate location.</li>
+  <li>Enables the Approval Center durable decision button only when broker evidence marks a request as safe for destination-constrained Allow always.</li>
+  <li>Requires actionable, warning-free destination details before Workbench offers a durable approval path.</li>
+  <li>Keeps durable broker policy writes constrained to the approved destination instead of creating broad owner, agent, and tool grants.</li>
+  <li>Preserves the agent QA launch smoke that disables Workbench Keychain access and launches a copied app bundle from a separate location.</li>
 </ul>
 EOF
 
