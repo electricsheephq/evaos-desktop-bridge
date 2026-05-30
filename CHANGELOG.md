@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.13 - 2026-05-30
+
 - Add issue #144 Approval Center timeout awareness: Workbench now decodes
   broker `expires_at` deadlines, renders deadline text on approval rows, and
   sends one separate expiring notification for already-surfaced pending rows
