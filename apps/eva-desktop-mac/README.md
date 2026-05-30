@@ -95,8 +95,12 @@ current local build to access an older desktop session item, the app treats that
 as signed out instead of showing a Keychain prompt during normal startup.
 For agent-driven QA where no persisted login is needed, launch with
 `EVAOS_WORKBENCH_DISABLE_KEYCHAIN=1` or use
-`./script/build_and_run.sh --verify-agent-qa` so Workbench does not read or
-write its session and capability Keychain items during that run.
+`./script/build_and_run.sh --run-agent-qa` for visible UI testing, or
+`./script/build_and_run.sh --verify-agent-qa` for process-only smoke, so
+Workbench does not read or write its session and capability Keychain items
+during that run. The normal `run` mode routes a Lexar/removable-volume
+`dist/evaOS.app` through the same prompt-free agent-QA copy unless
+`EVAOS_WORKBENCH_ALLOW_REMOVABLE_LAUNCH=1` is set for a human-approved run.
 
 Repeated Keychain prompts are a signing problem, not an authentication feature.
 For a durable local or release build, sign the finished app bundle with a stable

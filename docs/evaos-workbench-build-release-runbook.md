@@ -243,16 +243,18 @@ Repair steps:
    signing identity.
 3. For autonomous agent smoke tests, do not launch `dist/evaOS.app` directly
    from `/Volumes/LEXAR`. Copy or install the app onto the internal disk first,
-   or use the dedicated launch smoke:
+   or use the dedicated launch mode:
 
    ```bash
    cd apps/eva-desktop-mac
-   ./script/build_and_run.sh --verify-agent-qa
+   ./script/build_and_run.sh --run-agent-qa
    ```
 
    That mode copies the built app to `~/Applications/evaOS Workbench Agent QA.app`,
-   temporarily disables Workbench Keychain access for the launch, and avoids the
-   removable-volume prompt that macOS can show for apps launched from Lexar.
+   temporarily disables Workbench Keychain access for the launch, opens the app
+   visibly for UI checks, and avoids the removable-volume prompt that macOS can
+   show for apps launched from Lexar. Use `--verify-agent-qa` when a background
+   process-start smoke is enough.
 4. If a stale local dev item keeps prompting during a real signed-in run, use
    `Reset Local Session` on the Workbench sign-in screen, or clear only the
    Workbench desktop session and capability cache items and sign in again:

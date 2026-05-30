@@ -904,7 +904,7 @@ final class WorkbenchModel: ObservableObject {
                 approvalCenterVisible: approvalCenterVisible
             )
             approvalPendingRequestIDs = notificationPlan.pendingRequestIDs
-            let candidateNotificationIDs = Set(notificationPlan.notifications.map(\.requestID))
+            let candidateNotificationIDs = Set(notificationPlan.notifications.map(\.notificationID))
             let deliveredNotificationIDs = await approvalNotificationService.deliver(notificationPlan.notifications)
             approvalNotifiedRequestIDs = notificationPlan.notifiedRequestIDs
                 .subtracting(candidateNotificationIDs)
@@ -932,6 +932,10 @@ final class WorkbenchModel: ObservableObject {
         let requestForDecision = currentRequest ?? request
         guard requestForDecision.isActionable || decision == .deny else {
             approvalCenterStatusText = "Missing destination; deny or ask runtime to resubmit"
+            return
+        }
+        guard decision == .deny || !requestForDecision.isExpired() else {
+            approvalCenterStatusText = "Approval request has expired; refresh before deciding"
             return
         }
         guard decision != .allowAlways || requestForDecision.canAllowAlways else {

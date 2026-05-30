@@ -32,6 +32,10 @@ Mission Control, Shared Browser, Terminal, or OpenDesign internals.
 - Sign the final `.app` bundle after `Info.plist` and resources are written.
   Stable Apple Development or Developer ID signing is required for a prompt-free
   release experience.
+- Autonomous agents must not open `dist/evaOS.app` directly from `/Volumes/LEXAR`;
+  use `./script/build_and_run.sh --run-agent-qa` for visible UI checks or
+  `--verify-agent-qa` for process-only smoke. Use a Developer ID-signed app on
+  the internal disk for real signed-in acceptance.
 
 ## Agent Control Boundary
 
@@ -54,7 +58,7 @@ Run from the repository root:
 cd apps/eva-desktop-mac
 swift build
 swift run EvaDesktopCoreSmoke
-./script/build_and_run.sh --verify
+./script/build_and_run.sh --verify-agent-qa
 plutil -lint dist/evaOS.app/Contents/Info.plist
 codesign --verify --deep --strict dist/evaOS.app
 ```

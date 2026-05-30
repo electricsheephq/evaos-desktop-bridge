@@ -93,6 +93,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
     public let destinationPreview: WorkbenchApprovalDestinationPreview
     public let allowAlwaysSupported: Bool
     public let createdAt: String
+    public let expiresAt: String?
     public let sourcePointer: String
     public let auditId: String?
 
@@ -106,6 +107,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         destinationPreview: WorkbenchApprovalDestinationPreview,
         allowAlwaysSupported: Bool = false,
         createdAt: String,
+        expiresAt: String? = nil,
         sourcePointer: String,
         auditId: String? = nil
     ) {
@@ -118,6 +120,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         self.destinationPreview = destinationPreview
         self.allowAlwaysSupported = allowAlwaysSupported
         self.createdAt = createdAt
+        self.expiresAt = expiresAt
         self.sourcePointer = sourcePointer
         self.auditId = auditId
     }
@@ -132,6 +135,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         actionPayload = try WorkbenchApprovalPayloadFlattener.decodePayload(from: container, forKey: .actionPayload)
         allowAlwaysSupported = try container.decodeIfPresent(Bool.self, forKey: .allowAlwaysSupported) ?? false
         createdAt = try container.decode(String.self, forKey: .createdAt)
+        expiresAt = try container.decodeIfPresent(String.self, forKey: .expiresAt)
         sourcePointer = try container.decodeIfPresent(String.self, forKey: .sourcePointer) ?? "approval:\(id)"
         auditId = try container.decodeIfPresent(String.self, forKey: .auditId)
         destinationPreview = WorkbenchApprovalPreviewBuilder.preview(toolName: toolName, payload: actionPayload)
@@ -146,6 +150,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         actionPayload: [String: String],
         allowAlwaysSupported: Bool = false,
         createdAt: String,
+        expiresAt: String? = nil,
         sourcePointer: String,
         auditId: String? = nil
     ) -> WorkbenchApprovalRequest {
@@ -159,6 +164,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
             destinationPreview: WorkbenchApprovalPreviewBuilder.preview(toolName: toolName, payload: actionPayload),
             allowAlwaysSupported: allowAlwaysSupported,
             createdAt: createdAt,
+            expiresAt: expiresAt,
             sourcePointer: sourcePointer,
             auditId: auditId
         )
@@ -182,6 +188,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
             destinationPreview: destinationPreview,
             allowAlwaysSupported: allowAlwaysSupported,
             createdAt: createdAt,
+            expiresAt: expiresAt,
             sourcePointer: sourcePointer,
             auditId: auditId
         )
@@ -204,6 +211,16 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
     }
 
     public var nextAction: String {
+        nextAction(now: Date())
+    }
+
+    public func nextAction(now: Date) -> String {
+        if isExpired(now: now) {
+            return "Approval request has expired. Refresh Approval Center before deciding."
+        }
+        if isExpiringSoon(now: now) {
+            return "Approval request expires soon. Verify the actual destination and decide before the runtime times out."
+        }
         if !isActionable {
             return "Approval request is missing actual destination details; ask the runtime to resubmit with recipient, URL, file path, or scope."
         }
@@ -217,6 +234,38 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         }
     }
 
+    public func expirationText(now: Date = Date()) -> String? {
+        guard let seconds = secondsUntilExpiration(now: now) else { return nil }
+        if seconds <= 0 {
+            return "Expired"
+        }
+        if seconds < 60 {
+            return "Expires in \(Int(ceil(seconds))) sec"
+        }
+        if seconds < 3600 {
+            return "Expires in \(Int(ceil(seconds / 60))) min"
+        }
+        return "Expires \(expiresAt ?? "")"
+    }
+
+    public func isExpired(now: Date = Date()) -> Bool {
+        guard let seconds = secondsUntilExpiration(now: now) else { return false }
+        return seconds <= 0
+    }
+
+    public func isExpiringSoon(now: Date = Date(), windowSeconds: TimeInterval = 120) -> Bool {
+        guard let seconds = secondsUntilExpiration(now: now) else { return false }
+        return seconds > 0 && seconds <= windowSeconds
+    }
+
+    public func secondsUntilExpiration(now: Date = Date()) -> TimeInterval? {
+        guard let expiresAt,
+              let deadline = EvaDesktopISO8601.parse(expiresAt) else {
+            return nil
+        }
+        return deadline.timeIntervalSince(now)
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case ownerID = "owner_id"
@@ -227,6 +276,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         case destinationPreview = "destination_preview"
         case allowAlwaysSupported = "allow_always_supported"
         case createdAt = "created_at"
+        case expiresAt = "expires_at"
         case sourcePointer = "source_pointer"
         case auditId = "audit_id"
     }

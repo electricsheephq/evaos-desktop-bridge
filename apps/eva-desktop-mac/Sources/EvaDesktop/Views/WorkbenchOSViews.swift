@@ -356,6 +356,13 @@ private struct ApprovalRequestCard: View {
                 }
             }
 
+            if let expirationText = request.expirationText() {
+                Label(expirationText, systemImage: request.isExpired() ? "clock.badge.exclamationmark" : "clock")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(request.isExpiringSoon() || request.isExpired() ? Color.electricSheepDanger : Color.electricSheepMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Text(request.nextAction)
                 .font(.caption)
                 .foregroundStyle(Color.electricSheepSecondaryText)
@@ -369,7 +376,7 @@ private struct ApprovalRequestCard: View {
                         Text(isSubmitting ? "Submitting" : decision.displayText)
                     }
                         .buttonStyle(.bordered)
-                        .disabled(isDisabled || (decision != .deny && !request.isActionable))
+                        .disabled(isDisabled || (decision != .deny && (!request.isActionable || request.isExpired())))
                         .help(decisionHelp(for: decision))
                 }
                 if !request.canAllowAlways {
@@ -424,6 +431,9 @@ private struct ApprovalRequestCard: View {
     private func decisionHelp(for decision: WorkbenchApprovalDecision) -> String {
         if decision != .deny && !request.isActionable {
             return "Allow is disabled because this approval is missing actual destination evidence."
+        }
+        if decision != .deny && request.isExpired() {
+            return "Allow is disabled because this approval has expired. Refresh Approval Center before deciding."
         }
         switch decision {
         case .allowOnce:
