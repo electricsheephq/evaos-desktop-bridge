@@ -19,7 +19,7 @@ public enum RuntimeSessionBrokerError: Error, LocalizedError {
 
 public struct RuntimeSessionBrokerClient: Sendable {
     public static let productionEndpoint = URL(string: "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")!
-    public static let productionCapabilityEndpoint = URL(string: "https://cortex-electricsheep.fly.dev/api/v1")!
+    public static let productionCapabilityEndpoint = URL(string: "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/cortex-proxy")!
 
     public let endpoint: URL
     public let capabilityEndpoint: URL
@@ -286,19 +286,13 @@ public struct RuntimeSessionBrokerClient: Sendable {
             throw RuntimeSessionBrokerError.missingSession
         }
 
-        var url = capabilityEndpoint
-        for component in pathComponents {
-            url.appendPathComponent(component)
-        }
-        if !queryItems.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            components.queryItems = queryItems
-            url = components.url ?? url
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+        let request = try capabilityRequest(
+            method: "GET",
+            pathComponents: pathComponents,
+            queryItems: queryItems,
+            body: nil as Data?,
+            desktopSession: desktopSession
+        )
 
         let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -325,17 +319,12 @@ public struct RuntimeSessionBrokerClient: Sendable {
             throw RuntimeSessionBrokerError.missingSession
         }
 
-        var url = capabilityEndpoint
-        for component in pathComponents {
-            url.appendPathComponent(component)
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONEncoder().encode(body)
+        let request = try capabilityRequest(
+            method: "POST",
+            pathComponents: pathComponents,
+            body: try JSONEncoder().encode(body),
+            desktopSession: desktopSession
+        )
 
         let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -362,5 +351,72 @@ public struct RuntimeSessionBrokerClient: Sendable {
 
     private static func capabilityEndpoint() -> URL {
         return productionCapabilityEndpoint
+    }
+
+    private func capabilityRequest(
+        method: String,
+        pathComponents: [String],
+        queryItems: [URLQueryItem] = [],
+        body: Data?,
+        desktopSession: DesktopSession
+    ) throws -> URLRequest {
+        if usesCapabilityProxy {
+            var request = URLRequest(url: capabilityEndpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+
+            var payload: [String: Any] = [
+                "path": capabilityPath(pathComponents: pathComponents, queryItems: queryItems),
+                "method": method
+            ]
+            if let body, method.uppercased() != "GET" {
+                payload["body"] = try JSONSerialization.jsonObject(with: body)
+            }
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+            return request
+        }
+
+        var url = capabilityEndpoint
+        for component in pathComponents {
+            url.appendPathComponent(component)
+        }
+        if !queryItems.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.queryItems = queryItems
+            url = components.url ?? url
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(desktopSession.accessToken)", forHTTPHeaderField: "Authorization")
+        if let body, method.uppercased() != "GET" {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
+        return request
+    }
+
+    private var usesCapabilityProxy: Bool {
+        capabilityEndpoint.path.hasSuffix("/functions/v1/cortex-proxy")
+    }
+
+    private func capabilityPath(
+        pathComponents: [String],
+        queryItems: [URLQueryItem] = []
+    ) -> String {
+        var url = URL(string: "https://cortex.invalid/api/v1")!
+        for component in pathComponents {
+            url.appendPathComponent(component)
+        }
+        if !queryItems.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.queryItems = queryItems
+            url = components.url ?? url
+        }
+        if let query = url.query, !query.isEmpty {
+            return "\(url.path)?\(query)"
+        }
+        return url.path
     }
 }

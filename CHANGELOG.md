@@ -11,6 +11,10 @@ All notable repo release changes should be recorded here before a release branch
   allow-always is intentionally withheld in the UI,
   keeps allow buttons disabled when actual destination evidence is missing, and
   preserves spoof-resistant preview derivation for broker-shaped payloads.
+- Route Workbench capability and Approval Center broker calls through the
+  Supabase `cortex-proxy` edge function instead of calling Cortex/Fly directly,
+  so desktop-session JWTs are validated by Supabase and forwarded with the
+  server-owned Cortex API key and resolved owner.
 - Clarify live GUI-control canary protocol: Codex Desktop notification overlays,
   focus steals, permission prompts, or operator re-entry during visible-message
   tests are contaminated/inconclusive runs to rerun, not evidence that the
