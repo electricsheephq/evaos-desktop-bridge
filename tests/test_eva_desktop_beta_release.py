@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -12,10 +13,18 @@ def test_beta_packaging_uses_no_developer_id_path() -> None:
     app_brand = (APP_ROOT / "Sources" / "EvaDesktopCore" / "Models" / "AppBrand.swift").read_text(encoding="utf-8")
 
     assert "--package-beta" in script
-    assert 'VERSION="0.6.9"' in script
-    assert 'BUILD_NUMBER="49"' in script
-    assert 'version = "0.6.9"' in app_brand
-    assert 'buildNumber = "49"' in app_brand
+    script_version = re.search(r'^VERSION="([^"]+)"$', script, re.MULTILINE)
+    script_build = re.search(r'^BUILD_NUMBER="([^"]+)"$', script, re.MULTILINE)
+    app_version = re.search(r'public static let version = "([^"]+)"', app_brand)
+    app_build = re.search(r'public static let buildNumber = "([^"]+)"', app_brand)
+    assert script_version is not None
+    assert script_build is not None
+    assert app_version is not None
+    assert app_build is not None
+    assert script_version.group(1) == app_version.group(1)
+    assert script_build.group(1) == app_build.group(1)
+    assert re.fullmatch(r"\d+\.\d+\.\d+", script_version.group(1))
+    assert script_build.group(1).isdigit()
     assert 'REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-1}"' in script
     assert 'STRICT_PEEKABOO_CHECK="${EVAOS_STRICT_PEEKABOO_CHECK:-0}"' in script

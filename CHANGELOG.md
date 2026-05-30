@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.10 - 2026-05-30
+
 - Harden Codex visible GUI post-send waiting for #176: stable composer-visible
   idle now ends the wait instead of timing out forever, while notification
   overlays, focus steals, permission prompts, or operator re-entry during the
