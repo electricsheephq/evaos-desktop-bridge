@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.14 - 2026-05-31
+
 - Add issue #147 per-agent usage budget cards: Workbench decodes broker-proxied
   LLM `by_agent` usage, compares the active agent against Capability Manifest
   token/dollar caps, renders progress/paused states in Providers, and plans a
