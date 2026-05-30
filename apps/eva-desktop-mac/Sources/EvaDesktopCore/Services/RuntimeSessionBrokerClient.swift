@@ -160,6 +160,14 @@ public struct RuntimeSessionBrokerClient: Sendable {
         )
     }
 
+    public func llmUsage(desktopSession: DesktopSession?) async throws -> WorkbenchLLMUsageResponse {
+        try await get(
+            pathComponents: ["llm", "usage"],
+            desktopSession: desktopSession,
+            decoder: EvaDesktopISO8601.decoder()
+        )
+    }
+
     public func pendingApprovals(
         desktopSession: DesktopSession?,
         limit: Int = 50

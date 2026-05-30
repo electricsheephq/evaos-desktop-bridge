@@ -44,6 +44,9 @@ struct ProvidersHubView: View {
             }
             .disabled(!model.isSignedIn || model.isRefreshingCapabilityManifest)
 
+            UsageDashboardView(model: model)
+                .disabled(!model.isSignedIn || model.isRefreshingUsageDashboard)
+
             WorkbenchInfoPanel(
                 title: "Credential Boundary",
                 systemImage: "key.slash",
@@ -134,6 +137,175 @@ private struct CapabilityManifestPanel: View {
                 .foregroundStyle(Color.electricSheepMutedText)
                 .lineLimit(2)
         }
+    }
+}
+
+struct UsageDashboardView: View {
+    @ObservedObject var model: WorkbenchModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                RuntimeIconBadge(systemImage: "gauge.with.dots.needle.bottom.50percent", tint: tint)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Usage Budget")
+                        .font(.headline)
+                        .foregroundStyle(Color.electricSheepPrimaryText)
+                    Text(model.usageDashboardStatusText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                }
+                Spacer()
+                Button {
+                    Task {
+                        await model.refreshUsageDashboard()
+                    }
+                } label: {
+                    Label(model.isRefreshingUsageDashboard ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if model.usageDashboardCards.isEmpty {
+                Text("Per-agent usage appears after the broker reports LLM calls. Budget caps come from the signed Capability Manifest.")
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(model.usageDashboardCards) { card in
+                    UsageAgentCard(card: card)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.electricSheepSurfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.electricSheepLineWarm, lineWidth: 1)
+        )
+        .onAppear {
+            model.setUsageDashboardVisible(true)
+        }
+        .onDisappear {
+            model.setUsageDashboardVisible(false)
+        }
+    }
+
+    private var tint: Color {
+        let lowercased = model.usageDashboardStatusText.lowercased()
+        if lowercased.contains("attention") || lowercased.contains("unavailable") || lowercased.contains("expired") {
+            return .electricSheepDanger
+        }
+        if lowercased.contains("ready") {
+            return .electricSheepSuccess
+        }
+        return .electricSheepGoldSoft
+    }
+}
+
+private struct UsageAgentCard: View {
+    let card: WorkbenchAgentUsageCard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(card.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.electricSheepPrimaryText)
+                    .lineLimit(1)
+                Spacer()
+                Text(card.status)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusTint)
+            }
+
+            HStack(spacing: 12) {
+                usageMetric("Calls", value: String(card.callCount))
+                usageMetric("Tokens", value: tokenText)
+                usageMetric("Cost", value: costText)
+            }
+
+            if let dollarProgress = card.dollarProgress {
+                ProgressView(value: dollarProgress)
+                    .tint(progressTint(dollarProgress))
+            }
+            if let tokenProgress = card.tokenProgress {
+                ProgressView(value: tokenProgress)
+                    .tint(progressTint(tokenProgress))
+            }
+
+            Text(card.nextAction)
+                .font(.caption)
+                .foregroundStyle(Color.electricSheepMutedText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if card.primaryActionTitle != nil || card.secondaryActionTitle != nil {
+                HStack(spacing: 8) {
+                    if let primary = card.primaryActionTitle {
+                        Button(primary) {}
+                            .buttonStyle(.borderedProminent)
+                            .disabled(true)
+                    }
+                    if let secondary = card.secondaryActionTitle {
+                        Button(secondary) {}
+                            .buttonStyle(.bordered)
+                            .disabled(true)
+                    }
+                }
+                .help("Budget actions are broker-mediated and require a signed Approval Center request.")
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusTint: Color {
+        switch card.attentionState {
+        case .needsAttention:
+            return .electricSheepDanger
+        case .active, .done:
+            return .electricSheepSuccess
+        case .idle, .unknown:
+            return .electricSheepGoldSoft
+        }
+    }
+
+    private var tokenText: String {
+        if let tokenCap = card.tokenCap {
+            return "\(card.tokenTotal)/\(tokenCap)"
+        }
+        return "\(card.tokenTotal)"
+    }
+
+    private var costText: String {
+        if let dollarCap = card.dollarCap {
+            return "$\(formatDollars(card.costUSD))/$\(formatDollars(dollarCap))"
+        }
+        return "$\(formatDollars(card.costUSD))"
+    }
+
+    private func usageMetric(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color.electricSheepMutedText)
+            Text(value)
+                .font(.caption)
+                .foregroundStyle(Color.electricSheepSecondaryText)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func progressTint(_ progress: Double) -> Color {
+        progress >= 1 ? .electricSheepDanger : .electricSheepSuccess
+    }
+
+    private func formatDollars(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+        return String(format: "%.2f", value)
     }
 }
 
@@ -373,13 +545,13 @@ private struct ApprovalRequestCard: View {
                     Button(role: decision == .deny ? .destructive : nil) {
                         decide(decision)
                     } label: {
-                        Text(isSubmitting ? "Submitting" : decision.displayText)
+                        Text(isSubmitting ? "Submitting" : request.actionTitle(for: decision))
                     }
                         .buttonStyle(.bordered)
                         .disabled(isDisabled || (decision != .deny && (!request.isActionable || request.isExpired())))
                         .help(decisionHelp(for: decision))
                 }
-                if !request.canAllowAlways {
+                if request.availableDecisions.contains(.allowAlways) && !request.canAllowAlways {
                     Text("Allow always requires a durable destination constraint")
                         .font(.caption2)
                         .foregroundStyle(Color.electricSheepMutedText)
@@ -437,10 +609,16 @@ private struct ApprovalRequestCard: View {
         }
         switch decision {
         case .allowOnce:
+            if request.isBudgetApproval {
+                return "Approve the budget cap increase request for this paused agent."
+            }
             return "Allow only this pending tool call."
         case .allowAlways:
             return "Allow this agent to use this tool again only for the same broker-constrained destination."
         case .deny:
+            if request.isBudgetApproval {
+                return "Keep the budget pause in place and stop this agent from continuing."
+            }
             return "Deny this pending tool call."
         }
     }

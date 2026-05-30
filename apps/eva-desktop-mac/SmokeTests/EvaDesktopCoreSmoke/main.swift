@@ -296,6 +296,27 @@ let approvalDecisionJSON = String(data: encodedApprovalDecision, encoding: .utf8
 precondition(approvalDecisionJSON.contains("\"decision\":\"allow-always\""))
 precondition(approvalDecisionJSON.contains("\"scope\":\"this-agent\""))
 
+let budgetPauseApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-budget-paused",
+    ownerID: "andrew-main",
+    agentID: "email-sorter-2026-05",
+    toolName: "llm.budget.increase_cap",
+    riskClass: .critical,
+    actionPayload: [
+        "budget": "$5 daily cap",
+        "primary_action_title": "Increase cap to $10",
+        "secondary_action_title": "Stop agent"
+    ],
+    createdAt: "2026-05-30T15:10:00Z",
+    sourcePointer: "approval:approval-budget-paused"
+)
+precondition(budgetPauseApproval.destinationPreview.kind == .budget)
+precondition(budgetPauseApproval.availableDecisions == [.allowOnce, .deny])
+precondition(budgetPauseApproval.actionTitle(for: .allowOnce) == "Increase cap to $10")
+precondition(budgetPauseApproval.actionTitle(for: .deny) == "Stop agent")
+precondition(!budgetPauseApproval.canAllowAlways)
+precondition(budgetPauseApproval.nextAction.contains("Budget paused"))
+
 let brokerShapedApprovalJSON = """
 {
   "id": "approval-broker-1",
@@ -716,6 +737,77 @@ precondition(invalidCapabilityFetch.validatedCacheToken() == nil)
 precondition(RuntimeSessionBrokerClient.normalizedCapabilityAgentID(" bad.agent!/ ") == "badagent")
 precondition(RuntimeSessionBrokerClient.normalizedCapabilityAgentID("   ") == "openclaw")
 
+let llmUsageJSON = """
+{
+  "tiers": {},
+  "by_operation": {},
+  "by_agent": {
+    "email-sorter-2026-05": {
+      "tiers": {},
+      "by_operation": {},
+      "total": {
+        "call_count": 12,
+        "total_input_tokens": 100000,
+        "total_output_tokens": 100000,
+        "cost_usd": 5.0,
+        "error_count": 0,
+        "avg_latency_ms": 10.0,
+        "p50_latency_ms": 8.0,
+        "p95_latency_ms": 20.0
+      }
+    },
+    "researcher": {
+      "tiers": {},
+      "by_operation": {},
+      "total": {
+        "call_count": 2,
+        "total_input_tokens": 100,
+        "total_output_tokens": 40,
+        "cost_usd": 0.5,
+        "error_count": 0,
+        "avg_latency_ms": 5.0,
+        "p50_latency_ms": 4.0,
+        "p95_latency_ms": 6.0
+      }
+    }
+  },
+  "total": {"call_count": 14, "total_input_tokens": 100100, "total_output_tokens": 100040, "cost_usd": 5.5, "error_count": 0},
+  "generated_at": "2026-05-30T15:00:00Z",
+  "errors": []
+}
+""".data(using: .utf8)!
+let decodedUsage = try EvaDesktopISO8601.decoder().decode(WorkbenchLLMUsageResponse.self, from: llmUsageJSON)
+let usageCards = WorkbenchUsageDashboardDeriver.cards(
+    from: decodedUsage,
+    manifestSummary: verifiedManifest.safeSummary
+)
+let cappedUsageCard = usageCards.first { $0.agentID == "email-sorter-2026-05" }
+precondition(cappedUsageCard?.attentionState == .needsAttention)
+precondition(cappedUsageCard?.status == "Budget paused")
+precondition(cappedUsageCard?.primaryActionTitle == "Increase cap to $10")
+precondition(cappedUsageCard?.secondaryActionTitle == "Stop agent")
+precondition(cappedUsageCard?.sourcePointer == "usage:agent:email-sorter-2026-05")
+let usageNotificationPlan = WorkbenchBudgetNotificationPlanner.plan(
+    cards: usageCards,
+    notifiedAgentIDs: [],
+    usageDashboardVisible: false
+)
+precondition(usageNotificationPlan.notifications.count == 1)
+precondition(usageNotificationPlan.notifications[0].title == "Budget paused: email-sorter-2026-05")
+precondition(usageNotificationPlan.notifications[0].body.contains("Increase cap to $10"))
+let hiddenDuplicateUsagePlan = WorkbenchBudgetNotificationPlanner.plan(
+    cards: usageCards,
+    notifiedAgentIDs: usageNotificationPlan.notifiedAgentIDs,
+    usageDashboardVisible: false
+)
+precondition(hiddenDuplicateUsagePlan.notifications.isEmpty)
+let visibleUsagePlan = WorkbenchBudgetNotificationPlanner.plan(
+    cards: usageCards,
+    notifiedAgentIDs: [],
+    usageDashboardVisible: true
+)
+precondition(visibleUsagePlan.notifications.isEmpty)
+
 precondition(resolver.sanitizedCustomerId(" Jackie David ") == "jackie-david")
 precondition(resolver.sanitizedCustomerId("David_Poku!") == "david-poku")
 precondition(resolver.sanitizedCustomerId("") == "golden")
@@ -752,6 +844,7 @@ precondition(!osViewsSource.contains("struct SharedBrowser2View"))
 precondition(!osViewsSource.contains("struct CreativeStudioPlaceholderView"))
 precondition(osViewsSource.contains("struct ApprovalCenterView"))
 precondition(osViewsSource.contains("model.decideApprovalRequest"))
+precondition(osViewsSource.contains("request.actionTitle(for: decision)"))
 precondition(osViewsSource.contains("decision != .deny && (!request.isActionable || request.isExpired())"))
 precondition(!osViewsSource.contains("try? await Task.sleep(nanoseconds: 5_000_000_000)"))
 precondition(osViewsSource.contains("Display names and summaries alone are not enough"))
@@ -768,6 +861,9 @@ precondition(!osViewsSource.contains("Providers & Auth Hub"))
 precondition(osViewsSource.contains("WorkbenchSurface(title: \"Providers\""))
 precondition(osViewsSource.contains("Connect provider accounts in the Shared Browser"))
 precondition(osViewsSource.contains("OpenClaw Grant"))
+precondition(osViewsSource.contains("struct UsageDashboardView"))
+precondition(osViewsSource.contains("model.usageDashboardCards"))
+precondition(osViewsSource.contains("card.primaryActionTitle"))
 let sidebarSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/SidebarView.swift", encoding: .utf8)
 precondition(sidebarSource.contains("Approval Center"))
 precondition(!sidebarSource.contains("Preview"))
@@ -853,6 +949,9 @@ precondition(workbenchModelSource.contains("await refreshCapabilityManifest(trig
 precondition(workbenchModelSource.contains("await refreshCapabilityManifest(trigger: \"provider_action\")"))
 precondition(workbenchModelSource.contains("capabilityManifestStatusText = \"Cached: summary pending\""))
 precondition(workbenchModelSource.contains("capabilityManifestStatusText = \"Ready: \\(summary.totalGrantCount) grants\""))
+precondition(workbenchModelSource.contains("broker.llmUsage"))
+precondition(workbenchModelSource.contains("WorkbenchBudgetNotificationPlanner.plan"))
+precondition(workbenchModelSource.contains("usageDashboardVisible"))
 precondition(workbenchModelSource.contains("capabilityManifestStore.clear"))
 precondition(!workbenchModelSource.contains("Complete `/auth openai-codex`"))
 precondition(workbenchModelSource.contains("lastSignInURL"))
