@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Harden Codex visible GUI post-send waiting for #176: stable composer-visible
+  idle now ends the wait instead of timing out forever, while notification
+  overlays, focus steals, permission prompts, or operator re-entry during the
+  read-only wait phase are returned as inconclusive/contaminated evidence to
+  rerun in a quiet window rather than product failures.
+
 ## 0.6.9 - 2026-05-30
 
 - Wire Approval Center to the live broker: Workbench now polls authenticated

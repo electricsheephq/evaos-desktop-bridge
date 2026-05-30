@@ -150,9 +150,12 @@ Live visible message sending requires rerunning the exact same command with
 `thread_id` and `message_hash`; the audit log stores capped/redacted preview
 and hash, not a hidden app-server mutation. Add `--wait-ms` with optional
 `--poll-interval-ms` when an agent should keep returning capped read-only
-post-send evidence until the visible UI looks idle/done/errors or the wait
-times out. The wait loop only snapshots/reads AX state after submission; it does
-not type, click, call app-server mutation, or send another message.
+post-send evidence until the visible UI looks idle/done/errors, the wait times
+out, or the run becomes inconclusive because Codex lost focus / AX visibility
+during an operator-visible GUI canary. The wait loop only snapshots/reads AX
+state after submission; it does not type, click, call app-server mutation, or
+send another message. Treat inconclusive post-send evidence as a contaminated
+run to rerun in a quiet window, not as proof the visible GUI lane is broken.
 
 ### Visible snapshot
 
