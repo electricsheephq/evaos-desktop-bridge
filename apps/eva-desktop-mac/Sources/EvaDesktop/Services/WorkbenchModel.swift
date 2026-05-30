@@ -109,6 +109,9 @@ final class WorkbenchModel: ObservableObject {
     @Published var capabilityManifestStatusText = "Unchecked"
     @Published var capabilityManifestAgentID = "openclaw"
     @Published var isRefreshingCapabilityManifest = false
+    @Published var usageDashboardCards: [WorkbenchAgentUsageCard] = []
+    @Published var usageDashboardStatusText = "Unchecked"
+    @Published var isRefreshingUsageDashboard = false
     @Published var sharedBrowserStatusText = "Unchecked"
     @Published var sharedBrowserRoomText = "Not opened"
     @Published var sharedBrowserCurrentURLText = "Unavailable"
@@ -140,9 +143,11 @@ final class WorkbenchModel: ObservableObject {
     private let connectorProcess = WorkbenchConnectorProcessManager()
     private var fallbackReloadAttempts: [RuntimeKey: Int] = [:]
     private var approvalCenterVisible = false
+    private var usageDashboardVisible = false
     private var approvalCenterPollingTask: Task<Void, Never>?
     private var approvalPendingRequestIDs: Set<String> = []
     private var approvalNotifiedRequestIDs: Set<String> = []
+    private var budgetNotifiedAgentIDs: Set<String> = []
     private let connectorRefreshBuildKey = "EvaDesktop.lastConnectorRefreshAppBuild"
 
     init() {
@@ -242,6 +247,16 @@ final class WorkbenchModel: ObservableObject {
         let currentIDs = Set(approvalRequests.map(\.id))
         approvalPendingRequestIDs = currentIDs
         approvalNotifiedRequestIDs.formUnion(currentIDs)
+    }
+
+    func setUsageDashboardVisible(_ visible: Bool) {
+        usageDashboardVisible = visible
+        guard visible else { return }
+        budgetNotifiedAgentIDs.formUnion(
+            usageDashboardCards
+                .filter { $0.attentionState == .needsAttention && $0.status == "Budget paused" }
+                .map(\.agentID)
+        )
     }
 
     func startApprovalCenterPolling() {
@@ -773,6 +788,7 @@ final class WorkbenchModel: ObservableObject {
             } else {
                 capabilityManifestStatusText = "Cached: summary pending"
             }
+            await refreshUsageDashboard(trigger: "capability_manifest")
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
             clearLocalSessionState(allowKeychainInteraction: false)
             capabilityManifestStatusText = "Session expired. Sign in again."
@@ -780,6 +796,52 @@ final class WorkbenchModel: ObservableObject {
             resetCapabilityManifestState(statusText: "No policy for agent", clearCache: true)
         } catch {
             resetCapabilityManifestState(statusText: "Unavailable", clearCache: false)
+        }
+    }
+
+    func refreshUsageDashboard(trigger _: String = "manual") async {
+        guard isSignedIn else {
+            resetUsageDashboardState(statusText: "Sign in first")
+            return
+        }
+        guard !isRefreshingUsageDashboard else { return }
+        isRefreshingUsageDashboard = true
+        usageDashboardStatusText = "Refreshing..."
+        defer { isRefreshingUsageDashboard = false }
+
+        do {
+            let response = try await broker.llmUsage(desktopSession: session)
+            let cards = WorkbenchUsageDashboardDeriver.cards(
+                from: response,
+                manifestSummary: capabilityManifestSummary
+            )
+            usageDashboardCards = cards
+            if !response.errors.isEmpty {
+                usageDashboardStatusText = "Usage warnings"
+            } else if cards.isEmpty {
+                usageDashboardStatusText = "No usage yet"
+            } else if cards.contains(where: { $0.attentionState == .needsAttention }) {
+                usageDashboardStatusText = "Budget attention"
+            } else {
+                usageDashboardStatusText = "Ready: \(cards.count) agents"
+            }
+
+            let notificationPlan = WorkbenchBudgetNotificationPlanner.plan(
+                cards: cards,
+                notifiedAgentIDs: budgetNotifiedAgentIDs,
+                usageDashboardVisible: usageDashboardVisible
+            )
+            let candidateAgentIDs = Set(notificationPlan.notifications.compactMap { budgetAgentID(from: $0.requestID) })
+            let deliveredNotificationIDs = await approvalNotificationService.deliver(notificationPlan.notifications)
+            let deliveredAgentIDs = Set(deliveredNotificationIDs.compactMap(budgetAgentID(from:)))
+            budgetNotifiedAgentIDs = notificationPlan.notifiedAgentIDs
+                .subtracting(candidateAgentIDs)
+                .union(deliveredAgentIDs)
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
+            clearLocalSessionState(allowKeychainInteraction: false)
+            usageDashboardStatusText = "Session expired. Sign in again."
+        } catch {
+            resetUsageDashboardState(statusText: "Usage unavailable")
         }
     }
 
@@ -1613,6 +1675,13 @@ final class WorkbenchModel: ObservableObject {
         approvalNotifiedRequestIDs.removeAll()
     }
 
+    private func resetUsageDashboardState(statusText: String) {
+        usageDashboardCards.removeAll()
+        usageDashboardStatusText = statusText
+        isRefreshingUsageDashboard = false
+        budgetNotifiedAgentIDs.removeAll()
+    }
+
     private func resetCapabilityManifestState(
         statusText: String,
         clearCache: Bool,
@@ -1624,6 +1693,13 @@ final class WorkbenchModel: ObservableObject {
         capabilityManifestSummary = nil
         capabilityManifestStatusText = statusText
         isRefreshingCapabilityManifest = false
+        resetUsageDashboardState(statusText: statusText)
+    }
+
+    private func budgetAgentID(from notificationID: String) -> String? {
+        guard notificationID.hasPrefix("budget:") else { return nil }
+        let agentID = String(notificationID.dropFirst("budget:".count))
+        return agentID.isEmpty ? nil : agentID
     }
 
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {

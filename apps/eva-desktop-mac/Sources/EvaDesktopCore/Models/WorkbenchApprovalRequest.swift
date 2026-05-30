@@ -171,6 +171,9 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
     }
 
     public var availableDecisions: [WorkbenchApprovalDecision] {
+        if isBudgetApproval {
+            return [.allowOnce, .deny]
+        }
         if canAllowAlways {
             return [.allowOnce, .allowAlways, .deny]
         }
@@ -198,7 +201,14 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         destinationPreview.isActionable
     }
 
+    public var isBudgetApproval: Bool {
+        destinationPreview.kind == .budget || toolName.lowercased().contains("budget")
+    }
+
     public var canAllowAlways: Bool {
+        guard !isBudgetApproval else {
+            return false
+        }
         guard allowAlwaysSupported, isActionable, destinationPreview.warning == nil else {
             return false
         }
@@ -218,6 +228,9 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         if isExpired(now: now) {
             return "Approval request has expired. Refresh Approval Center before deciding."
         }
+        if isBudgetApproval {
+            return "Budget paused. Choose \(actionTitle(for: .allowOnce)) or \(actionTitle(for: .deny).lowercased())."
+        }
         if isExpiringSoon(now: now) {
             return "Approval request expires soon. Verify the actual destination and decide before the runtime times out."
         }
@@ -231,6 +244,20 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
             return "Review the actual destination and payload before deciding."
         case .info:
             return "Confirm the destination shown here matches the intended action."
+        }
+    }
+
+    public func actionTitle(for decision: WorkbenchApprovalDecision) -> String {
+        guard isBudgetApproval else {
+            return decision.displayText
+        }
+        switch decision {
+        case .allowOnce:
+            return firstActionPayloadValue(keys: ["primary_action_title", "increase_cap_title", "increase_cap_action"]) ?? "Increase cap"
+        case .allowAlways:
+            return decision.displayText
+        case .deny:
+            return firstActionPayloadValue(keys: ["secondary_action_title", "stop_agent_title", "stop_agent_action"]) ?? "Stop agent"
         }
     }
 
@@ -279,6 +306,15 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         case expiresAt = "expires_at"
         case sourcePointer = "source_pointer"
         case auditId = "audit_id"
+    }
+
+    private func firstActionPayloadValue(keys: [String]) -> String? {
+        for key in keys {
+            if let value = actionPayload[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 }
 

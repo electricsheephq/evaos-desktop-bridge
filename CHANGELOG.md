@@ -4,6 +4,13 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add issue #147 per-agent usage budget cards: Workbench decodes broker-proxied
+  LLM `by_agent` usage, compares the active agent against Capability Manifest
+  token/dollar caps, renders progress/paused states in Providers, and plans a
+  local budget-paused notification. Approval Center now renders broker
+  budget-pause rows with the expected "Increase cap" and "Stop agent" actions
+  without adding a generic mutation endpoint.
+
 ## 0.6.13 - 2026-05-30
 
 - Add issue #144 Approval Center timeout awareness: Workbench now decodes
