@@ -4,6 +4,9 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Extend the Workbench pre-canary stale `EvaDesktop.app` scan to legacy Lexar
+  worktree roots after an old `0.1.0` `EvaDesktop.app` was found running beside
+  the canonical `/Applications/evaOS.app`.
 - Add a `--control-surface bridge-peekaboo` pre-canary mode so Workbench GUI
   canaries driven by audited bridge/Peekaboo commands are not blocked by stale
   or broken Codex `mcp__computer_use` helper processes, while Codex-MCP canaries
