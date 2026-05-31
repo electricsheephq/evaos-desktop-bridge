@@ -738,6 +738,58 @@ def test_desktop_click_snapshot_coordinates_keep_snapshot_target_when_frontmost_
     assert ("pgrep", "-x", "TextEdit") not in observer.runner.commands
 
 
+def test_desktop_click_snapshot_coordinate_hit_test_uses_half_open_bounds(tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-abababababababababababababababab"
+    helper = FakeHelperClient(
+        CommandResult(
+            ok=True,
+            data={"performed": True, "action": "click", "clicked": True, "point": {"x": 200, "y": 220}, "engine": "helper_post_to_pid"},
+            provenance={"source": "computer_use_helper"},
+        )
+    )
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    left_target = {"pid": 4242, "app_name": "Finder", "process_name": "Finder", "path": [{"role": "AXRow", "name": "Left", "index": 0}]}
+    right_target = {"pid": 4343, "app_name": "Finder", "process_name": "Finder", "path": [{"role": "AXRow", "name": "Right", "index": 1}]}
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "left-row",
+                "label": "Left",
+                "role": "AXRow",
+                "bounds": {"x": 100, "y": 200, "width": 100, "height": 40},
+                "center": {"x": 150, "y": 220},
+                "actions": [],
+                "engine": "ax_fallback",
+                "ax_target": left_target,
+            },
+            {
+                "element_id": "right-row",
+                "label": "Right",
+                "role": "AXRow",
+                "bounds": {"x": 200, "y": 200, "width": 100, "height": 40},
+                "center": {"x": 250, "y": 220},
+                "actions": [],
+                "engine": "ax_fallback",
+                "ax_target": right_target,
+            },
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, x=200, y=220, dry_run=False)
+
+    assert result.ok is True
+    assert helper.calls[0][1]["target"] == right_target
+
+
 def test_desktop_click_snapshot_coordinates_without_ax_target_fail_closed_before_frontmost_retarget(tmp_path: Path) -> None:
     snapshot_id = "snap-desktop-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "click"}))
@@ -761,6 +813,41 @@ def test_desktop_click_snapshot_coordinates_without_ax_target_fail_closed_before
     assert result.errors[0]["code"] == "post_to_pid_target_required"
     assert helper.calls == []
     assert ("pgrep", "-x", "TextEdit") not in observer.runner.commands
+
+
+def test_desktop_click_ax_gap_target_with_invalid_pid_fails_before_helper_dispatch(tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-acacacacacacacacacacacacacacacac"
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "click"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "bad-row",
+                "label": "Bad",
+                "role": "AXRow",
+                "bounds": {"x": 100, "y": 200, "width": 100, "height": 40},
+                "center": {"x": 150, "y": 220},
+                "actions": [],
+                "engine": "ax_fallback",
+                "ax_target": {"pid": "4242", "app_name": "Finder", "process_name": "Finder", "path": [{"role": "AXRow", "name": "Bad", "index": 0}]},
+            }
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="bad-row", dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "ax_target_process_identity_required"
+    assert helper.calls == []
 
 
 def test_desktop_click_browser_coordinate_post_to_pid_fails_closed_without_helper_dispatch(tmp_path: Path) -> None:

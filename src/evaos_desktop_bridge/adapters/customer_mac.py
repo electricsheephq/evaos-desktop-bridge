@@ -2353,7 +2353,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                 continue
             if width <= 0 or height <= 0:
                 continue
-            if bx <= x <= bx + width and by <= y <= by + height:
+            if bx <= x < bx + width and by <= y < by + height:
                 candidates.append((width * height, ax_target))
         if not candidates:
             return None
@@ -2577,8 +2577,9 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         )
 
     def _ax_target_process_identity_block(self, *, ax_target: dict[str, Any], action: str) -> CommandResult | None:
+        pid = ax_target.get("pid")
         process_name = ax_target.get("process_name")
-        if isinstance(process_name, str) and process_name.strip():
+        if type(pid) is int and pid > 0 and isinstance(process_name, str) and process_name.strip():
             return None
         return CommandResult(
             ok=False,
