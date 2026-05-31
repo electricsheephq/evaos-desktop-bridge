@@ -183,7 +183,8 @@ def test_connector_defaults_guarded_commands_to_dry_run() -> None:
     ]
 
 
-def test_connector_builds_desktop_control_argv() -> None:
+def test_connector_builds_desktop_control_argv(tmp_path: Path) -> None:
+    value_file = tmp_path / "value.txt"
     assert build_bridge_argv("customerMacControlStart", {"mode": "full-access", "agent_label": "Aurelius"}) == [
         "customer-mac",
         "control",
@@ -209,7 +210,7 @@ def test_connector_builds_desktop_control_argv() -> None:
         {
             "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "element_id": "el-0001",
-            "value_file": "/tmp/value.txt",
+            "value_file": str(value_file),
             "_prepared_value_file": True,
         },
     ) == [
@@ -222,7 +223,7 @@ def test_connector_builds_desktop_control_argv() -> None:
         "--element-id",
         "el-0001",
         "--value-file",
-        "/tmp/value.txt",
+        str(value_file),
         "--attribute",
         "value",
         "--dry-run",
@@ -450,6 +451,8 @@ def test_connector_desktop_set_value_materializes_value_file_for_local_argv(tmp_
         state_dir=tmp_path,
     )
 
+    assert "value" not in prepared
+    assert prepared.get("_prepared_value_file") is True
     argv = build_bridge_argv("desktopSetValue", prepared)
 
     assert "--value-file" in argv

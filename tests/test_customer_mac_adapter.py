@@ -383,6 +383,8 @@ def test_desktop_set_value_routes_ax_snapshot_target_through_helper_without_typi
     assert result.data["engine"] == "helper_ax"
     assert helper.calls[0][0] == "ax_action"
     assert helper.calls[0][1] == {"action": "set_value", "target": ax_target, "value": "hello", "attribute": "AXValue"}
+    assert helper.calls[0][2]
+    assert str(helper.calls[0][2]).startswith("audit-helper-")
     assert not any(command and command[0] == "osascript" and "keystroke" in " ".join(command) for command in observer.runner.commands)
 
 
