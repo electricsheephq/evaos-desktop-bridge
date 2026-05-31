@@ -689,6 +689,38 @@ def test_append_audit_writes_redacted_jsonl(tmp_path: Path) -> None:
     assert record["args"]["path"] == "~/secret.txt"
 
 
+def test_append_audit_accepts_explicit_bridge_audit_id(tmp_path: Path) -> None:
+    audit_id = append_audit(
+        command="helper.mouse_action",
+        target="computer_use_helper",
+        args={},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+        audit_id="audit-helper-test",
+    )
+
+    record = json.loads((tmp_path / "audit.jsonl").read_text(encoding="utf-8"))
+
+    assert audit_id == "audit-helper-test"
+    assert record["audit_id"] == "audit-helper-test"
+
+
+def test_append_audit_rejects_malformed_explicit_audit_id(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="audit_id must start with audit-"):
+        append_audit(
+            command="helper.mouse_action",
+            target="computer_use_helper",
+            args={},
+            ok=True,
+            warnings=[],
+            errors=[],
+            state_dir=tmp_path,
+            audit_id="helper-test",
+        )
+
+
 def test_latest_state_is_redacted(tmp_path: Path) -> None:
     envelope = build_envelope(
         command="codex.snapshot",

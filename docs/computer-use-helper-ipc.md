@@ -139,8 +139,16 @@ rotated private token file, peer-uid match, strict framing, exact command
 allowlist, and a required bridge-provided audit id before `mouse_action`.
 Accepted helper sockets have read timeouts so a stalled local peer cannot wedge
 later helper actions.
-`#129` remains the stronger follow-up for a fully audited command-envelope IPC
-seam and supervisor lifecycle.
+
+Issue `#129` closes the current audited command-envelope requirement for the
+helper-owned `mouse_action` route: the bridge writes a durable
+`helper.mouse_action` record with `audit_phase = authorized_dispatch` before it
+sends the IPC frame, passes that exact `audit_id` in the helper request, then
+writes a separate completion record with `audit_phase = completion` after the
+helper returns or fails. If the bridge process dies during dispatch, the
+authorized helper request is still present in the append-only audit log. The
+helper itself remains dumb hands and does not duplicate policy, approval, or
+redaction logic.
 
 This slice deliberately rejects broad actuation and escape hatches, including
 desktop typing, iPhone tap/type, shell, Python, AppleScript, Codex app-server
@@ -177,3 +185,6 @@ certification.
 - helper permission preflight identity/grant reporting, fail-closed
   `permission_missing`, fail-closed `helper_identity_unverified`, and no Quartz
   execution when enforced preflight fails.
+- bridge-side helper actuation audit records for both authorized dispatch and
+  completion/failure, with the dispatch audit id sent through the helper IPC
+  envelope.

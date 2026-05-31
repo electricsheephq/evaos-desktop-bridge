@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 from urllib.parse import urlparse
 
-from ..audit import default_state_dir
+from ..audit import append_audit, default_state_dir
 from ..helper_ipc import helper_client_from_environment
 from ..redaction import cap_text, redact_value
 from ..schema import make_error, timestamp_utc
@@ -1550,12 +1550,18 @@ except Exception as exc:
                         "to_y": int(kwargs["to_y"]),
                     }
                 )
+            self._append_helper_actuation_attempt(helper_audit_id=helper_audit_id, payload=payload)
             try:
                 result = self.helper_client.dispatch("mouse_action", payload, audit_id=helper_audit_id)
                 result.provenance.setdefault("helper_audit_id", helper_audit_id)
+                self._append_helper_actuation_result(
+                    helper_audit_id=helper_audit_id,
+                    payload=payload,
+                    result=result,
+                )
                 return result
             except Exception as exc:
-                return CommandResult(
+                result = CommandResult(
                     ok=False,
                     data=data,
                     errors=[
@@ -1568,6 +1574,12 @@ except Exception as exc:
                     warnings=[str(redact_value(exc))],
                     provenance={"source": "computer_use_helper"},
                 )
+                self._append_helper_actuation_result(
+                    helper_audit_id=helper_audit_id,
+                    payload=payload,
+                    result=result,
+                )
+                return result
         result = self.runner(argv, 10.0)
         warnings = self._stderr_warning(result)
         try:
@@ -1584,6 +1596,53 @@ except Exception as exc:
         if action == "drag":
             data["dragged"] = True
         return CommandResult(ok=True, data=data, warnings=warnings, provenance={"source": "quartz"})
+
+    def _append_helper_actuation_attempt(
+        self,
+        *,
+        helper_audit_id: str,
+        payload: dict[str, object],
+    ) -> None:
+        append_audit(
+            command="helper.mouse_action",
+            target="computer_use_helper",
+            args={"payload": payload},
+            ok=True,
+            warnings=["helper actuation request authorized and recorded before IPC dispatch"],
+            errors=[],
+            provenance={
+                "source": "computer_use_helper",
+                "helper_command": "mouse_action",
+                "helper_audit_id": helper_audit_id,
+                "audit_phase": "authorized_dispatch",
+            },
+            state_dir=self.state_dir,
+            audit_id=helper_audit_id,
+        )
+
+    def _append_helper_actuation_result(
+        self,
+        *,
+        helper_audit_id: str,
+        payload: dict[str, object],
+        result: CommandResult,
+    ) -> None:
+        append_audit(
+            command="helper.mouse_action",
+            target="computer_use_helper",
+            args={"payload": payload},
+            ok=result.ok,
+            warnings=result.warnings,
+            errors=result.errors,
+            provenance={
+                **result.provenance,
+                "source": "computer_use_helper",
+                "helper_command": "mouse_action",
+                "helper_audit_id": helper_audit_id,
+                "audit_phase": "completion",
+            },
+            state_dir=self.state_dir,
+        )
 
     def _keystroke_arbitrary_text(self, text: str) -> CommandResult:
         if len(text) > 4000:

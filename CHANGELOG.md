@@ -4,6 +4,14 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Complete issue #129 IPC-seam safety for the current helper route: every
+  helper `mouse_action` now writes an append-only `helper.mouse_action`
+  authorized-dispatch audit record before IPC dispatch, sends that durable
+  audit id through the helper envelope, and writes a separate completion record
+  after the helper returns or fails. This keeps the helper as authenticated
+  dumb hands while preserving bridge-side policy, approval, sensitive-app, and
+  kill-switch gates above the seam.
+
 ## 0.6.16 - 2026-05-31
 
 - Implement issue #122 signed-helper/TCC identity closure: Workbench now starts
