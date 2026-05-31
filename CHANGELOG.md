@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.15 - 2026-05-31
+
 - Start the issue #121 persistent computer-use helper foundation: add a local
   authenticated Unix-socket helper server/client, expose `helper ping`, use a
   short default helper socket path for macOS `AF_UNIX` limits, rotate the
