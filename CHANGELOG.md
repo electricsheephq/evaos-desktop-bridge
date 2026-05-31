@@ -4,6 +4,10 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add Workbench development runbook guidance for batching related issues into
+  sprint releases, using validation tiers, isolating GUI canary windows from
+  Slack/notification/TCC noise, and reserving Swift CodeQL for release,
+  security, main, nightly, or manual gates instead of every tiny PR push.
 - Retire the Tier-2 global HID event fallback for issue #124. Mouse
   click/scroll/drag helper actuation now requires an audited target process and
   dispatches through `CGEventPostToPid`, with browser web content treated as
