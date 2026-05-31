@@ -79,6 +79,18 @@ def short_socket_path() -> Path:
     return Path("/tmp") / f"evaos-customer-helper-{uuid.uuid4().hex}.sock"
 
 
+FRONTMOST_SCRIPT = 'tell application "System Events" to get name of first application process whose frontmost is true'
+FINDER_TARGET = {"pid": 4242, "app_name": "Finder", "process_name": "Finder", "path": []}
+
+
+def frontmost_process_outputs(app_name: str = "Finder", pid: int = 4242, process_name: str = "Finder") -> dict[tuple[str, ...], RunnerResult]:
+    return {
+        ("osascript", "-e", FRONTMOST_SCRIPT): RunnerResult(returncode=0, stdout=f"{app_name}\n", stderr=""),
+        ("pgrep", "-x", app_name): RunnerResult(returncode=0, stdout=f"{pid}\n", stderr=""),
+        ("ps", "-p", str(pid), "-o", "comm="): RunnerResult(returncode=0, stdout=f"/System/Applications/{process_name}.app/Contents/MacOS/{process_name}\n", stderr=""),
+    }
+
+
 def test_iphone_open_app_blocks_sensitive_ios_apps_during_dry_run(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
     observer = CustomerMacObserver(
@@ -140,12 +152,12 @@ def test_desktop_click_dry_run_allows_coordinate_fallback_without_mutation(tmp_p
     assert_no_mutation_commands(observer.runner.commands)
 
 
-def test_desktop_click_routes_quartz_fallback_through_helper_without_python_spawn(tmp_path: Path) -> None:
-    runner = FakeRunner()
+def test_desktop_click_routes_post_to_pid_fallback_through_helper_without_python_spawn(tmp_path: Path) -> None:
+    runner = FakeRunner(frontmost_process_outputs())
     helper = FakeHelperClient(
         CommandResult(
             ok=True,
-            data={"performed": True, "action": "click", "clicked": True, "point": {"x": 10, "y": 20}, "engine": "helper_quartz"},
+            data={"performed": True, "action": "click", "clicked": True, "point": {"x": 10, "y": 20}, "engine": "helper_post_to_pid"},
             provenance={"source": "computer_use_helper"},
         )
     )
@@ -161,9 +173,9 @@ def test_desktop_click_routes_quartz_fallback_through_helper_without_python_spaw
 
     assert result.ok is True
     assert result.data["clicked"] is True
-    assert result.data["engine"] == "helper_quartz"
+    assert result.data["engine"] == "helper_post_to_pid"
     assert result.provenance["source"] == "computer_use_helper"
-    assert helper.calls[0][:2] == ("mouse_action", {"action": "click", "x": 10, "y": 20})
+    assert helper.calls[0][:2] == ("mouse_action", {"action": "click", "target": FINDER_TARGET, "x": 10, "y": 20})
     assert helper.calls[0][2] and helper.calls[0][2].startswith("audit-helper-")
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
@@ -172,13 +184,13 @@ def test_desktop_click_helper_dispatch_writes_actuation_audit_record(tmp_path: P
     helper = AuditCheckingHelperClient(
         CommandResult(
             ok=True,
-            data={"performed": True, "action": "click", "clicked": True, "point": {"x": 10, "y": 20}, "engine": "helper_quartz"},
+            data={"performed": True, "action": "click", "clicked": True, "point": {"x": 10, "y": 20}, "engine": "helper_post_to_pid"},
             provenance={"source": "computer_use_helper"},
         ),
         state_dir=tmp_path,
     )
     observer = CustomerMacObserver(
-        runner=FakeRunner(),
+        runner=FakeRunner(frontmost_process_outputs()),
         helper_client=helper,
         state_dir=tmp_path,
         platform_name="Darwin",
@@ -197,7 +209,7 @@ def test_desktop_click_helper_dispatch_writes_actuation_audit_record(tmp_path: P
     assert attempt["command"] == "helper.mouse_action"
     assert attempt["target"] == "computer_use_helper"
     assert attempt["ok"] is True
-    assert attempt["args"]["payload"] == {"action": "click", "x": 10, "y": 20}
+    assert attempt["args"]["payload"] == {"action": "click", "target": FINDER_TARGET, "x": 10, "y": 20}
     assert attempt["provenance"]["source"] == "computer_use_helper"
     assert attempt["provenance"]["helper_command"] == "mouse_action"
     assert attempt["provenance"]["audit_phase"] == "authorized_dispatch"
@@ -468,7 +480,7 @@ def test_desktop_click_blocks_ax_target_without_process_identity_before_helper_d
 
 
 def test_desktop_click_helper_error_fails_closed_without_python_fallback(tmp_path: Path) -> None:
-    runner = FakeRunner({(sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "click"}), stderr="")})
+    runner = FakeRunner({**frontmost_process_outputs(), (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "click"}), stderr="")})
     helper = FakeHelperClient(
         CommandResult(
             ok=False,
@@ -488,7 +500,7 @@ def test_desktop_click_helper_error_fails_closed_without_python_fallback(tmp_pat
 
     assert result.ok is False
     assert result.errors[0]["code"] == "helper_unavailable"
-    assert helper.calls[0][:2] == ("mouse_action", {"action": "click", "x": 10, "y": 20})
+    assert helper.calls[0][:2] == ("mouse_action", {"action": "click", "target": FINDER_TARGET, "x": 10, "y": 20})
     assert helper.calls[0][2] and helper.calls[0][2].startswith("audit-helper-")
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
@@ -503,7 +515,7 @@ def test_desktop_click_helper_failure_writes_failed_actuation_audit_record(tmp_p
         )
     )
     observer = CustomerMacObserver(
-        runner=FakeRunner(),
+        runner=FakeRunner(frontmost_process_outputs()),
         helper_client=helper,
         state_dir=tmp_path,
         platform_name="Darwin",
@@ -556,12 +568,12 @@ def test_desktop_click_sensitive_frontmost_blocks_before_helper_audit_or_dispatc
     assert not (tmp_path / "audit.jsonl").exists()
 
 
-def test_desktop_scroll_routes_quartz_fallback_through_helper_without_python_spawn(tmp_path: Path) -> None:
-    runner = FakeRunner()
+def test_desktop_scroll_routes_post_to_pid_fallback_through_helper_without_python_spawn(tmp_path: Path) -> None:
+    runner = FakeRunner(frontmost_process_outputs())
     helper = FakeHelperClient(
         CommandResult(
             ok=True,
-            data={"performed": True, "action": "scroll", "scrolled": True, "direction": "down", "amount": 600, "engine": "helper_quartz"},
+            data={"performed": True, "action": "scroll", "scrolled": True, "direction": "down", "amount": 600, "engine": "helper_post_to_pid"},
             provenance={"source": "computer_use_helper"},
         )
     )
@@ -576,18 +588,18 @@ def test_desktop_scroll_routes_quartz_fallback_through_helper_without_python_spa
     result = observer.desktop_scroll(direction="down", amount=600, dry_run=False)
 
     assert result.ok is True
-    assert result.data["engine"] == "helper_quartz"
-    assert helper.calls[0][:2] == ("mouse_action", {"action": "scroll", "direction": "down", "amount": 600})
+    assert result.data["engine"] == "helper_post_to_pid"
+    assert helper.calls[0][:2] == ("mouse_action", {"action": "scroll", "target": FINDER_TARGET, "direction": "down", "amount": 600})
     assert helper.calls[0][2] and helper.calls[0][2].startswith("audit-helper-")
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 
-def test_desktop_drag_routes_quartz_fallback_through_helper_without_python_spawn(tmp_path: Path) -> None:
-    runner = FakeRunner()
+def test_desktop_drag_routes_post_to_pid_fallback_through_helper_without_python_spawn(tmp_path: Path) -> None:
+    runner = FakeRunner(frontmost_process_outputs())
     helper = FakeHelperClient(
         CommandResult(
             ok=True,
-            data={"performed": True, "action": "drag", "dragged": True, "from": {"x": 1, "y": 2}, "to": {"x": 3, "y": 4}, "engine": "helper_quartz"},
+            data={"performed": True, "action": "drag", "dragged": True, "from": {"x": 1, "y": 2}, "to": {"x": 3, "y": 4}, "engine": "helper_post_to_pid"},
             provenance={"source": "computer_use_helper"},
         )
     )
@@ -602,14 +614,80 @@ def test_desktop_drag_routes_quartz_fallback_through_helper_without_python_spawn
     result = observer.desktop_drag(from_x=1, from_y=2, to_x=3, to_y=4, dry_run=False)
 
     assert result.ok is True
-    assert result.data["engine"] == "helper_quartz"
-    assert helper.calls[0][:2] == ("mouse_action", {"action": "drag", "from_x": 1, "from_y": 2, "to_x": 3, "to_y": 4})
+    assert result.data["engine"] == "helper_post_to_pid"
+    assert helper.calls[0][:2] == ("mouse_action", {"action": "drag", "target": FINDER_TARGET, "from_x": 1, "from_y": 2, "to_x": 3, "to_y": 4})
     assert helper.calls[0][2] and helper.calls[0][2].startswith("audit-helper-")
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 
+def test_desktop_click_routes_ax_gap_snapshot_target_through_post_to_pid_helper(tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-cccccccccccccccccccccccccccccccc"
+    (tmp_path / "snapshots").mkdir()
+    (tmp_path / "snapshots" / f"{snapshot_id}.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": snapshot_id,
+                "target": "desktop",
+                "engine": "ax_fallback",
+                "timestamp": "2999-01-01T00:00:00Z",
+                "elements": [
+                    {
+                        "element_id": "finder-row",
+                        "label": "Documents",
+                        "role": "AXRow",
+                        "bounds": {"x": 100, "y": 200, "width": 180, "height": 32},
+                        "center": {"x": 190, "y": 216},
+                        "actions": [],
+                        "engine": "ax_fallback",
+                        "ax_target": {
+                            "pid": 4242,
+                            "app_name": "Finder",
+                            "process_name": "Finder",
+                            "path": [{"role": "AXWindow", "index": 0}, {"role": "AXRow", "name": "Documents", "index": 3}],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    helper = FakeHelperClient(
+        CommandResult(
+            ok=True,
+            data={"performed": True, "action": "click", "clicked": True, "point": {"x": 190, "y": 216}, "engine": "helper_post_to_pid"},
+            provenance={"source": "computer_use_helper"},
+        )
+    )
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="finder-row", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["engine"] == "helper_post_to_pid"
+    assert helper.calls[0][0] == "mouse_action"
+    assert helper.calls[0][1] == {
+        "action": "click",
+        "x": 190,
+        "y": 216,
+        "target": {
+            "pid": 4242,
+            "app_name": "Finder",
+            "process_name": "Finder",
+            "path": [{"role": "AXWindow", "index": 0}, {"role": "AXRow", "name": "Documents", "index": 3}],
+        },
+    }
+    assert helper.calls[0][2] and helper.calls[0][2].startswith("audit-helper-")
+    assert not any(command and command[0] == sys.executable for command in observer.runner.commands)
+
+
 def test_desktop_scroll_helper_error_fails_closed_without_python_fallback(tmp_path: Path) -> None:
-    runner = FakeRunner({(sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "scroll"}), stderr="")})
+    runner = FakeRunner({**frontmost_process_outputs(), (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "scroll"}), stderr="")})
     helper = FakeHelperClient(CommandResult(ok=False, data={"performed": False, "action": "scroll"}, errors=[{"code": "helper_unavailable", "message": "helper unavailable", "guidance": "restart helper"}]))
     observer = CustomerMacObserver(
         runner=runner,
@@ -623,12 +701,12 @@ def test_desktop_scroll_helper_error_fails_closed_without_python_fallback(tmp_pa
 
     assert result.ok is False
     assert result.errors[0]["code"] == "helper_unavailable"
-    assert helper.calls[0][:2] == ("mouse_action", {"action": "scroll", "direction": "down", "amount": 600})
+    assert helper.calls[0][:2] == ("mouse_action", {"action": "scroll", "target": FINDER_TARGET, "direction": "down", "amount": 600})
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 
 def test_desktop_drag_helper_error_fails_closed_without_python_fallback(tmp_path: Path) -> None:
-    runner = FakeRunner({(sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "drag"}), stderr="")})
+    runner = FakeRunner({**frontmost_process_outputs(), (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "drag"}), stderr="")})
     helper = FakeHelperClient(CommandResult(ok=False, data={"performed": False, "action": "drag"}, errors=[{"code": "helper_unavailable", "message": "helper unavailable", "guidance": "restart helper"}]))
     observer = CustomerMacObserver(
         runner=runner,
@@ -642,7 +720,7 @@ def test_desktop_drag_helper_error_fails_closed_without_python_fallback(tmp_path
 
     assert result.ok is False
     assert result.errors[0]["code"] == "helper_unavailable"
-    assert helper.calls[0][:2] == ("mouse_action", {"action": "drag", "from_x": 1, "from_y": 2, "to_x": 3, "to_y": 4})
+    assert helper.calls[0][:2] == ("mouse_action", {"action": "drag", "target": FINDER_TARGET, "from_x": 1, "from_y": 2, "to_x": 3, "to_y": 4})
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 
@@ -659,7 +737,7 @@ def test_desktop_click_uses_env_configured_unix_helper_without_python_spawn(monk
         calls.append((command, payload))
         return {
             "ok": True,
-            "data": {"performed": True, "action": "click", "clicked": True, "point": {"x": payload["x"], "y": payload["y"]}, "engine": "helper_quartz"},
+            "data": {"performed": True, "action": "click", "clicked": True, "point": {"x": payload["x"], "y": payload["y"]}, "engine": "helper_post_to_pid"},
             "warnings": [],
             "errors": [],
         }
@@ -682,7 +760,7 @@ def test_desktop_click_uses_env_configured_unix_helper_without_python_spawn(monk
     monkeypatch.setenv("EVAOS_DESKTOP_BRIDGE_USE_HELPER", "1")
     monkeypatch.setenv("EVAOS_DESKTOP_BRIDGE_HELPER_SOCKET", str(socket_path))
     monkeypatch.setenv("EVAOS_DESKTOP_BRIDGE_HELPER_TOKEN_FILE", str(token_file))
-    runner = FakeRunner()
+    runner = FakeRunner(frontmost_process_outputs())
     observer = CustomerMacObserver(
         runner=runner,
         state_dir=tmp_path,
@@ -694,8 +772,8 @@ def test_desktop_click_uses_env_configured_unix_helper_without_python_spawn(monk
 
     thread.join(timeout=2)
     assert result.ok is True
-    assert result.data["engine"] == "helper_quartz"
-    assert calls == [("mouse_action", {"action": "click", "x": 10, "y": 20})]
+    assert result.data["engine"] == "helper_post_to_pid"
+    assert calls == [("mouse_action", {"action": "click", "target": FINDER_TARGET, "x": 10, "y": 20})]
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 
@@ -897,7 +975,7 @@ def test_desktop_click_uses_peekaboo_snapshot_element_before_coordinate_fallback
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 
-def test_desktop_click_uses_peekaboo_global_coordinates_before_quartz(monkeypatch, tmp_path: Path) -> None:
+def test_desktop_click_uses_peekaboo_global_coordinates_before_post_to_pid(monkeypatch, tmp_path: Path) -> None:
     runner = FakeRunner(
         {
             ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
@@ -1270,11 +1348,20 @@ def test_iphone_live_swipe_uses_internal_gesture_not_generic_coordinates(monkeyp
                 'tell application "System Events" to tell process "iPhone Mirroring" to get {position, size} of front window',
             ): RunnerResult(returncode=0, stdout="100, 200, 300, 700\n", stderr=""),
             ("open", "-a", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="", stderr=""),
+            ("ps", "-p", "123", "-o", "comm="): RunnerResult(returncode=0, stdout="/System/Applications/iPhone Mirroring.app/Contents/MacOS/iPhone Mirroring\n", stderr=""),
             (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "drag"}), stderr=""),
         }
     )
+    helper = FakeHelperClient(
+        CommandResult(
+            ok=True,
+            data={"performed": True, "action": "drag", "dragged": True, "from": {"x": 346, "y": 550}, "to": {"x": 154, "y": 550}, "engine": "helper_post_to_pid"},
+            provenance={"source": "computer_use_helper"},
+        )
+    )
     observer = CustomerMacObserver(
         runner=runner,
+        helper_client=helper,
         state_dir=tmp_path,
         platform_name="Darwin",
         accessibility_checker=lambda: True,
@@ -1286,6 +1373,8 @@ def test_iphone_live_swipe_uses_internal_gesture_not_generic_coordinates(monkeyp
     assert result.data["gesture"] == "drag"
     assert result.data["from"] == {"x": 346, "y": 550}
     assert result.data["to"] == {"x": 154, "y": 550}
+    assert helper.calls[0][0] == "mouse_action"
+    assert helper.calls[0][1]["target"] == {"pid": 123, "app_name": "iPhone Mirroring", "process_name": "iPhone Mirroring", "path": []}
     assert_no_keystroke_commands(runner.commands)
 
 

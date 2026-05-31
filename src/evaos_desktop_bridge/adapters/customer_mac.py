@@ -332,116 +332,6 @@ if press:
 print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches), "pressed": press}))
 """.strip()
 
-    IPHONE_SCROLL_GESTURE_SCRIPT = """
-import json
-import sys
-
-pid = int(sys.argv[1])
-dx = int(sys.argv[2])
-dy = int(sys.argv[3])
-
-try:
-    import ApplicationServices as AS
-    import Quartz
-except Exception as exc:
-    print(json.dumps({"ok": False, "error": f"pyobjc_missing: {exc}"}))
-    raise SystemExit(0)
-
-
-def ax_value(element, attr):
-    try:
-        err, value = AS.AXUIElementCopyAttributeValue(element, attr, None)
-    except Exception:
-        return None
-    if err != 0:
-        return None
-    return value
-
-
-app = AS.AXUIElementCreateApplication(pid)
-windows = ax_value(app, AS.kAXWindowsAttribute) or []
-try:
-    window = list(windows)[0]
-except Exception:
-    print(json.dumps({"ok": False, "error": "iphone_mirroring_window_not_found"}))
-    raise SystemExit(0)
-
-pos = ax_value(window, AS.kAXPositionAttribute)
-size = ax_value(window, AS.kAXSizeAttribute)
-try:
-    ok_pos, point = AS.AXValueGetValue(pos, AS.kAXValueCGPointType, None)
-    ok_size, dimensions = AS.AXValueGetValue(size, AS.kAXValueCGSizeType, None)
-    if not ok_pos or not ok_size:
-        raise ValueError("ax_value_conversion_failed")
-    x = int(point.x + dimensions.width / 2)
-    y = int(point.y + dimensions.height / 2)
-except Exception:
-    print(json.dumps({"ok": False, "error": "iphone_mirroring_window_bounds_unavailable"}))
-    raise SystemExit(0)
-
-source = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateCombinedSessionState)
-move = Quartz.CGEventCreateMouseEvent(source, Quartz.kCGEventMouseMoved, (x, y), Quartz.kCGMouseButtonLeft)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, move)
-event = Quartz.CGEventCreateScrollWheelEvent(source, Quartz.kCGScrollEventUnitPixel, 2, dy, dx)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
-print(json.dumps({"ok": True, "posted": True, "vector": {"dx": dx, "dy": dy}}))
-""".strip()
-
-    MOUSE_EVENT_SCRIPT = """
-import json
-import sys
-
-action = sys.argv[1]
-
-try:
-    import Quartz
-except Exception as exc:
-    print(json.dumps({"ok": False, "error": f"pyobjc_missing: {exc}"}))
-    raise SystemExit(0)
-
-source = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateCombinedSessionState)
-
-def post(event):
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
-
-def mouse_event(kind, x, y, button=Quartz.kCGMouseButtonLeft):
-    return Quartz.CGEventCreateMouseEvent(source, kind, (int(x), int(y)), button)
-
-try:
-    if action == "click":
-        x = int(float(sys.argv[2]))
-        y = int(float(sys.argv[3]))
-        post(mouse_event(Quartz.kCGEventMouseMoved, x, y))
-        post(mouse_event(Quartz.kCGEventLeftMouseDown, x, y))
-        post(mouse_event(Quartz.kCGEventLeftMouseUp, x, y))
-        print(json.dumps({"ok": True, "action": action, "point": {"x": x, "y": y}}))
-    elif action == "scroll":
-        direction = sys.argv[2]
-        amount = int(sys.argv[3])
-        dy = amount if direction == "up" else -amount
-        dx = amount if direction == "left" else -amount if direction == "right" else 0
-        if direction in {"up", "down"}:
-            dx = 0
-        else:
-            dy = 0
-        post(Quartz.CGEventCreateScrollWheelEvent(source, Quartz.kCGScrollEventUnitPixel, 2, dy, dx))
-        print(json.dumps({"ok": True, "action": action, "direction": direction, "amount": amount}))
-    elif action == "drag":
-        x1 = int(float(sys.argv[2]))
-        y1 = int(float(sys.argv[3]))
-        x2 = int(float(sys.argv[4]))
-        y2 = int(float(sys.argv[5]))
-        post(mouse_event(Quartz.kCGEventMouseMoved, x1, y1))
-        post(mouse_event(Quartz.kCGEventLeftMouseDown, x1, y1))
-        post(mouse_event(Quartz.kCGEventLeftMouseDragged, x2, y2))
-        post(mouse_event(Quartz.kCGEventLeftMouseUp, x2, y2))
-        print(json.dumps({"ok": True, "action": action, "from": {"x": x1, "y": y1}, "to": {"x": x2, "y": y2}}))
-    else:
-        print(json.dumps({"ok": False, "error": "unsupported_mouse_action"}))
-except Exception as exc:
-    print(json.dumps({"ok": False, "error": f"mouse_event_failed:{exc}"}))
-""".strip()
-
     def __init__(
         self,
         *,
@@ -496,7 +386,7 @@ except Exception as exc:
                     "iphone_mirroring": sorted(SAFE_IPHONE_ACTIONS | GUARDED_IPHONE_ACTIONS | {"see", "tap", "swipe", "type"}),
                     "screen_sharing": ["status"],
                 },
-                "engines": {"peekaboo": peekaboo, "fallbacks": ["accessibility", "quartz", "system_events"]},
+                "engines": {"peekaboo": peekaboo, "fallbacks": ["accessibility", "post_to_pid_helper", "system_events"]},
                 "control_modes": {
                     "full_access": "Customer-granted session: live clicks, typing, scrolling, dragging, app/window/menu/browser, and iPhone Mirroring actions do not require per-action approval, but sensitive apps remain blocked.",
                     "ask_permission": "Same surface, but high-impact text/send-style actions require approval evidence.",
@@ -645,7 +535,7 @@ except Exception as exc:
             inert_block = self._inert_ax_target_action_block(ax_target=resolved_ax_target, action="press")
             if inert_block is not None:
                 return inert_block
-            if "AXPress" in {str(item) for item in resolved_actions} or resolved_engine == "ax_fallback":
+            if "AXPress" in {str(item) for item in resolved_actions}:
                 pressed = self._helper_ax_action(
                     action="press",
                     target=resolved_ax_target,
@@ -708,7 +598,7 @@ except Exception as exc:
             return pressed
         if x is None or y is None:
             return CommandResult(ok=False, data={"clicked": False}, errors=[make_error(code="desktop_click_target_required", message="desktop_click requires target_label or x/y.", guidance="Prefer a visible target label from desktop_see; use coordinates only when labels are unavailable.")])
-        return self._mouse_action("click", x=x, y=y)
+        return self._mouse_action("click", x=x, y=y, target=resolved_ax_target)
 
     def desktop_set_value(
         self,
@@ -1577,7 +1467,7 @@ except Exception as exc:
             return {
                 "available": False,
                 "install": "brew install steipete/tap/peekaboo",
-                "guidance": "Peekaboo gives agents the best Mac computer-control parity. Built-in Accessibility/Quartz fallbacks remain available for core actions.",
+                "guidance": "Peekaboo gives agents the best Mac computer-control parity. Built-in Accessibility and PostToPid helper fallbacks remain available for core actions.",
             }
         result = self.runner([path, "--version"], 3.0)
         version = result.stdout.strip() or result.stderr.strip() or None
@@ -1635,83 +1525,108 @@ except Exception as exc:
     def _mouse_action(self, action: str, **kwargs: Any) -> CommandResult:
         if self.accessibility_checker() is False:
             return CommandResult(ok=False, data={"performed": False, "action": action}, errors=[self._permission_error("accessibility", f"perform desktop {action}")])
-        argv = [sys.executable, "-c", self.MOUSE_EVENT_SCRIPT, action]
         data: dict[str, Any] = {"performed": False, "action": action}
         if action == "click":
-            argv.extend([str(kwargs["x"]), str(kwargs["y"])])
             data["point"] = self._point(kwargs["x"], kwargs["y"])
         elif action == "scroll":
-            argv.extend([str(kwargs["direction"]), str(kwargs["amount"])])
             data["direction"] = kwargs["direction"]
             data["amount"] = kwargs["amount"]
         elif action == "drag":
-            argv.extend([str(kwargs["from_x"]), str(kwargs["from_y"]), str(kwargs["to_x"]), str(kwargs["to_y"])])
             data["from"] = self._point(kwargs["from_x"], kwargs["from_y"])
             data["to"] = self._point(kwargs["to_x"], kwargs["to_y"])
-        if self.helper_client is not None:
-            helper_audit_id = f"audit-helper-{uuid.uuid4().hex}"
-            payload: dict[str, object] = {"action": action}
-            if action == "click":
-                payload.update({"x": int(kwargs["x"]), "y": int(kwargs["y"])})
-            elif action == "scroll":
-                payload.update({"direction": str(kwargs["direction"]), "amount": int(kwargs["amount"])})
-            elif action == "drag":
-                payload.update(
-                    {
-                        "from_x": int(kwargs["from_x"]),
-                        "from_y": int(kwargs["from_y"]),
-                        "to_x": int(kwargs["to_x"]),
-                        "to_y": int(kwargs["to_y"]),
-                    }
-                )
-            self._append_helper_actuation_attempt(helper_audit_id=helper_audit_id, helper_command="mouse_action", payload=payload)
-            try:
-                result = self.helper_client.dispatch("mouse_action", payload, audit_id=helper_audit_id)
-                result.provenance.setdefault("helper_audit_id", helper_audit_id)
-                self._append_helper_actuation_result(
-                    helper_audit_id=helper_audit_id,
-                    helper_command="mouse_action",
-                    payload=payload,
-                    result=result,
-                )
-                return result
-            except Exception as exc:
-                result = CommandResult(
-                    ok=False,
-                    data=data,
-                    errors=[
-                        make_error(
-                            code="helper_unavailable",
-                            message=f"Persistent computer-use helper failed before performing desktop {action}.",
-                            guidance="Restart the evaOS helper or rerun without helper mode only during supervised local debugging.",
-                        )
-                    ],
-                    warnings=[str(redact_value(exc))],
-                    provenance={"source": "computer_use_helper"},
-                )
-                self._append_helper_actuation_result(
-                    helper_audit_id=helper_audit_id,
-                    helper_command="mouse_action",
-                    payload=payload,
-                    result=result,
-                )
-                return result
-        result = self.runner(argv, 10.0)
-        warnings = self._stderr_warning(result)
-        try:
-            payload = json.loads(result.stdout.strip() or "{}")
-        except json.JSONDecodeError:
-            payload = {"ok": False, "error": "mouse_event_parse_failed"}
-        if result.returncode != 0 or not payload.get("ok"):
-            return CommandResult(ok=False, data=data, errors=[make_error(code=str(payload.get("error") or "mouse_event_failed").split(":", 1)[0], message=f"Unable to perform desktop {action}.", guidance="Verify Accessibility permission and try again.")], warnings=warnings)
-        data.update({"performed": True, "engine": "quartz"})
+        target = kwargs.get("target") if isinstance(kwargs.get("target"), dict) else None
+        if target is None:
+            frontmost = self._frontmost_app()
+            pid = self._pid_for_app(frontmost)
+            process_name = self._process_name_for_pid(pid)
+            if pid is not None and process_name:
+                target = {
+                    "pid": int(pid),
+                    "app_name": frontmost,
+                    "process_name": process_name,
+                    "path": [],
+                }
+        if target is None:
+            return CommandResult(
+                ok=False,
+                data=data,
+                errors=[
+                    make_error(
+                        code="post_to_pid_target_required",
+                        message=f"desktop {action} requires a visible process target for per-process posting.",
+                        guidance="Run desktop_see and choose a target element, or focus a non-sensitive app whose process identity can be resolved.",
+                    )
+                ],
+            )
+        target_block = self._sensitive_ax_target_action_block(ax_target=target, action=action)
+        if target_block is not None:
+            return target_block
+        identity_block = self._ax_target_process_identity_block(ax_target=target, action=action)
+        if identity_block is not None:
+            return identity_block
+        inert_block = self._inert_ax_target_action_block(ax_target=target, action=action)
+        if inert_block is not None:
+            return inert_block
+        if self.helper_client is None:
+            return CommandResult(
+                ok=False,
+                data={**data, "target": self._safe_ax_target(target)},
+                errors=[
+                    make_error(
+                        code="helper_required_for_post_to_pid",
+                        message=f"desktop {action} requires the resident helper for CGEventPostToPid dispatch.",
+                        guidance="Start the evaOS computer-use helper from Workbench before using Tier-2 desktop actuation.",
+                    )
+                ],
+            )
+
+        helper_audit_id = f"audit-helper-{uuid.uuid4().hex}"
+        payload: dict[str, object] = {"action": action, "target": target}
         if action == "click":
-            data["clicked"] = True
-        if action == "scroll":
-            data["scrolled"] = True
-        if action == "drag":
-            data["dragged"] = True
-        return CommandResult(ok=True, data=data, warnings=warnings, provenance={"source": "quartz"})
+            payload.update({"x": int(kwargs["x"]), "y": int(kwargs["y"])})
+        elif action == "scroll":
+            payload.update({"direction": str(kwargs["direction"]), "amount": int(kwargs["amount"])})
+        elif action == "drag":
+            payload.update(
+                {
+                    "from_x": int(kwargs["from_x"]),
+                    "from_y": int(kwargs["from_y"]),
+                    "to_x": int(kwargs["to_x"]),
+                    "to_y": int(kwargs["to_y"]),
+                }
+            )
+        self._append_helper_actuation_attempt(helper_audit_id=helper_audit_id, helper_command="mouse_action", payload=payload)
+        try:
+            result = self.helper_client.dispatch("mouse_action", payload, audit_id=helper_audit_id)
+            result.provenance.setdefault("helper_audit_id", helper_audit_id)
+            self._append_helper_actuation_result(
+                helper_audit_id=helper_audit_id,
+                helper_command="mouse_action",
+                payload=payload,
+                result=result,
+            )
+            return result
+        except Exception as exc:
+            result = CommandResult(
+                ok=False,
+                data=data,
+                errors=[
+                    make_error(
+                        code="helper_unavailable",
+                        message=f"Persistent computer-use helper failed before performing desktop {action}.",
+                        guidance="Restart the evaOS helper before using Tier-2 desktop actuation.",
+                    )
+                ],
+                warnings=[str(redact_value(exc))],
+                provenance={"source": "computer_use_helper"},
+            )
+            self._append_helper_actuation_result(
+                helper_audit_id=helper_audit_id,
+                helper_command="mouse_action",
+                payload=payload,
+                result=result,
+            )
+            return result
 
     def _helper_ax_action(
         self,
@@ -1949,7 +1864,10 @@ except Exception as exc:
                 if direction:
                     data["direction"] = direction
                 return CommandResult(ok=True, data=data, warnings=self._stderr_warning(result), provenance={"source": "peekaboo", "customer_control": True})
-        dragged = self._mouse_action("drag", from_x=start[0], from_y=start[1], to_x=end[0], to_y=end[1])
+        pid = self._pid_for_app("iPhone Mirroring")
+        process_name = self._process_name_for_pid(pid)
+        target = {"pid": int(pid), "app_name": "iPhone Mirroring", "process_name": process_name, "path": []} if pid is not None and process_name else None
+        dragged = self._mouse_action("drag", from_x=start[0], from_y=start[1], to_x=end[0], to_y=end[1], target=target)
         if not dragged.ok:
             return CommandResult(ok=False, data={"performed": False, "action": action, "direction": direction, "from": self._point(*start), "to": self._point(*end)}, errors=dragged.errors, warnings=dragged.warnings)
         data: dict[str, Any] = {"performed": True, "action": action, "gesture": "drag", "from": self._point(*start), "to": self._point(*end)}

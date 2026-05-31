@@ -15,6 +15,7 @@ from evaos_desktop_bridge.helper_ipc import (
     HELPER_IPC_MAX_BYTES,
     HELPER_IPC_SCHEMA_VERSION,
     HelperIpcError,
+    QuartzMouseActionExecutor,
     UnixSocketHelperClient,
     build_helper_request,
     decode_frame,
@@ -92,7 +93,7 @@ def test_helper_ipc_mouse_action_dispatches_authorized_executor_without_echoing_
                 "performed": True,
                 "action": payload["action"],
                 "point": {"x": payload["x"], "y": payload["y"]},
-                "engine": "helper_quartz",
+                "engine": "helper_post_to_pid",
             },
             "warnings": ["warm helper path"],
             "errors": [],
@@ -118,7 +119,7 @@ def test_helper_ipc_mouse_action_dispatches_authorized_executor_without_echoing_
     assert response["request_id"] == "req-mouse"
     assert response["data"]["performed"] is True
     assert response["data"]["action"] == "click"
-    assert response["data"]["engine"] == "helper_quartz"
+    assert response["data"]["engine"] == "helper_post_to_pid"
     assert response["warnings"] == ["warm helper path"]
     assert calls == [("mouse_action", {"action": "click", "x": 10, "y": 20})]
     assert token not in json.dumps(response)
@@ -215,6 +216,75 @@ def test_helper_ipc_ax_action_requires_audit_id() -> None:
         )
 
     assert exc.value.code == "helper_ipc_audit_required"
+
+
+class FakeQuartzPostToPid:
+    kCGEventSourceStateCombinedSessionState = 1
+    kCGEventMouseMoved = 2
+    kCGEventLeftMouseDown = 3
+    kCGEventLeftMouseUp = 4
+    kCGEventLeftMouseDragged = 5
+    kCGScrollEventUnitPixel = 6
+    kCGMouseButtonLeft = 7
+
+    def __init__(self) -> None:
+        self.posted_to_pid: list[tuple[int, dict[str, object]]] = []
+
+    def CGEventSourceCreate(self, state: int) -> dict[str, int]:
+        return {"state": state}
+
+    def CGEventCreateMouseEvent(self, _source: object, kind: int, point: tuple[int, int], button: int) -> dict[str, object]:
+        return {"kind": kind, "point": point, "button": button}
+
+    def CGEventCreateScrollWheelEvent(self, _source: object, unit: int, wheels: int, dy: int, dx: int) -> dict[str, object]:
+        return {"unit": unit, "wheels": wheels, "dy": dy, "dx": dx}
+
+    def CGEventPostToPid(self, pid: int, event: dict[str, object]) -> None:
+        self.posted_to_pid.append((pid, event))
+
+
+def test_quartz_mouse_action_posts_click_to_target_pid_without_global_hid(monkeypatch: pytest.MonkeyPatch) -> None:
+    quartz = FakeQuartzPostToPid()
+    executor = QuartzMouseActionExecutor()
+    executor._quartz = quartz
+    monkeypatch.setattr(QuartzMouseActionExecutor, "_process_name_for_pid", staticmethod(lambda _pid: "Finder"))
+
+    response = executor(
+        "mouse_action",
+        {
+            "action": "click",
+            "x": 10,
+            "y": 20,
+            "target": {"pid": 123, "process_name": "Finder", "app_name": "Finder"},
+        },
+    )
+
+    assert response["ok"] is True
+    assert response["data"]["engine"] == "helper_post_to_pid"
+    assert response["data"]["target"]["pid"] == 123
+    assert [event["kind"] for _pid, event in quartz.posted_to_pid] == [
+        quartz.kCGEventMouseMoved,
+        quartz.kCGEventLeftMouseDown,
+        quartz.kCGEventLeftMouseUp,
+    ]
+    assert {pid for pid, _event in quartz.posted_to_pid} == {123}
+
+
+def test_quartz_mouse_action_requires_pid_target_identity() -> None:
+    executor = QuartzMouseActionExecutor()
+
+    with pytest.raises(HelperIpcError) as exc:
+        executor("mouse_action", {"action": "click", "x": 10, "y": 20})
+
+    assert exc.value.code == "helper_ipc_bad_payload"
+
+
+def test_source_retired_global_hid_event_tap() -> None:
+    needle = "kCG" + "HIDEventTap"
+    root = Path("src/evaos_desktop_bridge")
+    offenders = [path for path in root.rglob("*.py") if needle in path.read_text(encoding="utf-8")]
+
+    assert offenders == []
 
 
 def test_ax_action_executor_blocks_non_text_set_value(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -459,7 +529,7 @@ def test_helper_mouse_action_runs_when_enforced_preflight_is_granted() -> None:
         calls += 1
         return {
             "ok": True,
-            "data": {"performed": True, "action": payload["action"], "engine": "helper_quartz"},
+            "data": {"performed": True, "action": payload["action"], "engine": "helper_post_to_pid"},
             "warnings": [],
             "errors": [],
         }
