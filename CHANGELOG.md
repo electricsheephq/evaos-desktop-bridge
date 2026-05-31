@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.16 - 2026-05-31
+
 - Implement issue #122 signed-helper/TCC identity closure: Workbench now starts
   the resident computer-use helper before the customer Mac connector, passes a
   Workbench bundle/app identity marker into the helper, verifies the helper's
