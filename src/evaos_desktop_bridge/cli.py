@@ -19,6 +19,7 @@ from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.customer_mac import CustomerMacObserver
 from .audit import append_audit, default_state_dir
 from .connector_server import read_token, run_connector_server
+from .helper_ipc import UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
 from .schema import build_envelope, make_error
@@ -29,6 +30,7 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
     {
         "status",
         "capabilities",
+        "helper.ping",
         "codex.frontmost",
         "codex.windows",
         "codex.threads",
@@ -216,6 +218,18 @@ def build_parser() -> argparse.ArgumentParser:
     permissions_prime_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     permissions_prime_parser.add_argument("--permission", required=True, choices=["accessibility", "screen-recording"], help="Permission to request/check.")
     permissions_prime_parser.set_defaults(command_id="permissions.prime", target="desktop")
+
+    helper_parser = subparsers.add_parser("helper", help="Run or inspect the local persistent computer-use helper.")
+    helper_subparsers = helper_parser.add_subparsers(dest="helper_command")
+    helper_run_parser = helper_subparsers.add_parser("run", help="Run the local Unix-socket computer-use helper daemon.")
+    helper_run_parser.add_argument("--socket-path", default=None, help="Unix socket path. Defaults to the bridge state directory.")
+    helper_run_parser.add_argument("--token-file", default=None, help="Capability-token file. Defaults to the bridge state directory.")
+    helper_run_parser.set_defaults(command_id="helper.run", target="computer_use_helper")
+    helper_ping_parser = helper_subparsers.add_parser("ping", help="Ping the local persistent computer-use helper.")
+    helper_ping_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    helper_ping_parser.add_argument("--socket-path", default=None, help="Unix socket path. Defaults to the bridge state directory.")
+    helper_ping_parser.add_argument("--token-file", default=None, help="Capability-token file. Defaults to the bridge state directory.")
+    helper_ping_parser.set_defaults(command_id="helper.ping", target="computer_use_helper")
 
     serve_parser = subparsers.add_parser("serve", help="Run the token-gated customer Mac connector HTTP server.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host. Prefer loopback or the paired Headscale interface.")
@@ -661,6 +675,14 @@ def main(
         )
         return 0
 
+    if command_id == "helper.run":
+        token = read_helper_token(token_file=args.token_file, state_dir=state_dir, auto_create=True)
+        run_helper_server(
+            socket_path=Path(args.socket_path).expanduser() if args.socket_path else default_helper_socket_path(state_dir),
+            token=token,
+        )
+        return 0
+
     if command_id.startswith("connector_service."):
         result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
         stdout.write(json.dumps(result, sort_keys=True) + "\n")
@@ -795,6 +817,8 @@ def _run_command(
         return CommandResult(ok=True, data={"records": records, "count": len(records), "limit": args.limit}, provenance={"source": "audit"})
     if command_id == "permissions.prime":
         return _prime_permission(args.permission)
+    if command_id == "helper.ping":
+        return _helper_ping(args, state_dir=getattr(args, "state_dir", None))
     if command_id == "queue.list":
         return list_queue_events(limit=args.limit, state_dir=getattr(args, "state_dir", None))
     if command_id == "queue.append":
@@ -1027,6 +1051,28 @@ def _title_match_score(left: str, right: str) -> int:
     return 0
 
 
+def _helper_ping(args: argparse.Namespace, *, state_dir: Path | None) -> CommandResult:
+    socket_path = Path(args.socket_path).expanduser() if args.socket_path else default_helper_socket_path(state_dir)
+    try:
+        token = read_helper_token(token_file=getattr(args, "token_file", None), state_dir=state_dir, auto_create=False)
+    except Exception as exc:
+        code = getattr(exc, "code", "helper_token_missing")
+        message = getattr(exc, "message", str(exc))
+        return CommandResult(
+            ok=False,
+            data={"helper_socket": str(socket_path)},
+            errors=[
+                make_error(
+                    code=code,
+                    message=message,
+                    guidance="Start the helper with `evaos-desktop-bridge helper run` so the token file is created, then retry ping.",
+                )
+            ],
+            provenance={"source": "computer_use_helper"},
+        )
+    return UnixSocketHelperClient(socket_path=socket_path, token=token).dispatch("ping", {"client": "bridge"})
+
+
 def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_dir: Path | None) -> CommandResult:
     if command_id in CONTROLLED_LIVE_COMMANDS and getattr(args, "dry_run", None) is False:
         session = read_control_session(state_dir)
@@ -1189,6 +1235,7 @@ def _capabilities() -> dict[str, object]:
                 "latest",
                 "audit_tail",
                 "permissions.prime",
+                "helper.ping",
                 "queue.list",
                 "queue.append",
                 "codex.frontmost",
@@ -1426,6 +1473,8 @@ def _target_for_command(command: str) -> str:
         return "codex"
     if command.startswith("queue."):
         return "queue"
+    if command.startswith("helper."):
+        return "computer_use_helper"
     return "desktop"
 
 

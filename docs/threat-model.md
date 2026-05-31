@@ -94,9 +94,9 @@ The MVP must not:
   exact same-turn recipient/context and text approval.
 - Serve the same fixed command surface through a token-gated connector endpoint
   for paired-VM/Headscale canaries.
-- Define the future computer-use helper IPC seam as contract-only `ping`
-  until sender authorization, policy-above-the-seam, and audited actuation are
-  ready.
+- Expose a local computer-use helper IPC seam for health checks and narrow
+  Quartz mouse actions only after sender authorization and bridge-side policy,
+  approval, kill-switch, and audit checks have already passed.
 - Append a redacted local JSONL audit record for every valid command invocation.
 
 ## Threats and Controls
@@ -116,7 +116,7 @@ The MVP must not:
 | Stale visible action target | `select-thread` re-reads visible candidates and fails when the requested `visible_id` is absent or lacks bounds. |
 | Stale visible message target | `send-visible-message` re-reads visible candidates, requires Codex frontmost and a visible composer, and records target/message hashes plus before/after snapshot pointers. Live sends to title-hidden sidebar rows fail closed; agents can use `thread_id=current` only after the intended thread is already selected and visible, which avoids sidebar clicks. Optional post-send waiting is read-only: it captures capped snapshots/AX observations and never types, clicks, or calls app-server mutation after the approved submit. Stable composer-visible idle ends the wait; notification overlays, focus steals, permission prompts, or operator re-entry during the wait are reported as inconclusive contaminated evidence to rerun in a quiet window. |
 | Cross-customer Mac exposure | Connector is bound locally by default; paired-VM mode requires Headscale ACLs and a connector token. |
-| Unauthenticated helper socket | The future computer-use helper seam starts as a contract-only IPC skeleton: length-prefixed JSON, per-launch capability token, peer-uid match, oversized-frame rejection before JSON parsing, and `ping` as the only allowed command. It does not start a daemon or route live Mac/iPhone actuation yet. |
+| Unauthenticated helper socket | The computer-use helper seam uses length-prefixed JSON, a rotated per-launch token file, peer-uid match, unsafe token-file rejection, regular-file socket path refusal, oversized-frame rejection before JSON parsing, and an exact command allowlist. Current live routing is limited to helper-owned Quartz `mouse_action` click/scroll/drag after bridge-side policy, approval, sensitive-app, kill-switch, and audit checks; helper `mouse_action` also requires a bridge-provided audit id. No shell, AppleScript, Python, generic computer-use, iPhone action, or Codex mutation command is accepted. |
 | Accidental live control | Live desktop/phone tools require an active Workbench control session; kill switch blocks future live commands. |
 | Accidental broad iPhone control | iPhone actions operate through the visible iPhone Mirroring window and are governed by Full Access / Ask Permission mode. |
 | Sensitive app observation or mutation | Sensitive Mac/iPhone app names and dangerous visible labels are blocked before observation or action execution; Full Access removes per-action approval but does not disable the sensitive-app denylist. |
