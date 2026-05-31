@@ -2324,13 +2324,26 @@ struct BridgeCommandService {
 final class WorkbenchConnectorProcessManager {
     private var process: Process?
     private var logHandle: FileHandle?
+    private var helperProcess: Process?
+    private var helperLogHandle: FileHandle?
 
     func start() async -> String {
         if let process, process.isRunning {
-            return "Starting connector: already running from Workbench."
+            if let helperProcess, helperProcess.isRunning {
+                return "Starting connector: already running from Workbench with the managed helper."
+            }
+            process.terminate()
+            self.process = nil
+            try? logHandle?.close()
+            logHandle = nil
         }
         guard let bridgeURL = Self.resolveBridgeExecutable() else {
             return "Connector offline: install evaos-desktop-bridge before starting this Mac connector."
+        }
+
+        let helperLaunch = await startComputerUseHelper(bridgeURL: bridgeURL)
+        guard helperLaunch.canStartConnector else {
+            return helperLaunch.message
         }
 
         let host = await Self.tailnetIPv4() ?? "127.0.0.1"
@@ -2351,21 +2364,26 @@ final class WorkbenchConnectorProcessManager {
             next.arguments = ["serve", "--host", host, "--port", "8765"]
             var environment = ProcessInfo.processInfo.environment
             environment["EVAOS_DESKTOP_BRIDGE_MODE"] = "customer-mac-connector"
+            helperLaunch.connectorEnvironment.forEach { key, value in
+                environment[key] = value
+            }
             next.environment = environment
             next.standardOutput = handle
             next.standardError = handle
             try next.run()
             process = next
             logHandle = handle
-            return "Starting connector on \(host):8765. Keep Workbench open while the connector is running."
+            return "\(helperLaunch.message)\nStarting connector on \(host):8765. Keep Workbench open while the connector is running."
         } catch {
+            _ = stopComputerUseHelper()
             return "Connector failed to start: \(error.localizedDescription)"
         }
     }
 
     func stop() -> String {
+        let helperStop = stopComputerUseHelper()
         guard let process else {
-            return "Workbench-managed connector was not running."
+            return "Workbench-managed connector was not running.\n\(helperStop)"
         }
         if process.isRunning {
             process.terminate()
@@ -2373,7 +2391,7 @@ final class WorkbenchConnectorProcessManager {
         self.process = nil
         try? logHandle?.close()
         logHandle = nil
-        return "Workbench-managed connector stopped."
+        return "Workbench-managed connector stopped.\n\(helperStop)"
     }
 
     deinit {
@@ -2381,6 +2399,170 @@ final class WorkbenchConnectorProcessManager {
             process.terminate()
         }
         try? logHandle?.close()
+        if let helperProcess, helperProcess.isRunning {
+            helperProcess.terminate()
+        }
+        try? helperLogHandle?.close()
+    }
+
+    private func startComputerUseHelper(bridgeURL: URL) async -> HelperLaunchResult {
+        let paths = Self.helperPaths()
+        let connectorEnvironment = [
+            "EVAOS_DESKTOP_BRIDGE_USE_HELPER": "1",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_SOCKET": paths.socket.path,
+            "EVAOS_DESKTOP_BRIDGE_HELPER_TOKEN_FILE": paths.token.path
+        ]
+
+        if let helperProcess, helperProcess.isRunning {
+            let ping = await Self.helperPing(bridgeURL: bridgeURL, paths: paths)
+            return HelperLaunchResult(
+                canStartConnector: ping != nil,
+                connectorEnvironment: ping == nil ? [:] : connectorEnvironment,
+                message: ping.map(Self.helperLaunchMessage(from:)) ?? "Computer-use helper is running but did not answer ping; Mac Access stayed off to avoid falling back to a terminal or Python permission identity."
+            )
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: paths.log.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: paths.token.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: paths.log.path) {
+                FileManager.default.createFile(atPath: paths.log.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: paths.log)
+            try handle.seekToEnd()
+
+            let next = Process()
+            next.executableURL = bridgeURL
+            next.arguments = [
+                "helper",
+                "run",
+                "--socket-path",
+                paths.socket.path,
+                "--token-file",
+                paths.token.path
+            ]
+            var environment = ProcessInfo.processInfo.environment
+            environment["EVAOS_DESKTOP_BRIDGE_MODE"] = "computer-use-helper"
+            environment["EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID"] = Bundle.main.bundleIdentifier ?? "com.electricsheephq.EvaDesktop"
+            environment["EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH"] = Bundle.main.bundlePath
+            environment["EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS"] = "1"
+            next.environment = environment
+            next.standardOutput = handle
+            next.standardError = handle
+            try next.run()
+            helperProcess = next
+            helperLogHandle = handle
+
+            let ping = await Self.waitForHelperPing(bridgeURL: bridgeURL, paths: paths)
+            guard let ping else {
+                _ = stopComputerUseHelper()
+                return HelperLaunchResult(
+                    canStartConnector: false,
+                    connectorEnvironment: [:],
+                    message: "Computer-use helper did not become reachable under the evaOS Workbench identity. Mac Access stayed off to avoid a Python or terminal TCC prompt."
+                )
+            }
+            return HelperLaunchResult(
+                canStartConnector: true,
+                connectorEnvironment: connectorEnvironment,
+                message: Self.helperLaunchMessage(from: ping)
+            )
+        } catch {
+            return HelperLaunchResult(
+                canStartConnector: false,
+                connectorEnvironment: [:],
+                message: "Computer-use helper failed to start under evaOS Workbench: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func stopComputerUseHelper() -> String {
+        guard let helperProcess else {
+            return "Computer-use helper was not running from Workbench."
+        }
+        if helperProcess.isRunning {
+            helperProcess.terminate()
+        }
+        self.helperProcess = nil
+        try? helperLogHandle?.close()
+        helperLogHandle = nil
+        return "Workbench-managed computer-use helper stopped."
+    }
+
+    private struct HelperPaths: Sendable {
+        let socket: URL
+        let token: URL
+        let log: URL
+    }
+
+    private struct HelperLaunchResult: Sendable {
+        let canStartConnector: Bool
+        let connectorEnvironment: [String: String]
+        let message: String
+    }
+
+    private static func helperPaths() -> HelperPaths {
+        let base = applicationSupportDirectory()
+        return HelperPaths(
+            socket: URL(fileURLWithPath: "/tmp/evaos-helper-\(getuid()).sock"),
+            token: base.appendingPathComponent("computer-use-helper.token"),
+            log: base.appendingPathComponent("computer-use-helper.log")
+        )
+    }
+
+    private static func applicationSupportDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("evaos-desktop-bridge", isDirectory: true)
+    }
+
+    private static func waitForHelperPing(bridgeURL: URL, paths: HelperPaths) async -> String? {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if let ping = await helperPing(bridgeURL: bridgeURL, paths: paths) {
+                return ping
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return nil
+    }
+
+    private static func helperPing(bridgeURL: URL, paths: HelperPaths) async -> String? {
+        await Task.detached {
+            commandOutput(bridgeURL.path, [
+                "helper",
+                "ping",
+                "--json",
+                "--socket-path",
+                paths.socket.path,
+                "--token-file",
+                paths.token.path
+            ])
+        }.value
+    }
+
+    nonisolated private static func helperLaunchMessage(from raw: String) -> String {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObject = object["data"] as? [String: Any],
+              let preflight = dataObject["permission_preflight"] as? [String: Any],
+              let identity = preflight["identity"] as? [String: Any],
+              let permissions = preflight["permissions"] as? [String: Any] else {
+            return "Computer-use helper is running under evaOS Workbench; permission preflight could not be summarized."
+        }
+        let identityStatus = identity["status"] as? String ?? "unknown"
+        let accessibility = (permissions["accessibility"] as? [String: Any])?["status"] as? String ?? "unknown"
+        let screenRecording = (permissions["screen_recording"] as? [String: Any])?["status"] as? String ?? "unknown"
+        if preflight["ok"] as? Bool == true {
+            return "Computer-use helper is running under the evaOS Workbench identity with Accessibility and Screen Recording ready."
+        }
+        return "Computer-use helper is running with identity \(identityStatus). Accessibility: \(accessibility). Screen Recording: \(screenRecording). Live actions will fail closed until evaOS Workbench has both grants."
     }
 
     private static func resolveBridgeExecutable() -> URL? {
@@ -2494,10 +2676,7 @@ final class WorkbenchConnectorProcessManager {
     }
 
     private static func logURL() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return base
-            .appendingPathComponent("evaos-desktop-bridge", isDirectory: true)
+        applicationSupportDirectory()
             .appendingPathComponent("workbench-connector.log")
     }
 }

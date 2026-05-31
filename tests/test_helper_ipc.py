@@ -20,6 +20,8 @@ from evaos_desktop_bridge.helper_ipc import (
     default_helper_socket_path,
     encode_frame,
     handle_helper_request,
+    helper_permission_preflight,
+    helper_permission_preflight_errors,
     make_capability_token,
     read_helper_token,
     run_helper_server,
@@ -140,6 +142,193 @@ def test_helper_ipc_mouse_action_requires_audit_id() -> None:
         )
 
     assert exc.value.code == "helper_ipc_audit_required"
+
+
+def test_helper_permission_preflight_reports_workbench_identity_and_grants() -> None:
+    preflight = helper_permission_preflight(
+        env={
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.electricsheephq.EvaDesktop",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS.app",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+        },
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+        parent_process_path="/Applications/evaOS.app/Contents/MacOS/EvaDesktop",
+    )
+
+    assert preflight["ok"] is True
+    assert preflight["enforced"] is True
+    assert preflight["identity"]["status"] == "workbench_signed_app"
+    assert preflight["identity"]["responsible_bundle_id"] == "com.electricsheephq.EvaDesktop"
+    assert preflight["identity"]["parent_status"] == "matched_responsible_app"
+    assert preflight["permissions"]["accessibility"]["status"] == "granted"
+    assert preflight["permissions"]["screen_recording"]["status"] == "granted"
+    assert helper_permission_preflight_errors(preflight) == []
+
+
+def test_helper_permission_preflight_fails_closed_for_missing_grants() -> None:
+    preflight = helper_permission_preflight(
+        env={
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.electricsheephq.EvaDesktop",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS.app",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+        },
+        platform_name="Darwin",
+        accessibility_checker=lambda: False,
+        screen_recording_checker=lambda: True,
+        parent_process_path="/Applications/evaOS.app/Contents/MacOS/EvaDesktop",
+    )
+
+    errors = helper_permission_preflight_errors(preflight)
+
+    assert preflight["ok"] is False
+    assert errors[0]["code"] == "permission_missing"
+    assert errors[0]["permission"] == "accessibility"
+    assert "Privacy_Accessibility" in errors[0]["guidance"]
+
+
+def test_helper_permission_preflight_fails_closed_for_unknown_grants() -> None:
+    preflight = helper_permission_preflight(
+        env={
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.electricsheephq.EvaDesktop",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS.app",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+        },
+        platform_name="Darwin",
+        accessibility_checker=lambda: None,
+        screen_recording_checker=lambda: True,
+        parent_process_path="/Applications/evaOS.app/Contents/MacOS/EvaDesktop",
+    )
+
+    errors = helper_permission_preflight_errors(preflight)
+
+    assert preflight["ok"] is False
+    assert preflight["permissions"]["accessibility"]["status"] == "unknown"
+    assert errors[0]["code"] == "permission_missing"
+    assert errors[0]["permission"] == "accessibility"
+
+
+def test_helper_permission_preflight_rejects_spoofed_workbench_env_parent() -> None:
+    preflight = helper_permission_preflight(
+        env={
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.electricsheephq.EvaDesktop",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS.app",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+        },
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+        parent_process_path="/bin/zsh",
+    )
+
+    errors = helper_permission_preflight_errors(preflight)
+
+    assert preflight["ok"] is False
+    assert preflight["identity"]["status"] == "parent_unverified"
+    assert preflight["identity"]["parent_status"] == "mismatch"
+    assert errors[0]["code"] == "helper_identity_unverified"
+
+
+def test_helper_permission_preflight_fails_closed_for_unattributed_identity() -> None:
+    preflight = helper_permission_preflight(
+        env={"EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1"},
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+    )
+
+    errors = helper_permission_preflight_errors(preflight)
+
+    assert preflight["ok"] is False
+    assert preflight["identity"]["status"] == "unattributed_cli"
+    assert errors[0]["code"] == "helper_identity_unverified"
+
+
+def test_helper_mouse_action_fails_closed_when_enforced_preflight_missing() -> None:
+    token = make_capability_token()
+    request = build_helper_request(
+        command="mouse_action",
+        token=token,
+        request_id="req-permission-missing",
+        audit_id="audit-helper-test",
+        payload={"action": "click", "x": 10, "y": 20},
+    )
+    calls = 0
+
+    def executor(_command: str, _payload: dict[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"ok": True, "data": {}, "warnings": [], "errors": []}
+
+    response = handle_helper_request(
+        request,
+        expected_token=token,
+        expected_uid=501,
+        peer_uid=501,
+        command_executor=executor,
+        permission_checker=lambda: helper_permission_preflight(
+            env={
+                "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.electricsheephq.EvaDesktop",
+                "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS.app",
+                "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+            },
+            platform_name="Darwin",
+            accessibility_checker=lambda: True,
+            screen_recording_checker=lambda: False,
+            parent_process_path="/Applications/evaOS.app/Contents/MacOS/EvaDesktop",
+        ),
+    )
+
+    assert response["ok"] is False
+    assert response["errors"][0]["code"] == "permission_missing"
+    assert response["data"]["performed"] is False
+    assert calls == 0
+
+
+def test_helper_mouse_action_runs_when_enforced_preflight_is_granted() -> None:
+    token = make_capability_token()
+    request = build_helper_request(
+        command="mouse_action",
+        token=token,
+        request_id="req-permission-granted",
+        audit_id="audit-helper-test",
+        payload={"action": "click", "x": 10, "y": 20},
+    )
+    calls = 0
+
+    def executor(command: str, payload: dict[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {
+            "ok": True,
+            "data": {"performed": True, "action": payload["action"], "engine": "helper_quartz"},
+            "warnings": [],
+            "errors": [],
+        }
+
+    response = handle_helper_request(
+        request,
+        expected_token=token,
+        expected_uid=501,
+        peer_uid=501,
+        command_executor=executor,
+        permission_checker=lambda: helper_permission_preflight(
+            env={
+                "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.electricsheephq.EvaDesktop",
+                "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS.app",
+                "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+            },
+            platform_name="Darwin",
+            accessibility_checker=lambda: True,
+            screen_recording_checker=lambda: True,
+            parent_process_path="/Applications/evaOS.app/Contents/MacOS/EvaDesktop",
+        ),
+    )
+
+    assert response["ok"] is True
+    assert response["data"]["performed"] is True
+    assert calls == 1
 
 
 def test_helper_token_auto_create_rotates_and_writes_private_file(tmp_path: Path) -> None:

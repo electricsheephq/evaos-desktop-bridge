@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
+import platform
 import secrets
 import socket
 import stat
 import struct
+import subprocess
+import sys
 import uuid
-from errno import ELOOP
 from collections.abc import Callable
+from errno import ELOOP
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +26,12 @@ HELPER_IPC_ALLOWED_COMMANDS = frozenset({"ping", "mouse_action"})
 HELPER_USE_ENV = "EVAOS_DESKTOP_BRIDGE_USE_HELPER"
 HELPER_SOCKET_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_SOCKET"
 HELPER_TOKEN_FILE_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_TOKEN_FILE"
+HELPER_RESPONSIBLE_BUNDLE_ID_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID"
+HELPER_RESPONSIBLE_APP_PATH_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH"
+HELPER_ENFORCE_PERMISSIONS_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS"
+EVAOS_WORKBENCH_BUNDLE_ID = "com.electricsheephq.EvaDesktop"
+ACCESSIBILITY_DEEP_LINK = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+SCREEN_RECORDING_DEEP_LINK = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
 
 
 class HelperIpcError(ValueError):
@@ -245,6 +255,7 @@ def handle_helper_request(
     expected_uid: int | None,
     peer_uid: int | None,
     command_executor: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
+    permission_checker: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     _authorize_request(request, expected_token=expected_token, expected_uid=expected_uid, peer_uid=peer_uid)
     if request.get("schema_version") != HELPER_IPC_SCHEMA_VERSION:
@@ -266,8 +277,22 @@ def handle_helper_request(
             raise HelperIpcError("helper_ipc_audit_required", "Helper IPC mouse_action requires an audit id from the bridge actuation path.")
         if command_executor is None:
             raise HelperIpcError("helper_ipc_executor_unavailable", "Helper IPC actuation executor is not configured.")
+        permission_preflight = permission_checker() if permission_checker is not None else helper_permission_preflight()
+        preflight_errors = helper_permission_preflight_errors(permission_preflight)
+        if preflight_errors:
+            return {
+                "schema_version": HELPER_IPC_SCHEMA_VERSION,
+                "request_id": request_id,
+                "audit_id": audit_id,
+                "ok": False,
+                "timestamp": timestamp_utc(),
+                "data": {"performed": False, "action": payload.get("action"), "permission_preflight": permission_preflight},
+                "warnings": [],
+                "errors": preflight_errors,
+            }
         executed = command_executor(command, payload)
         return _response_from_executor(request_id=request_id, audit_id=audit_id, executed=executed)
+    permission_preflight = permission_checker() if permission_checker is not None else helper_permission_preflight()
     return {
         "schema_version": HELPER_IPC_SCHEMA_VERSION,
         "request_id": request_id,
@@ -277,6 +302,7 @@ def handle_helper_request(
             "command": command,
             "helper_mode": "resident_local" if command_executor is not None else "contract_only",
             "actuation_enabled": command_executor is not None,
+            "permission_preflight": permission_preflight,
         },
         "warnings": [],
         "errors": [],
@@ -310,6 +336,7 @@ def run_helper_server(
     token: str,
     expected_uid: int | None = None,
     command_executor: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
+    permission_checker: Callable[[], dict[str, Any]] | None = None,
     ready: Any | None = None,
     max_requests: int | None = None,
     peer_uid_getter: Callable[[socket.socket], int | None] | None = None,
@@ -341,6 +368,7 @@ def run_helper_server(
                         expected_uid=os.getuid() if expected_uid is None else expected_uid,
                         peer_uid=peer_uid(connection),
                         command_executor=executor,
+                        permission_checker=permission_checker,
                     )
                 except socket.timeout:
                     response = _error_response(
@@ -463,6 +491,171 @@ def _command_result_from_response(response: dict[str, Any]) -> CommandResult:
         errors=errors if isinstance(errors, list) else [],
         provenance={"source": "computer_use_helper", "request_id": response.get("request_id"), "helper_audit_id": response.get("audit_id")},
     )
+
+
+def helper_permission_preflight(
+    *,
+    env: dict[str, str] | None = None,
+    platform_name: str | None = None,
+    accessibility_checker: Callable[[], bool | None] | None = None,
+    screen_recording_checker: Callable[[], bool | None] | None = None,
+    parent_process_path: str | None = None,
+) -> dict[str, Any]:
+    environment = os.environ if env is None else env
+    current_platform = platform_name or platform.system()
+    expected_bundle_id = EVAOS_WORKBENCH_BUNDLE_ID
+    responsible_bundle_id = environment.get(HELPER_RESPONSIBLE_BUNDLE_ID_ENV) or None
+    responsible_app_path = environment.get(HELPER_RESPONSIBLE_APP_PATH_ENV) or None
+    enforced = environment.get(HELPER_ENFORCE_PERMISSIONS_ENV) in {"1", "true", "TRUE", "yes", "YES"}
+    parent_pid = os.getppid()
+    resolved_parent_process_path = parent_process_path if parent_process_path is not None else _parent_process_path(parent_pid)
+    parent_status = _parent_process_status(responsible_app_path, resolved_parent_process_path)
+
+    if responsible_bundle_id == expected_bundle_id and responsible_app_path and parent_status == "matched_responsible_app":
+        identity_status = "workbench_signed_app"
+    elif responsible_bundle_id == expected_bundle_id and responsible_app_path:
+        identity_status = "parent_unverified"
+    elif responsible_bundle_id:
+        identity_status = "mismatch"
+    else:
+        identity_status = "unattributed_cli"
+
+    if current_platform == "Darwin":
+        accessibility = _permission_status(accessibility_checker or check_accessibility_trusted)
+        screen_recording = _permission_status(screen_recording_checker or check_screen_recording_trusted)
+    else:
+        accessibility = "unknown"
+        screen_recording = "unknown"
+
+    ok = (
+        (not enforced or identity_status == "workbench_signed_app")
+        and (not enforced or current_platform != "Darwin" or (accessibility == "granted" and screen_recording == "granted"))
+    )
+    return {
+        "ok": ok,
+        "enforced": enforced,
+        "platform": current_platform,
+        "identity": {
+            "expected_bundle_id": expected_bundle_id,
+            "responsible_bundle_id": responsible_bundle_id,
+            "responsible_app_path": responsible_app_path,
+            "process_executable": sys.executable,
+            "parent_pid": parent_pid,
+            "parent_executable": resolved_parent_process_path,
+            "parent_status": parent_status,
+            "status": identity_status,
+        },
+        "permissions": {
+            "accessibility": {
+                "status": accessibility,
+                "deep_link": ACCESSIBILITY_DEEP_LINK,
+            },
+            "screen_recording": {
+                "status": screen_recording,
+                "deep_link": SCREEN_RECORDING_DEEP_LINK,
+            },
+        },
+    }
+
+
+def helper_permission_preflight_errors(preflight: dict[str, Any]) -> list[dict[str, Any]]:
+    if preflight.get("ok") is True or preflight.get("enforced") is not True:
+        return []
+    errors: list[dict[str, Any]] = []
+    identity = preflight.get("identity") if isinstance(preflight.get("identity"), dict) else {}
+    if identity.get("status") != "workbench_signed_app":
+        errors.append(
+            make_error(
+                code="helper_identity_unverified",
+                message="Computer-use helper must be launched by the signed evaOS Workbench app before actuation.",
+                guidance="Start Mac Access from evaOS Workbench so macOS resolves helper permissions to the evaOS.app identity.",
+            )
+        )
+    permissions = preflight.get("permissions") if isinstance(preflight.get("permissions"), dict) else {}
+    missing: list[str] = []
+    for key, label in (("accessibility", "Accessibility"), ("screen_recording", "Screen Recording")):
+        item = permissions.get(key) if isinstance(permissions.get(key), dict) else {}
+        if item.get("status") != "granted":
+            missing.append(label)
+    if missing:
+        noun = "permissions are" if len(missing) > 1 else "permission is"
+        errors.append(
+            make_error(
+                code="permission_missing",
+                message=f"{' and '.join(missing)} {noun} required before helper actuation.",
+                guidance=(
+                    "Open System Settings > Privacy & Security and approve evaOS Workbench for Accessibility and Screen Recording. "
+                    f"Accessibility: {ACCESSIBILITY_DEEP_LINK}; Screen Recording: {SCREEN_RECORDING_DEEP_LINK}"
+                ),
+                permission=",".join(name.lower().replace(" ", "_") for name in missing),
+            )
+        )
+    return errors
+
+
+def _permission_status(checker: Callable[[], bool | None]) -> str:
+    try:
+        trusted = checker()
+    except Exception:
+        return "unknown"
+    if trusted is True:
+        return "granted"
+    if trusted is False:
+        return "missing"
+    return "unknown"
+
+
+def _parent_process_path(pid: int) -> str | None:
+    if platform.system() != "Darwin":
+        return None
+    try:
+        completed = subprocess.run(
+            ["/bin/ps", "-p", str(pid), "-o", "comm="],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def _parent_process_status(responsible_app_path: str | None, parent_process_path: str | None) -> str:
+    if not responsible_app_path:
+        return "missing_responsible_app_path"
+    if not parent_process_path:
+        return "unknown"
+    app_path = str(Path(responsible_app_path).expanduser().resolve(strict=False)).rstrip("/")
+    parent_path = str(Path(parent_process_path).expanduser().resolve(strict=False))
+    if parent_path == app_path or parent_path.startswith(f"{app_path}/"):
+        return "matched_responsible_app"
+    return "mismatch"
+
+
+def check_accessibility_trusted() -> bool | None:
+    if platform.system() != "Darwin":
+        return None
+    try:
+        app_services = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+        app_services.AXIsProcessTrusted.restype = ctypes.c_bool
+        return bool(app_services.AXIsProcessTrusted())
+    except Exception:
+        return None
+
+
+def check_screen_recording_trusted() -> bool | None:
+    if platform.system() != "Darwin":
+        return None
+    try:
+        core_graphics = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        core_graphics.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
+        return bool(core_graphics.CGPreflightScreenCaptureAccess())
+    except Exception:
+        return None
 
 
 def _write_new_helper_token(path: Path) -> str:

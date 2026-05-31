@@ -45,8 +45,9 @@ Open release blocker found:
   and Screen Recording. If it asks for Python, stop the customer canary and fix
   the helper/launch path before calling the build certified.
 - Workbench beta now prefers a Workbench-managed connector process for normal
-  setup. That path avoids the manual `screen` workaround and puts the signed
-  bundled Peekaboo helper first on `PATH`. The LaunchAgent path remains for
+  setup. That path starts the resident computer-use helper under the Workbench
+  bundle identity, enables enforced Accessibility/Screen Recording preflight,
+  and avoids the manual `screen` workaround. The LaunchAgent path remains for
   background/restart testing.
 - OpenClaw support-agent proof is blocked by the support VM's expired
   `openai-codex` OAuth refresh. The plugin and connector path are installed, but

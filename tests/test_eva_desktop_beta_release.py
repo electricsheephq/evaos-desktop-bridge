@@ -103,6 +103,20 @@ def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector()
     assert "BridgeStatusFormatter.iPhoneReady(raw:" in model
     assert "rawLooksOK(localStatus)" not in model
     assert 'next.arguments = ["serve", "--host", host, "--port", "8765"]' in model
+    assert 'next.arguments = [' in model
+    assert '"helper",' in model
+    assert '"run",' in model
+    assert '"ping",' in model
+    assert '"--socket-path",' in model
+    assert '"--token-file",' in model
+    assert '"EVAOS_DESKTOP_BRIDGE_USE_HELPER": "1"' in model
+    assert '"EVAOS_DESKTOP_BRIDGE_HELPER_SOCKET": paths.socket.path' in model
+    assert '"EVAOS_DESKTOP_BRIDGE_HELPER_TOKEN_FILE": paths.token.path' in model
+    assert 'environment["EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID"]' in model
+    assert 'environment["EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH"]' in model
+    assert 'environment["EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS"] = "1"' in model
+    assert "Mac Access stayed off to avoid a Python or terminal TCC prompt" in model
+    assert "Live actions will fail closed until evaOS Workbench has both grants" in model
     assert "deinit" in model
     assert "stopManagedConnectorForAppTermination" in model
     assert "NSApplication.willTerminateNotification" in content_view
