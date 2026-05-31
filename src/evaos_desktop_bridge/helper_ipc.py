@@ -352,7 +352,7 @@ def run_helper_server(
                     response = _error_response(request=request, code=exc.code, message=exc.message)
                 except Exception as exc:
                     response = _error_response(request=request, code="helper_ipc_server_error", message=str(exc))
-                connection.sendall(encode_frame(response))
+                _send_frame_best_effort(connection, response)
                 served += 1
     finally:
         server.close()
@@ -360,6 +360,14 @@ def run_helper_server(
             _unlink_existing_socket(path, missing_ok=True, fail_on_non_socket=True)
         except HelperIpcError:
             pass
+
+
+def _send_frame_best_effort(connection: socket.socket, response: dict[str, Any]) -> bool:
+    try:
+        connection.sendall(encode_frame(response))
+        return True
+    except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
+        return False
 
 
 def encode_frame(payload: dict[str, Any]) -> bytes:

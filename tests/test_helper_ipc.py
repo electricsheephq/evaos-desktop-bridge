@@ -23,6 +23,7 @@ from evaos_desktop_bridge.helper_ipc import (
     make_capability_token,
     read_helper_token,
     run_helper_server,
+    _send_frame_best_effort,
 )
 
 
@@ -218,6 +219,16 @@ def test_run_helper_server_times_out_stalled_client() -> None:
     thread.join(timeout=2)
     assert response["ok"] is False
     assert response["errors"][0]["code"] == "helper_ipc_timeout"
+
+
+def test_helper_server_response_write_failure_is_best_effort() -> None:
+    class ClosedConnection:
+        def sendall(self, _frame: bytes) -> None:
+            raise BrokenPipeError("closed")
+
+    response = {"schema_version": HELPER_IPC_SCHEMA_VERSION, "ok": True, "data": {}, "errors": [], "warnings": []}
+
+    assert _send_frame_best_effort(ClosedConnection(), response) is False  # type: ignore[arg-type]
 
 
 def test_unix_socket_helper_client_round_trips_ping(tmp_path: Path) -> None:
