@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Fix Provider/Auth Hub summary priority so a real broker/provider error is
+  reported as `Blocked` even when other catalog providers are merely planned or
+  unavailable.
+- Add the Creative Studio issue #101 design gate ADR for the hosted/configured
+  ComfyUI-first path, API grant lane, unavailable-state behavior, and deferred
+  VM-local graduation criteria.
 - Add Workbench development runbook guidance for batching related issues into
   sprint releases, using validation tiers, isolating GUI canary windows from
   Slack/notification/TCC noise, and reserving Swift CodeQL for release,
