@@ -4,6 +4,10 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add a `--control-surface bridge-peekaboo` pre-canary mode so Workbench GUI
+  canaries driven by audited bridge/Peekaboo commands are not blocked by stale
+  or broken Codex `mcp__computer_use` helper processes, while Codex-MCP canaries
+  still fail closed on helper herds.
 - Fix the Workbench pre-canary helper detection so shell cleanup commands that
   merely mention `SkyComputerUseClient mcp` are not counted as live Computer Use
   helpers, and document the safer recovery path when the current Codex tool

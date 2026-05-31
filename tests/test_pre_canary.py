@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from evaos_desktop_bridge.pre_canary import AppBundle, ProcessInfo, WorkbenchInventory, _is_computer_use_mcp_helper, evaluate_inventory
+from evaos_desktop_bridge.pre_canary import (
+    BRIDGE_PEEKABOO_SURFACE,
+    AppBundle,
+    ProcessInfo,
+    WorkbenchInventory,
+    _is_computer_use_mcp_helper,
+    evaluate_inventory,
+)
 
 
 def test_clean_canonical_workbench_inventory_passes() -> None:
@@ -189,6 +196,33 @@ def test_stale_computer_use_helper_herd_fails_with_pids() -> None:
     assert report.ok is False
     failed = {check.code: check for check in report.checks if check.status == "fail"}
     assert failed["stale_computer_use_helpers"].evidence == "3 helpers running: 101, 102, 103"
+
+
+def test_bridge_peekaboo_surface_warns_on_codex_mcp_helper_herd() -> None:
+    inventory = WorkbenchInventory(
+        registered_paths=("/Applications/evaOS.app",),
+        app_bundles=(
+            AppBundle(
+                path="/Applications/evaOS.app",
+                bundle_id="com.electricsheephq.EvaDesktop",
+                version="0.6.19",
+                build="59",
+                team_id="TC6MS3T6NN",
+            ),
+        ),
+        processes=(
+            ProcessInfo(pid=101, command="SkyComputerUseClient mcp", kind="computer_use_helper"),
+            ProcessInfo(pid=102, command="SkyComputerUseClient mcp", kind="computer_use_helper"),
+            ProcessInfo(pid=103, command="SkyComputerUseClient mcp", kind="computer_use_helper"),
+        ),
+    )
+
+    report = evaluate_inventory(inventory, max_computer_use_helpers=1, control_surface=BRIDGE_PEEKABOO_SURFACE)
+
+    assert report.ok is True
+    warnings = {check.code: check for check in report.checks if check.status == "warn"}
+    assert warnings["codex_mcp_helper_count_high"].evidence == "3 helpers running: 101, 102, 103"
+    assert report.summary["control_surface"] == "bridge-peekaboo"
 
 
 def test_computer_use_helper_detection_ignores_shell_cleanup_commands() -> None:
