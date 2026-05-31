@@ -7,6 +7,7 @@ import socket
 import stat
 import struct
 import uuid
+from errno import ELOOP
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -185,7 +186,7 @@ def make_capability_token() -> str:
 
 
 def default_helper_socket_path(state_dir: Path | None = None) -> Path:
-    return (state_dir or default_state_dir()) / "computer-use-helper.sock"
+    return Path("/tmp") / f"evaos-helper-{os.getuid()}.sock"
 
 
 def default_helper_token_path(state_dir: Path | None = None) -> Path:
@@ -197,10 +198,9 @@ def read_helper_token(*, token_file: Path | str | None = None, state_dir: Path |
     if auto_create:
         return _write_new_helper_token(path)
     try:
-        _validate_helper_token_file(path)
+        value = _read_helper_token_file(path)
     except FileNotFoundError:
-        raise HelperIpcError("helper_token_missing", "Helper token file does not exist.")
-    value = path.read_text(encoding="utf-8").strip()
+        raise HelperIpcError("helper_token_missing", "Helper token file does not exist.") from None
     if value:
         return value
     raise HelperIpcError("helper_token_missing", "Helper token file is empty.")
@@ -313,6 +313,7 @@ def run_helper_server(
     ready: Any | None = None,
     max_requests: int | None = None,
     peer_uid_getter: Callable[[socket.socket], int | None] | None = None,
+    connection_timeout: float = 2.0,
 ) -> None:
     path = Path(socket_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +331,7 @@ def run_helper_server(
         while max_requests is None or served < max_requests:
             connection, _ = server.accept()
             with connection:
+                connection.settimeout(connection_timeout)
                 request: dict[str, Any] | None = None
                 try:
                     request = _recv_frame(connection)
@@ -339,6 +341,12 @@ def run_helper_server(
                         expected_uid=os.getuid() if expected_uid is None else expected_uid,
                         peer_uid=peer_uid(connection),
                         command_executor=executor,
+                    )
+                except socket.timeout:
+                    response = _error_response(
+                        request=request,
+                        code="helper_ipc_timeout",
+                        message="Helper IPC connection timed out while reading a frame.",
                     )
                 except HelperIpcError as exc:
                     response = _error_response(request=request, code=exc.code, message=exc.message)
@@ -454,8 +462,23 @@ def _write_new_helper_token(path: Path) -> str:
     return token
 
 
-def _validate_helper_token_file(path: Path) -> None:
-    info = path.lstat()
+def _read_helper_token_file(path: Path) -> str:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno == ELOOP:
+            raise HelperIpcError("helper_token_unsafe", "Helper token file must not be a symlink.") from None
+        raise
+    try:
+        info = os.fstat(fd)
+        _validate_helper_token_stat(info)
+        return os.read(fd, 4096).decode("utf-8").strip()
+    finally:
+        os.close(fd)
+
+
+def _validate_helper_token_stat(info: os.stat_result) -> None:
     if stat.S_ISLNK(info.st_mode):
         raise HelperIpcError("helper_token_unsafe", "Helper token file must not be a symlink.")
     if not stat.S_ISREG(info.st_mode):

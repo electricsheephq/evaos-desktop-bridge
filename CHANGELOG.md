@@ -5,10 +5,12 @@ All notable repo release changes should be recorded here before a release branch
 ## Unreleased
 
 - Start the issue #121 persistent computer-use helper foundation: add a local
-  authenticated Unix-socket helper server/client, expose `helper ping`, rotate
-  the private token file on helper start, require bridge audit provenance for
-  helper `mouse_action`, route opted-in Quartz mouse fallback actions through
-  the helper without per-action Python subprocess fallback, and keep the helper
+  authenticated Unix-socket helper server/client, expose `helper ping`, use a
+  short default helper socket path for macOS `AF_UNIX` limits, rotate the
+  private token file on helper start, atomically validate/read helper tokens,
+  require bridge audit provenance for helper `mouse_action`, timeout stalled
+  helper clients, route opted-in Quartz mouse fallback actions through the
+  helper without per-action Python subprocess fallback, and keep the helper
   command surface limited to `ping` plus structured click/scroll/drag
   `mouse_action`.
 

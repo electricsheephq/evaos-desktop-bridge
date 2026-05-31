@@ -67,28 +67,26 @@ unknown actions, and malformed numeric payloads before touching Quartz.
 
 ## Local Run And Opt-In
 
-Start a local helper with a private Unix socket and rotated per-launch token
-file:
+Start a local helper with a short private Unix socket path and rotated
+per-launch token file. The default socket lives under `/tmp` to stay below
+macOS `AF_UNIX` pathname limits; the token remains in the bridge state
+directory unless overridden.
 
 ```bash
-evaos-desktop-bridge helper run \
-  --socket-path "$HOME/Library/Application Support/evaos-desktop-bridge/computer-use-helper.sock" \
-  --token-file "$HOME/Library/Application Support/evaos-desktop-bridge/computer-use-helper.token"
+evaos-desktop-bridge helper run
 ```
 
 Health check:
 
 ```bash
-evaos-desktop-bridge helper ping --json \
-  --socket-path "$HOME/Library/Application Support/evaos-desktop-bridge/computer-use-helper.sock" \
-  --token-file "$HOME/Library/Application Support/evaos-desktop-bridge/computer-use-helper.token"
+evaos-desktop-bridge helper ping --json
 ```
 
 The customer Mac adapter only uses the helper when explicitly opted in:
 
 ```bash
 export EVAOS_DESKTOP_BRIDGE_USE_HELPER=1
-export EVAOS_DESKTOP_BRIDGE_HELPER_SOCKET="$HOME/Library/Application Support/evaos-desktop-bridge/computer-use-helper.sock"
+export EVAOS_DESKTOP_BRIDGE_HELPER_SOCKET="/tmp/evaos-helper-$(id -u).sock"
 export EVAOS_DESKTOP_BRIDGE_HELPER_TOKEN_FILE="$HOME/Library/Application Support/evaos-desktop-bridge/computer-use-helper.token"
 ```
 
@@ -103,6 +101,8 @@ The helper remains dumb hands. Policy, redaction, approval, sensitive-app blocks
 For this foundation slice, the helper enforces the local socket boundary:
 rotated private token file, peer-uid match, strict framing, exact command
 allowlist, and a required bridge-provided audit id before `mouse_action`.
+Accepted helper sockets have read timeouts so a stalled local peer cannot wedge
+later helper actions.
 `#129` remains the stronger follow-up for a fully audited command-envelope IPC
 seam and supervisor lifecycle.
 

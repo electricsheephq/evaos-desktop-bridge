@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import threading
 import uuid
 from pathlib import Path
@@ -16,6 +17,7 @@ from evaos_desktop_bridge.helper_ipc import (
     UnixSocketHelperClient,
     build_helper_request,
     decode_frame,
+    default_helper_socket_path,
     encode_frame,
     handle_helper_request,
     make_capability_token,
@@ -26,6 +28,20 @@ from evaos_desktop_bridge.helper_ipc import (
 
 def short_socket_path() -> Path:
     return Path("/tmp") / f"evaos-helper-{uuid.uuid4().hex}.sock"
+
+
+def read_raw_frame(sock: socket.socket) -> dict[str, object]:
+    prefix = sock.recv(4)
+    assert len(prefix) == 4
+    length = int.from_bytes(prefix, "big")
+    chunks: list[bytes] = []
+    remaining = length
+    while remaining > 0:
+        chunk = sock.recv(remaining)
+        assert chunk
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return decode_frame(prefix + b"".join(chunks))
 
 
 def test_helper_ipc_ping_accepts_authorized_request_without_echoing_token() -> None:
@@ -53,6 +69,11 @@ def test_helper_ipc_ping_accepts_authorized_request_without_echoing_token() -> N
 
 def test_helper_ipc_contract_exposes_health_and_narrow_mouse_action_only() -> None:
     assert HELPER_IPC_ALLOWED_COMMANDS == frozenset({"ping", "mouse_action"})
+
+
+def test_default_helper_socket_path_stays_under_macos_unix_socket_limit() -> None:
+    assert str(default_helper_socket_path()).startswith("/tmp/")
+    assert len(str(default_helper_socket_path())) < 104
 
 
 def test_helper_ipc_mouse_action_dispatches_authorized_executor_without_echoing_token() -> None:
@@ -167,6 +188,36 @@ def test_run_helper_server_refuses_to_unlink_regular_file_socket_path(tmp_path: 
 
     assert exc.value.code == "helper_socket_path_not_socket"
     assert socket_path.read_text(encoding="utf-8") == "keep me\n"
+
+
+def test_run_helper_server_times_out_stalled_client() -> None:
+    token = make_capability_token()
+    socket_path = short_socket_path()
+    ready = threading.Event()
+    thread = threading.Thread(
+        target=run_helper_server,
+        kwargs={
+            "socket_path": socket_path,
+            "token": token,
+            "expected_uid": os.getuid(),
+            "ready": ready,
+            "max_requests": 1,
+            "peer_uid_getter": lambda _sock: os.getuid(),
+            "connection_timeout": 0.05,
+        },
+        daemon=True,
+    )
+    thread.start()
+    assert ready.wait(timeout=2)
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(2)
+        client.connect(str(socket_path))
+        response = read_raw_frame(client)
+
+    thread.join(timeout=2)
+    assert response["ok"] is False
+    assert response["errors"][0]["code"] == "helper_ipc_timeout"
 
 
 def test_unix_socket_helper_client_round_trips_ping(tmp_path: Path) -> None:
