@@ -79,6 +79,7 @@ GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
     "customer_mac.iphone_mirroring_send_approved_message": ("text", "recipient_context", "target_label"),
     "customer_mac.desktop_click": ("snapshot_id", "element_id", "target_label", "x", "y"),
     "customer_mac.desktop_type": ("text",),
+    "customer_mac.desktop_set_value": ("snapshot_id", "element_id", "attribute", "value_hash"),
     "customer_mac.desktop_scroll": ("direction", "amount"),
     "customer_mac.desktop_drag": ("from_x", "from_y", "to_x", "to_y"),
     "customer_mac.desktop_hotkey": ("keys",),
@@ -119,6 +120,7 @@ CONTROLLED_LIVE_COMMANDS = frozenset(
         "customer_mac.iphone_mirroring_send_approved_message",
         "customer_mac.desktop_click",
         "customer_mac.desktop_type",
+        "customer_mac.desktop_set_value",
         "customer_mac.desktop_scroll",
         "customer_mac.desktop_drag",
         "customer_mac.desktop_hotkey",
@@ -141,6 +143,7 @@ ASK_PERMISSION_HIGH_IMPACT_COMMANDS = frozenset(
         "customer_mac.iphone_mirroring_type_approved_text",
         "customer_mac.iphone_mirroring_send_approved_message",
         "customer_mac.desktop_type",
+        "customer_mac.desktop_set_value",
         "customer_mac.iphone_swipe",
         "customer_mac.iphone_type",
     }
@@ -433,6 +436,18 @@ def build_parser() -> argparse.ArgumentParser:
     desktop_type_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode.")
     desktop_type_parser.set_defaults(command_id="customer_mac.desktop_type", target="customer_mac")
 
+    desktop_set_value_parser = desktop_subparsers.add_parser("set-value", help="Set an AX-backed native text field from a fresh desktop_see snapshot.")
+    desktop_set_value_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    desktop_set_value_parser.add_argument("--snapshot-id", required=True, help="Snapshot id returned by desktop_see.")
+    desktop_set_value_parser.add_argument("--element-id", required=True, help="AX element id returned by desktop_see.")
+    desktop_set_value_group = desktop_set_value_parser.add_mutually_exclusive_group(required=True)
+    desktop_set_value_group.add_argument("--value", help="Exact value to set; secrets and secure fields are blocked.")
+    desktop_set_value_group.add_argument("--value-file", help="Path to a UTF-8 file containing the exact value to set.")
+    desktop_set_value_parser.add_argument("--attribute", choices=["value", "selected_text"], default="value", help="Fixed AX attribute setter.")
+    desktop_set_value_parser.add_argument("--dry-run", action="store_true", help="Report what would happen without setting text.")
+    desktop_set_value_parser.add_argument("--approval-audit-id", default=None, help="Dry-run audit id required in Ask Permission mode.")
+    desktop_set_value_parser.set_defaults(command_id="customer_mac.desktop_set_value", target="customer_mac")
+
     desktop_scroll_parser = desktop_subparsers.add_parser("scroll", help="Scroll the focused surface.")
     desktop_scroll_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     desktop_scroll_parser.add_argument("--direction", choices=["up", "down", "left", "right"], default="down", help="Scroll direction.")
@@ -692,6 +707,9 @@ def main(
         if command_id == "codex.send_visible_message":
             args.message = _resolve_visible_message_arg(args)
             args.message_hash = _short_hash(str(getattr(args, "message", "") or "").strip())
+        if command_id == "customer_mac.desktop_set_value":
+            args.value = _resolve_desktop_set_value_arg(args)
+            args.value_hash = _short_hash(str(getattr(args, "value", "") or ""))
         ensure_allowed(command_id)
         observer = observer_factory() if observer_factory is not None else MacOSCodexObserver(state_dir=state_dir)
         customer_mac = customer_mac_factory() if customer_mac_factory is not None else CustomerMacObserver(state_dir=state_dir)
@@ -775,15 +793,27 @@ def _resolve_visible_message_arg(args: argparse.Namespace) -> str:
     return str(getattr(args, "message", "") or "")
 
 
+def _resolve_desktop_set_value_arg(args: argparse.Namespace) -> str:
+    value_file = getattr(args, "value_file", None)
+    if isinstance(value_file, str) and value_file.strip():
+        return Path(value_file).expanduser().read_text(encoding="utf-8")
+    return str(getattr(args, "value", "") or "")
+
+
 def _audit_args(command_id: str, args: argparse.Namespace) -> dict[str, object]:
     excluded = {"command_id", "target", "state_dir"}
     if command_id == "codex.send_visible_message":
         excluded.add("message")
         excluded.add("message_file")
+    if command_id == "customer_mac.desktop_set_value":
+        excluded.add("value")
+        excluded.add("value_file")
     values = {key: value for key, value in vars(args).items() if key not in excluded}
     if command_id == "codex.send_visible_message":
         values["message_hash"] = getattr(args, "message_hash", _short_hash(str(getattr(args, "message", "") or "").strip()))
         values["message_preview"] = _message_preview(str(getattr(args, "message", "") or ""))
+    if command_id == "customer_mac.desktop_set_value":
+        values["value_hash"] = getattr(args, "value_hash", _short_hash(str(getattr(args, "value", "") or "")))
     return values
 
 
@@ -887,6 +917,8 @@ def _run_command(
         return customer_mac.desktop_click(target_label=args.target_label, x=args.x, y=args.y, snapshot_id=args.snapshot_id, element_id=args.element_id, dry_run=args.dry_run)
     if command_id == "customer_mac.desktop_type":
         return customer_mac.desktop_type(text=args.text, dry_run=args.dry_run)
+    if command_id == "customer_mac.desktop_set_value":
+        return customer_mac.desktop_set_value(snapshot_id=args.snapshot_id, element_id=args.element_id, value=args.value, attribute=args.attribute, dry_run=args.dry_run)
     if command_id == "customer_mac.desktop_scroll":
         return customer_mac.desktop_scroll(direction=args.direction, amount=args.amount, dry_run=args.dry_run)
     if command_id == "customer_mac.desktop_drag":
@@ -1264,6 +1296,7 @@ def _capabilities() -> dict[str, object]:
                 "customer_mac.desktop_see",
                 "customer_mac.desktop_click",
                 "customer_mac.desktop_type",
+                "customer_mac.desktop_set_value",
                 "customer_mac.desktop_scroll",
                 "customer_mac.desktop_drag",
                 "customer_mac.desktop_hotkey",

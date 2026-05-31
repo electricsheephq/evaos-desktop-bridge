@@ -236,6 +236,9 @@ class FakeCustomerMac:
     def desktop_type(self, *, text: str, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"typed": not dry_run, "would_type": dry_run, "text_preview": text})
 
+    def desktop_set_value(self, *, snapshot_id: str, element_id: str, value: str, attribute: str = "value", dry_run: bool = False) -> CommandResult:
+        return CommandResult(ok=True, data={"set": not dry_run, "would_set": dry_run, "snapshot_id": snapshot_id, "element_id": element_id, "attribute": attribute, "value_sha256": bridge_cli._short_hash(value)})
+
     def desktop_scroll(self, *, direction: str, amount: int, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"scrolled": not dry_run, "would_scroll": dry_run, "direction": direction, "amount": amount})
 
@@ -874,11 +877,20 @@ def test_customer_mac_app_focus_live_requires_matching_dry_run_audit(tmp_path: P
 def test_customer_mac_full_access_session_allows_live_desktop_actions_without_approval(tmp_path: Path) -> None:
     start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
     payload = run_cli(["customer-mac", "desktop", "type", "--json", "--text", "hello"], FakeObserver(), tmp_path)
+    set_value = run_cli(["customer-mac", "desktop", "set-value", "--json", "--snapshot-id", "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "--element-id", "el-0001", "--value", "hello"], FakeObserver(), tmp_path)
     legacy = run_cli(["codex", "continue-thread", "--json", "--title", "SDK Docs"], FakeObserver(), tmp_path)
 
     assert payload["_exit_code"] == 0
     assert payload["command"] == "customer_mac.desktop_type"
     assert payload["data"]["typed"] is True
+    assert set_value["_exit_code"] == 0
+    assert set_value["command"] == "customer_mac.desktop_set_value"
+    assert set_value["data"]["set"] is True
+    records = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    set_value_record = next(record for record in records if record["audit_id"] == set_value["audit_id"])
+    assert "value" not in set_value_record["args"]
+    assert "value_preview" not in set_value_record["args"]
+    assert set_value_record["args"]["value_hash"]
     assert legacy["_exit_code"] == 2
     assert legacy["errors"][0]["code"] == "approval_audit_required"
 
@@ -893,6 +905,7 @@ def test_customer_mac_ask_permission_allows_navigation_but_gates_text(tmp_path: 
     safe_hotkey = run_cli(["customer-mac", "desktop", "hotkey", "--json", "--keys", "cmd+r"], FakeObserver(), tmp_path)
     risky_hotkey = run_cli(["customer-mac", "desktop", "hotkey", "--json", "--keys", "return"], FakeObserver(), tmp_path)
     typed = run_cli(["customer-mac", "desktop", "type", "--json", "--text", "hello"], FakeObserver(), tmp_path)
+    set_value = run_cli(["customer-mac", "desktop", "set-value", "--json", "--snapshot-id", "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "--element-id", "el-0001", "--value", "hello"], FakeObserver(), tmp_path)
 
     assert scroll["_exit_code"] == 0
     assert scroll["data"]["scrolled"] is True
@@ -903,6 +916,8 @@ def test_customer_mac_ask_permission_allows_navigation_but_gates_text(tmp_path: 
     assert risky_hotkey["_exit_code"] == 2
     assert typed["_exit_code"] == 2
     assert typed["errors"][0]["code"] == "approval_audit_required"
+    assert set_value["_exit_code"] == 2
+    assert set_value["errors"][0]["code"] == "approval_audit_required"
 
 
 def test_customer_mac_kill_switch_blocks_live_control(tmp_path: Path) -> None:

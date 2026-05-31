@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from evaos_desktop_bridge.helper_ipc import (
+    AxActionExecutor,
     HELPER_IPC_ALLOWED_COMMANDS,
     HELPER_IPC_MAX_BYTES,
     HELPER_IPC_SCHEMA_VERSION,
@@ -70,8 +71,8 @@ def test_helper_ipc_ping_accepts_authorized_request_without_echoing_token() -> N
     assert token not in serialized
 
 
-def test_helper_ipc_contract_exposes_health_and_narrow_mouse_action_only() -> None:
-    assert HELPER_IPC_ALLOWED_COMMANDS == frozenset({"ping", "mouse_action"})
+def test_helper_ipc_contract_exposes_health_mouse_and_semantic_ax_actions_only() -> None:
+    assert HELPER_IPC_ALLOWED_COMMANDS == frozenset({"ping", "mouse_action", "ax_action"})
 
 
 def test_default_helper_socket_path_stays_under_macos_unix_socket_limit() -> None:
@@ -123,6 +124,57 @@ def test_helper_ipc_mouse_action_dispatches_authorized_executor_without_echoing_
     assert token not in json.dumps(response)
 
 
+def test_helper_ipc_ax_action_dispatches_authorized_executor_without_echoing_token() -> None:
+    token = make_capability_token()
+    calls: list[tuple[str, dict[str, object]]] = []
+    target = {
+        "pid": 1234,
+        "process_name": "TestApp",
+        "path": [
+            {"role": "AXWindow", "index": 0},
+            {"role": "AXButton", "name": "OK", "identifier": "ok-button", "index": 2},
+        ],
+    }
+
+    def executor(command: str, payload: dict[str, object]) -> dict[str, object]:
+        calls.append((command, payload))
+        return {
+            "ok": True,
+            "data": {
+                "performed": True,
+                "action": payload["action"],
+                "target": payload["target"],
+                "engine": "helper_ax",
+            },
+            "warnings": [],
+            "errors": [],
+        }
+
+    request = build_helper_request(
+        command="ax_action",
+        token=token,
+        request_id="req-ax",
+        audit_id="audit-ax",
+        payload={"action": "press", "target": target},
+    )
+
+    response = handle_helper_request(
+        request,
+        expected_token=token,
+        expected_uid=501,
+        peer_uid=501,
+        command_executor=executor,
+    )
+
+    assert response["ok"] is True
+    assert response["request_id"] == "req-ax"
+    assert response["data"]["performed"] is True
+    assert response["data"]["action"] == "press"
+    assert response["data"]["engine"] == "helper_ax"
+    assert calls == [("ax_action", {"action": "press", "target": target})]
+    assert token not in json.dumps(response)
+
+
 def test_helper_ipc_mouse_action_requires_audit_id() -> None:
     token = make_capability_token()
     request = build_helper_request(
@@ -142,6 +194,111 @@ def test_helper_ipc_mouse_action_requires_audit_id() -> None:
         )
 
     assert exc.value.code == "helper_ipc_audit_required"
+
+
+def test_helper_ipc_ax_action_requires_audit_id() -> None:
+    token = make_capability_token()
+    request = build_helper_request(
+        command="ax_action",
+        token=token,
+        request_id="req-ax",
+        payload={"action": "press", "target": {"pid": 1234, "process_name": "TestApp", "path": [{"role": "AXButton", "index": 0}]}},
+    )
+
+    with pytest.raises(HelperIpcError) as exc:
+        handle_helper_request(
+            request,
+            expected_token=token,
+            expected_uid=501,
+            peer_uid=501,
+            command_executor=lambda _command, _payload: {"ok": True, "data": {}, "warnings": [], "errors": []},
+        )
+
+    assert exc.value.code == "helper_ipc_audit_required"
+
+
+def test_ax_action_executor_blocks_non_text_set_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = {"role": "AXApplication"}
+    window = {"role": "AXWindow", "children": []}
+    button = {"role": "AXButton", "name": "OK", "children": []}
+    app["windows"] = [window]
+    window["children"] = [button]
+
+    class FakeApplicationServices:
+        def AXUIElementCreateApplication(self, pid: int) -> dict[str, object]:
+            assert pid == 1234
+            return app
+
+        def AXUIElementCopyAttributeValue(self, element: dict[str, object], attr: str, out: object) -> tuple[int, object | None]:
+            if attr == "AXWindows":
+                return 0, element.get("windows")
+            if attr == "AXChildren":
+                return 0, element.get("children")
+            if attr == "AXRole":
+                return 0, element.get("role")
+            if attr == "AXTitle":
+                return 0, element.get("name")
+            if attr in {"AXDescription", "AXValue", "AXIdentifier"}:
+                return 0, None
+            return 1, None
+
+        def AXUIElementSetAttributeValue(self, element: dict[str, object], attr: str, value: str) -> int:
+            raise AssertionError("non-text roles must not reach AXUIElementSetAttributeValue")
+
+    executor = AxActionExecutor()
+    executor._as = FakeApplicationServices()
+    monkeypatch.setattr(executor, "_process_name_for_pid", lambda pid: "TestApp")
+
+    response = executor(
+        "ax_action",
+        {
+            "action": "set_value",
+            "value": "hello",
+            "target": {
+                "pid": 1234,
+                "process_name": "TestApp",
+                "path": [
+                    {"role": "AXWindow", "index": 0},
+                    {"role": "AXButton", "name": "OK", "index": 0},
+                ],
+            },
+        },
+    )
+
+    assert response["ok"] is False
+    assert response["errors"][0]["code"] == "helper_ax_non_text_field_blocked"
+
+
+def test_ax_action_executor_blocks_process_identity_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    executor = AxActionExecutor()
+    monkeypatch.setattr(executor, "_process_name_for_pid", lambda pid: "OtherApp")
+
+    response = executor._target_identity_error("press", {"pid": 1234, "process_name": "Safari"})
+
+    assert response is not None
+    assert response["errors"][0]["code"] == "helper_ax_target_process_mismatch"
+
+
+def test_helper_ipc_ax_action_requires_process_identity() -> None:
+    token = make_capability_token()
+    request = build_helper_request(
+        command="ax_action",
+        token=token,
+        request_id="req-ax",
+        audit_id="audit-ax",
+        payload={"action": "press", "target": {"pid": 1234, "path": [{"role": "AXButton", "index": 0}]}},
+    )
+
+    with pytest.raises(HelperIpcError) as exc:
+        handle_helper_request(
+            request,
+            expected_token=token,
+            expected_uid=501,
+            peer_uid=501,
+            command_executor=AxActionExecutor(),
+        )
+
+    assert exc.value.code == "helper_ipc_bad_payload"
 
 
 def test_helper_permission_preflight_reports_workbench_identity_and_grants() -> None:

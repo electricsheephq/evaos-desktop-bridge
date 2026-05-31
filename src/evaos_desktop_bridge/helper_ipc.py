@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import json
 import os
 import platform
@@ -10,6 +11,7 @@ import stat
 import struct
 import subprocess
 import sys
+import time
 import uuid
 from collections.abc import Callable
 from errno import ELOOP
@@ -22,7 +24,7 @@ from .types import CommandResult
 
 HELPER_IPC_SCHEMA_VERSION = "evaos.helper_ipc.v1"
 HELPER_IPC_MAX_BYTES = 64 * 1024
-HELPER_IPC_ALLOWED_COMMANDS = frozenset({"ping", "mouse_action"})
+HELPER_IPC_ALLOWED_COMMANDS = frozenset({"ping", "mouse_action", "ax_action"})
 HELPER_USE_ENV = "EVAOS_DESKTOP_BRIDGE_USE_HELPER"
 HELPER_SOCKET_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_SOCKET"
 HELPER_TOKEN_FILE_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_TOKEN_FILE"
@@ -133,6 +135,302 @@ class QuartzMouseActionExecutor:
     def _post_mouse(quartz: Any, source: Any, kind: int, x: int, y: int) -> None:
         event = quartz.CGEventCreateMouseEvent(source, kind, (x, y), quartz.kCGMouseButtonLeft)
         quartz.CGEventPost(quartz.kCGHIDEventTap, event)
+
+
+class AxActionExecutor:
+    PERFORM_ACTIONS = {
+        "press": "AXPress",
+    }
+    VALUE_ATTRIBUTES = {
+        "set_value": "AXValue",
+        "set_selected_text": "AXSelectedText",
+    }
+    EDITABLE_VALUE_ROLES = frozenset({"AXTextField", "AXTextArea", "AXComboBox"})
+    ALLOWED_ACTIONS = frozenset((*PERFORM_ACTIONS.keys(), *VALUE_ATTRIBUTES.keys(), "menu"))
+
+    def __init__(self) -> None:
+        self._as: Any | None = None
+
+    def __call__(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if command != "ax_action":
+            raise HelperIpcError("helper_ipc_command_not_allowed", "Helper AX executor only supports ax_action.")
+        action = _required_string(payload, "action")
+        if action not in self.ALLOWED_ACTIONS:
+            raise HelperIpcError("helper_ipc_bad_payload", "ax_action action is not allowed.")
+        target = _required_ax_target(payload)
+        try:
+            app_services = self._load_application_services()
+            identity_error = self._target_identity_error(action, target)
+            if identity_error is not None:
+                return identity_error
+            if action == "menu":
+                menu_path = _required_menu_path(payload)
+                self._perform_menu(app_services, target, menu_path)
+                return {
+                    "ok": True,
+                    "data": {"performed": True, "action": action, "menu_path": " > ".join(menu_path), "engine": "helper_ax"},
+                    "warnings": [],
+                    "errors": [],
+                }
+            if _target_path_contains_role(target, "AXWebArea"):
+                return {
+                    "ok": False,
+                    "data": {"performed": False, "action": action, "engine": "helper_ax"},
+                    "warnings": [],
+                    "errors": [
+                        {
+                            "code": "helper_ax_web_content_inert",
+                            "message": "AX actions against browser web content are treated as inert and are not reported as success.",
+                            "guidance": "Route browser web content through the browser/Playwright strategy instead of Tier-1 AX.",
+                        }
+                    ],
+                }
+            element = self._resolve_target(app_services, target)
+            if action in self.PERFORM_ACTIONS:
+                native_action = self.PERFORM_ACTIONS[action]
+                err = app_services.AXUIElementPerformAction(element, native_action)
+                if err != 0:
+                    return self._error(action, "helper_ax_action_failed", f"AX action {native_action} failed with code {err}.")
+                return {
+                    "ok": True,
+                    "data": {
+                        "performed": True,
+                        "action": action,
+                        "native_action": native_action,
+                        "target": self._target_summary(target),
+                        "engine": "helper_ax",
+                    },
+                    "warnings": [],
+                    "errors": [],
+                }
+            value = _required_ax_value(payload)
+            role = self._text_value(self._ax_value(app_services, element, self._constant(app_services, "kAXRoleAttribute", "AXRole")))
+            if role == "AXSecureTextField":
+                return self._error(action, "helper_ax_secure_field_blocked", "AX value setting is blocked for secure text fields.")
+            attribute = self.VALUE_ATTRIBUTES[action]
+            if role not in self.EDITABLE_VALUE_ROLES:
+                return self._error(action, "helper_ax_non_text_field_blocked", f"AX value setting is blocked for non-text role {role or 'unknown'}.")
+            if not self._attribute_settable(app_services, element, attribute):
+                return self._error(action, "helper_ax_attribute_not_settable", f"AX attribute {attribute} is not settable on the target element.")
+            err = app_services.AXUIElementSetAttributeValue(element, attribute, value)
+            if err != 0:
+                return self._error(action, "helper_ax_set_value_failed", f"AX attribute {attribute} failed with code {err}.")
+            return {
+                "ok": True,
+                "data": {
+                    "performed": True,
+                    "action": action,
+                    "attribute": attribute,
+                    "value_sha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+                    "target": self._target_summary(target),
+                    "engine": "helper_ax",
+                },
+                "warnings": [],
+                "errors": [],
+            }
+        except HelperIpcError:
+            raise
+        except Exception as exc:
+            return self._error(action, "helper_ax_action_failed", str(exc))
+
+    def _load_application_services(self) -> Any:
+        if self._as is None:
+            import ApplicationServices as AS  # type: ignore[import-not-found]
+
+            self._as = AS
+        return self._as
+
+    @staticmethod
+    def _target_summary(target: dict[str, Any]) -> dict[str, Any]:
+        path = target.get("path")
+        path_hash = None
+        if isinstance(path, list):
+            path_hash = hashlib.sha256(json.dumps(path, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        return {"pid": target.get("pid"), "path_hash": path_hash}
+
+    def _target_identity_error(self, action: str, target: dict[str, Any]) -> dict[str, Any] | None:
+        expected = target.get("process_name")
+        if not isinstance(expected, str) or not expected.strip():
+            return None
+        actual = self._process_name_for_pid(int(target["pid"]))
+        expected_base = Path(expected.strip()).name
+        actual_base = Path(actual or "").name if actual else None
+        if actual_base == expected.strip() or actual_base == expected_base:
+            return None
+        return self._error(action, "helper_ax_target_process_mismatch", "AX target process no longer matches the audited snapshot.")
+
+    @staticmethod
+    def _process_name_for_pid(pid: int) -> str | None:
+        try:
+            completed = subprocess.run(["ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
+        except Exception:
+            return None
+        if completed.returncode != 0:
+            return None
+        value = completed.stdout.strip()
+        return value or None
+
+    def _resolve_target(self, app_services: Any, target: dict[str, Any]) -> Any:
+        pid = int(target["pid"])
+        path = target.get("path")
+        if not isinstance(path, list) or not path:
+            raise HelperIpcError("helper_ipc_bad_payload", "ax_action target requires a non-empty path.")
+        current = app_services.AXUIElementCreateApplication(pid)
+        for depth, segment in enumerate(path):
+            if not isinstance(segment, dict):
+                raise HelperIpcError("helper_ipc_bad_payload", "ax_action target path entries must be objects.")
+            children = self._segment_children(app_services, current, segment, root=depth == 0)
+            current = self._resolve_segment(app_services, children, segment)
+        return current
+
+    def _segment_children(self, app_services: Any, current: Any, segment: dict[str, Any], *, root: bool) -> list[Any]:
+        role = str(segment.get("role") or "")
+        if root and role == "AXWindow":
+            value = self._ax_value(app_services, current, self._constant(app_services, "kAXWindowsAttribute", "AXWindows"))
+        elif root and role == "AXMenuBar":
+            value = self._ax_value(app_services, current, self._constant(app_services, "kAXMenuBarAttribute", "AXMenuBar"))
+            return [value] if value is not None else []
+        else:
+            value = self._ax_value(app_services, current, self._constant(app_services, "kAXChildrenAttribute", "AXChildren"))
+        try:
+            return list(value or [])
+        except Exception:
+            return []
+
+    def _resolve_segment(self, app_services: Any, candidates: list[Any], segment: dict[str, Any]) -> Any:
+        index = segment.get("index")
+        if type(index) is int and 0 <= index < len(candidates) and self._segment_matches(app_services, candidates[index], segment):
+            return candidates[index]
+        matches = [candidate for candidate in candidates if self._segment_matches(app_services, candidate, segment)]
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise HelperIpcError("helper_ax_target_not_found", "AX target path did not resolve to an element.")
+        raise HelperIpcError("helper_ax_target_ambiguous", "AX target path resolved to multiple elements.")
+
+    def _segment_matches(self, app_services: Any, element: Any, segment: dict[str, Any]) -> bool:
+        expected_role = segment.get("role")
+        if isinstance(expected_role, str) and expected_role:
+            role = self._text_value(self._ax_value(app_services, element, self._constant(app_services, "kAXRoleAttribute", "AXRole")))
+            if role != expected_role:
+                return False
+        expected_identifier = segment.get("identifier")
+        if isinstance(expected_identifier, str) and expected_identifier:
+            identifier = self._text_value(self._ax_value(app_services, element, self._constant(app_services, "kAXIdentifierAttribute", "AXIdentifier")))
+            if identifier != expected_identifier:
+                return False
+        expected_name = segment.get("name")
+        if isinstance(expected_name, str) and expected_name:
+            names = {
+                self._text_value(self._ax_value(app_services, element, self._constant(app_services, "kAXTitleAttribute", "AXTitle"))),
+                self._text_value(self._ax_value(app_services, element, self._constant(app_services, "kAXDescriptionAttribute", "AXDescription"))),
+                self._text_value(self._ax_value(app_services, element, self._constant(app_services, "kAXValueAttribute", "AXValue"))),
+            }
+            if expected_name not in names:
+                return False
+        return True
+
+    def _perform_menu(self, app_services: Any, target: dict[str, Any], menu_path: list[str]) -> None:
+        app = app_services.AXUIElementCreateApplication(int(target["pid"]))
+        menu_bar = self._ax_value(app_services, app, self._constant(app_services, "kAXMenuBarAttribute", "AXMenuBar"))
+        if menu_bar is None:
+            raise HelperIpcError("helper_ax_menu_not_found", "AX menu bar was not available for the target app.")
+        current = menu_bar
+        for index, label in enumerate(menu_path):
+            children = self._children(app_services, current)
+            matches = [child for child in children if self._element_name(app_services, child) == label]
+            if len(matches) != 1:
+                raise HelperIpcError("helper_ax_menu_not_found", "AX menu path did not resolve uniquely.")
+            current = matches[0]
+            err = app_services.AXUIElementPerformAction(current, "AXPress")
+            if err != 0:
+                raise HelperIpcError("helper_ax_menu_failed", f"AX menu action failed with code {err}.")
+            if index < len(menu_path) - 1:
+                time.sleep(0.05)
+
+    def _children(self, app_services: Any, element: Any) -> list[Any]:
+        value = self._ax_value(app_services, element, self._constant(app_services, "kAXChildrenAttribute", "AXChildren"))
+        try:
+            return list(value or [])
+        except Exception:
+            return []
+
+    @staticmethod
+    def _attribute_settable(app_services: Any, element: Any, attribute: str) -> bool:
+        checker = getattr(app_services, "AXUIElementIsAttributeSettable", None)
+        if checker is None:
+            return True
+        try:
+            result = checker(element, attribute, None)
+        except TypeError:
+            try:
+                result = checker(element, attribute)
+            except Exception:
+                return True
+        except Exception:
+            return True
+        if isinstance(result, tuple) and len(result) >= 2:
+            err, settable = result[0], result[1]
+            return err == 0 and bool(settable)
+        if isinstance(result, bool):
+            return result
+        return True
+
+    def _element_name(self, app_services: Any, element: Any) -> str | None:
+        return self._text_value(self._ax_value(app_services, element, self._constant(app_services, "kAXTitleAttribute", "AXTitle"))) or self._text_value(
+            self._ax_value(app_services, element, self._constant(app_services, "kAXDescriptionAttribute", "AXDescription"))
+        )
+
+    @staticmethod
+    def _ax_value(app_services: Any, element: Any, attr: str) -> Any:
+        try:
+            err, value = app_services.AXUIElementCopyAttributeValue(element, attr, None)
+        except Exception:
+            return None
+        if err != 0:
+            return None
+        return value
+
+    @staticmethod
+    def _text_value(value: Any) -> str | None:
+        if value is None:
+            return None
+        try:
+            return str(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _constant(app_services: Any, name: str, fallback: str) -> str:
+        return str(getattr(app_services, name, fallback))
+
+    @staticmethod
+    def _error(action: str, code: str, message: str) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "data": {"performed": False, "action": action, "engine": "helper_ax"},
+            "warnings": [],
+            "errors": [
+                {
+                    "code": code,
+                    "message": message,
+                    "guidance": "Verify the target is a supported native Accessibility element and retry from a fresh desktop_see snapshot.",
+                }
+            ],
+        }
+
+
+class ComputerUseHelperExecutor:
+    def __init__(self) -> None:
+        self._mouse = QuartzMouseActionExecutor()
+        self._ax = AxActionExecutor()
+
+    def __call__(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if command == "mouse_action":
+            return self._mouse(command, payload)
+        if command == "ax_action":
+            return self._ax(command, payload)
+        raise HelperIpcError("helper_ipc_command_not_allowed", "Helper executor does not support this command.")
 
 
 class UnixSocketHelperClient:
@@ -272,9 +570,9 @@ def handle_helper_request(
     audit_id = request.get("audit_id")
     if audit_id is not None and (not isinstance(audit_id, str) or not audit_id):
         raise HelperIpcError("helper_ipc_bad_audit_id", "Helper IPC audit id must be a non-empty string when present.")
-    if command == "mouse_action":
+    if command in {"mouse_action", "ax_action"}:
         if not isinstance(audit_id, str) or not audit_id.startswith("audit-"):
-            raise HelperIpcError("helper_ipc_audit_required", "Helper IPC mouse_action requires an audit id from the bridge actuation path.")
+            raise HelperIpcError("helper_ipc_audit_required", f"Helper IPC {command} requires an audit id from the bridge actuation path.")
         if command_executor is None:
             raise HelperIpcError("helper_ipc_executor_unavailable", "Helper IPC actuation executor is not configured.")
         permission_preflight = permission_checker() if permission_checker is not None else helper_permission_preflight()
@@ -286,7 +584,7 @@ def handle_helper_request(
                 "audit_id": audit_id,
                 "ok": False,
                 "timestamp": timestamp_utc(),
-                "data": {"performed": False, "action": payload.get("action"), "permission_preflight": permission_preflight},
+                "data": {"performed": False, "command": command, "action": payload.get("action"), "permission_preflight": permission_preflight},
                 "warnings": [],
                 "errors": preflight_errors,
             }
@@ -349,7 +647,7 @@ def run_helper_server(
     path = Path(socket_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     _unlink_existing_socket(path, missing_ok=True, fail_on_non_socket=True)
-    executor = command_executor or QuartzMouseActionExecutor()
+    executor = command_executor or ComputerUseHelperExecutor()
     peer_uid = peer_uid_getter or socket_peer_uid
     served = 0
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -770,5 +1068,64 @@ def _required_int(payload: dict[str, Any], key: str) -> int:
 def _required_string(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value:
-        raise HelperIpcError("helper_ipc_bad_payload", f"mouse_action payload requires string {key}.")
+        raise HelperIpcError("helper_ipc_bad_payload", f"Helper IPC payload requires string {key}.")
     return value
+
+
+def _required_ax_target(payload: dict[str, Any]) -> dict[str, Any]:
+    target = payload.get("target")
+    if not isinstance(target, dict):
+        raise HelperIpcError("helper_ipc_bad_payload", "ax_action payload requires target object.")
+    pid = target.get("pid")
+    if type(pid) is not int or pid <= 0:
+        raise HelperIpcError("helper_ipc_bad_payload", "ax_action target requires positive integer pid.")
+    process_name = target.get("process_name")
+    if not isinstance(process_name, str) or not process_name.strip() or len(process_name) > 240:
+        raise HelperIpcError("helper_ipc_bad_payload", "ax_action target requires process_name from the audited snapshot.")
+    path = target.get("path")
+    if path is not None:
+        if not isinstance(path, list):
+            raise HelperIpcError("helper_ipc_bad_payload", "ax_action target path must be a list.")
+        for segment in path:
+            if not isinstance(segment, dict):
+                raise HelperIpcError("helper_ipc_bad_payload", "ax_action target path entries must be objects.")
+            role = segment.get("role")
+            if not isinstance(role, str) or not role.startswith("AX") or len(role) > 80:
+                raise HelperIpcError("helper_ipc_bad_payload", "ax_action target path entries require AX role strings.")
+            for key in ("name", "identifier"):
+                value = segment.get(key)
+                if value is not None and (not isinstance(value, str) or len(value) > 240):
+                    raise HelperIpcError("helper_ipc_bad_payload", f"ax_action target path {key} must be a short string when present.")
+            index = segment.get("index")
+            if index is not None and (type(index) is not int or index < 0):
+                raise HelperIpcError("helper_ipc_bad_payload", "ax_action target path index must be a non-negative integer when present.")
+    return target
+
+
+def _required_ax_value(payload: dict[str, Any]) -> str:
+    value = payload.get("value")
+    if not isinstance(value, str) or not value:
+        raise HelperIpcError("helper_ipc_bad_payload", "ax_action set_value requires a non-empty string value.")
+    if len(value) > 4000:
+        raise HelperIpcError("helper_ipc_bad_payload", "ax_action set_value is capped at 4000 characters.")
+    return value
+
+
+def _required_menu_path(payload: dict[str, Any]) -> list[str]:
+    raw = payload.get("menu_path")
+    if isinstance(raw, str):
+        parts = [part.strip() for part in raw.split(">") if part.strip()]
+    elif isinstance(raw, list):
+        parts = [str(part).strip() for part in raw if isinstance(part, str) and part.strip()]
+    else:
+        parts = []
+    if not parts or len(parts) > 8 or any(len(part) > 80 for part in parts):
+        raise HelperIpcError("helper_ipc_bad_payload", "ax_action menu requires a short menu_path.")
+    return parts
+
+
+def _target_path_contains_role(target: dict[str, Any], role: str) -> bool:
+    path = target.get("path")
+    if not isinstance(path, list):
+        return False
+    return any(isinstance(segment, dict) and segment.get("role") == role for segment in path)

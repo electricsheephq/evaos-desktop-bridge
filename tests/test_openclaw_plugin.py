@@ -72,6 +72,7 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
         "desktop_see",
         "desktop_click",
         "desktop_type",
+        "desktop_set_value",
         "desktop_scroll",
         "desktop_drag",
         "desktop_hotkey",
@@ -145,6 +146,12 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert '"app-server"' in source
     assert '"customer-mac"' in source
     assert "desktopClick" in source
+    assert "desktopSetValue" in source
+    assert "value_file" in source
+    assert "--value-file" in source
+    assert "evaos-desktop-set-value-" in source
+    assert "desktopSetValue value must be materialized" in source
+    assert 'requiredString(params.value, "value")' not in source
     assert "iphoneSwipe" in source
     assert "customerMacControlStart" in source
     assert "customerMacIphoneMirroringOpenApp" in source
@@ -159,6 +166,8 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert "evaosSharedBrowserGuidance" in source
     assert "turn/start" not in source
     assert "session.db" not in source
+    assert '"desktop_set_value"' in (PLUGIN / "index.ts").read_text(encoding="utf-8")
+    assert 'dry_run: { type: "boolean", default: true }' in (PLUGIN / "index.ts").read_text(encoding="utf-8")
 
 
 def test_openclaw_codex_visible_gui_tools_are_fixed_and_approval_gated() -> None:
@@ -183,6 +192,16 @@ def test_openclaw_codex_visible_gui_tools_are_fixed_and_approval_gated() -> None
     assert "Live visible Codex GUI action" in index_source
     assert "wait_ms" in index_source
     assert "poll_interval_ms" in index_source
+
+
+def test_openclaw_codex_select_thread_defaults_to_dry_run() -> None:
+    index_source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
+    dist = (PLUGIN / "dist" / "index.js").read_text(encoding="utf-8")
+
+    select_block = index_source[index_source.index('"desktop_bridge_codex_select_thread"'):index_source.index('"desktop_bridge_codex_send_visible_message"')]
+    assert 'dry_run: { type: "boolean", default: true }' in select_block
+    assert '"desktop_bridge_codex_select_thread"' in dist
+    assert 'dry_run:{type:"boolean",default:!0}' in dist or 'dry_run: { type: "boolean", default: true }' in dist
 
 
 def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_tokens() -> None:
@@ -997,6 +1016,11 @@ def test_openclaw_plugin_firewall_blocks_escape_hatches() -> None:
         "kickstart -activate",
         "camera",
         "microphone",
+        "AXPress",
+        "AXSetValue",
+        "AXShowMenu",
+        "AXSelectedText",
+        "AXUIElementSetAttributeValue",
     ]:
         assert pattern in source
 

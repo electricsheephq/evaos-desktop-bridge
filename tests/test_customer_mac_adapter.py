@@ -205,6 +205,266 @@ def test_desktop_click_helper_dispatch_writes_actuation_audit_record(tmp_path: P
     assert completion["provenance"]["helper_audit_id"] == helper_audit_id
 
 
+def test_desktop_click_routes_ax_snapshot_target_through_helper_without_python_spawn(tmp_path: Path) -> None:
+    helper = FakeHelperClient(
+        CommandResult(
+            ok=True,
+            data={"performed": True, "action": "press", "clicked": True, "engine": "helper_ax"},
+            provenance={"source": "computer_use_helper"},
+        )
+    )
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    snapshot_id = f"snap-desktop-{uuid.uuid4().hex}"
+    ax_target = {
+        "pid": 1234,
+        "process_name": "TestApp",
+        "path": [
+            {"role": "AXWindow", "index": 0},
+            {"role": "AXButton", "name": "OK", "identifier": "ok-button", "index": 2},
+        ],
+    }
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "el-0001",
+                "snapshot_id": snapshot_id,
+                "label": "OK",
+                "role": "AXButton",
+                "bounds": {"x": 10, "y": 20, "width": 80, "height": 30},
+                "center": {"x": 50, "y": 35},
+                "actions": ["AXPress"],
+                "engine": "ax_fallback",
+                "ax_target": ax_target,
+            }
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="el-0001", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["engine"] == "helper_ax"
+    assert helper.calls[0][0] == "ax_action"
+    assert helper.calls[0][1] == {"action": "press", "target": ax_target}
+    assert helper.calls[0][2] and helper.calls[0][2].startswith("audit-helper-")
+    assert not any(command and command[0] == sys.executable for command in observer.runner.commands)
+
+
+def test_desktop_click_blocks_sensitive_background_ax_target_before_helper_dispatch(tmp_path: Path) -> None:
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "press", "clicked": True, "engine": "helper_ax"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    snapshot_id = f"snap-desktop-{uuid.uuid4().hex}"
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "el-0001",
+                "snapshot_id": snapshot_id,
+                "label": "Send",
+                "role": "AXButton",
+                "bounds": {"x": 10, "y": 20, "width": 80, "height": 30},
+                "center": {"x": 50, "y": 35},
+                "actions": ["AXPress"],
+                "engine": "ax_fallback",
+                "ax_target": {"pid": 1234, "app_name": "Mail", "path": [{"role": "AXButton", "name": "Send", "index": 0}]},
+            }
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="el-0001", dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "sensitive_app_blocked"
+    assert helper.calls == []
+
+
+def test_desktop_click_treats_ax_web_content_as_inert_without_helper_dispatch(tmp_path: Path) -> None:
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "press", "clicked": True, "engine": "helper_ax"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    snapshot_id = f"snap-desktop-{uuid.uuid4().hex}"
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "el-0001",
+                "snapshot_id": snapshot_id,
+                "label": "Submit",
+                "role": "AXButton",
+                "bounds": {"x": 10, "y": 20, "width": 80, "height": 30},
+                "center": {"x": 50, "y": 35},
+                "actions": ["AXPress"],
+                "engine": "ax_fallback",
+                "ax_target": {
+                    "pid": 1234,
+                    "app_name": "Google Chrome",
+                    "path": [{"role": "AXWindow", "index": 0}, {"role": "AXWebArea", "index": 0}, {"role": "AXButton", "name": "Submit", "index": 4}],
+                },
+            }
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="el-0001", dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "ax_web_content_inert"
+    assert helper.calls == []
+
+
+def test_desktop_set_value_routes_ax_snapshot_target_through_helper_without_typing(tmp_path: Path) -> None:
+    helper = FakeHelperClient(
+        CommandResult(
+            ok=True,
+            data={"performed": True, "action": "set_value", "engine": "helper_ax", "value_sha256": "placeholder"},
+            provenance={"source": "computer_use_helper"},
+        )
+    )
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    snapshot_id = f"snap-desktop-{uuid.uuid4().hex}"
+    ax_target = {
+        "pid": 1234,
+        "process_name": "TestApp",
+        "path": [
+            {"role": "AXWindow", "index": 0},
+            {"role": "AXTextField", "name": "Search", "identifier": "search-field", "index": 1},
+        ],
+    }
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "el-0002",
+                "snapshot_id": snapshot_id,
+                "label": "Search",
+                "role": "AXTextField",
+                "bounds": {"x": 10, "y": 20, "width": 200, "height": 30},
+                "center": {"x": 110, "y": 35},
+                "actions": [],
+                "engine": "ax_fallback",
+                "ax_target": ax_target,
+            }
+        ],
+    )
+
+    result = observer.desktop_set_value(snapshot_id=snapshot_id, element_id="el-0002", value="hello", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["engine"] == "helper_ax"
+    assert helper.calls[0][0] == "ax_action"
+    assert helper.calls[0][1] == {"action": "set_value", "target": ax_target, "value": "hello", "attribute": "AXValue"}
+    assert not any(command and command[0] == "osascript" and "keystroke" in " ".join(command) for command in observer.runner.commands)
+
+
+def test_desktop_set_value_blocks_non_text_ax_roles_before_helper_dispatch(tmp_path: Path) -> None:
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "set_value", "engine": "helper_ax"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    snapshot_id = f"snap-desktop-{uuid.uuid4().hex}"
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "el-0003",
+                "snapshot_id": snapshot_id,
+                "label": "Volume",
+                "role": "AXSlider",
+                "bounds": {"x": 10, "y": 20, "width": 200, "height": 30},
+                "center": {"x": 110, "y": 35},
+                "actions": [],
+                "engine": "ax_fallback",
+                "ax_target": {
+                    "pid": 1234,
+                    "process_name": "TestApp",
+                    "path": [
+                        {"role": "AXWindow", "index": 0},
+                        {"role": "AXSlider", "name": "Volume", "index": 1},
+                    ],
+                },
+            }
+        ],
+    )
+
+    result = observer.desktop_set_value(snapshot_id=snapshot_id, element_id="el-0003", value="75", dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "desktop_set_value_non_text_field_blocked"
+    assert helper.calls == []
+
+
+def test_desktop_click_blocks_ax_target_without_process_identity_before_helper_dispatch(tmp_path: Path) -> None:
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "press", "clicked": True, "engine": "helper_ax"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    snapshot_id = f"snap-desktop-{uuid.uuid4().hex}"
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "el-0004",
+                "snapshot_id": snapshot_id,
+                "label": "OK",
+                "role": "AXButton",
+                "bounds": {"x": 10, "y": 20, "width": 80, "height": 30},
+                "center": {"x": 50, "y": 35},
+                "actions": ["AXPress"],
+                "engine": "ax_fallback",
+                "ax_target": {"pid": 1234, "path": [{"role": "AXButton", "name": "OK", "index": 0}]},
+            }
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, element_id="el-0004", dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "ax_target_process_identity_required"
+    assert helper.calls == []
+
+
 def test_desktop_click_helper_error_fails_closed_without_python_fallback(tmp_path: Path) -> None:
     runner = FakeRunner({(sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "click"}), stderr="")})
     helper = FakeHelperClient(

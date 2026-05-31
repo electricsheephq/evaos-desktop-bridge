@@ -8,6 +8,9 @@ actions out of per-action Python subprocesses and into a resident process. It
 starts with the authenticated IPC contract from `#163` and adds the first `#121`
 live route: helper-owned Quartz mouse actions for the existing
 `customer_mac.desktop_click`/scroll/drag fallback path when explicitly enabled.
+Issue `#123` adds the first semantic Accessibility action lane for native Mac
+controls already present in a fresh desktop snapshot. AX routing is still
+fixed-name only; it is not raw Accessibility passthrough.
 Issue `#122` adds the Workbench-owned launch/preflight contract so the beta path
 does not ask customers or test agents to approve a raw Python or terminal TCC
 identity. The helper accepts the Workbench identity only when the claimed
@@ -26,9 +29,11 @@ generic shell, Codex app-server mutation, or an OpenClaw control socket.
 - Allowed commands in this slice:
   - `ping`
   - `mouse_action` with action `click`, `scroll`, or `drag`
+  - `ax_action` with fixed actions `press`, `set_value`,
+    `set_selected_text`, or `menu`
 - Request envelope: `request_id` must be a non-empty string and `payload`
-  must be a JSON object. `mouse_action` additionally requires an `audit_id`
-  from the bridge actuation path; `ping` may omit it.
+  must be a JSON object. `mouse_action` and `ax_action` additionally require an
+  `audit_id` from the bridge actuation path; `ping` may omit it.
 
 Example request:
 
@@ -86,6 +91,15 @@ action-specific coordinates, scroll direction/amount, or drag endpoints needed
 by the existing Mac fallback primitives. The helper rejects missing audit ids,
 unknown actions, and malformed numeric payloads before touching Quartz.
 
+AX action requests are also deliberately structured. The bridge sends a target
+`pid` plus a semantic role/name/identifier/index path from the latest AX
+snapshot. The helper resolves that path inside the target app and performs only
+the fixed action requested. It refuses raw AX action names or attributes,
+returns browser `AXWebArea` targets as inert, blocks secure and non-text roles,
+checks text attributes are settable when the platform exposes that signal, caps
+value writes, returns hashes instead of raw values, and rechecks the target
+process name when the snapshot supplied one.
+
 ## Local Run And Opt-In
 
 The customer beta path is Workbench-owned: click **Turn On Mac Access** in
@@ -140,9 +154,9 @@ allowlist, and a required bridge-provided audit id before `mouse_action`.
 Accepted helper sockets have read timeouts so a stalled local peer cannot wedge
 later helper actions.
 
-Issue `#129` closes the current audited command-envelope requirement for the
-helper-owned `mouse_action` route: the bridge writes a durable
-`helper.mouse_action` record with `audit_phase = authorized_dispatch` before it
+Issue `#129` closes the current audited command-envelope requirement for
+helper-owned actuation routes: the bridge writes a durable `helper.mouse_action`
+or `helper.ax_action` record with `audit_phase = authorized_dispatch` before it
 sends the IPC frame, passes that exact `audit_id` in the helper request, then
 writes a separate completion record with `audit_phase = completion` after the
 helper returns or fails. If the bridge process dies during dispatch, the
@@ -151,10 +165,11 @@ helper itself remains dumb hands and does not duplicate policy, approval, or
 redaction logic.
 
 This slice deliberately rejects broad actuation and escape hatches, including
-desktop typing, iPhone tap/type, shell, Python, AppleScript, Codex app-server
-mutation, or generic computer-use requests. Future #121/#129 work must keep the
-same direction: authenticate the sender first, check policy before the seam,
-then audit every actuation request before a helper can touch the Mac.
+raw AX primitive passthrough, iPhone tap/type, shell, Python, AppleScript, Codex
+app-server mutation, or generic computer-use requests. Future #121/#129 work
+must keep the same direction: authenticate the sender first, check policy
+before the seam, then audit every actuation request before a helper can touch
+the Mac.
 
 The signed-identity track is intentionally narrow. Workbench may launch the
 resident helper and connector, but the helper still does not accept generic
@@ -176,7 +191,7 @@ certification.
 - malformed in-bounds frame rejection, including short prefix, length mismatch,
   invalid JSON, and non-object JSON payloads;
 - unknown/actuation-like command rejection;
-- exact allowed-command lock of `{"ping", "mouse_action"}`;
+- exact allowed-command lock of `{"ping", "mouse_action", "ax_action"}`;
 - unsafe token-file rejection, per-launch token rotation, and regular-file
   socket path refusal;
 - local Unix-socket server/client ping, bad-token failure, required audit id
@@ -188,3 +203,6 @@ certification.
 - bridge-side helper actuation audit records for both authorized dispatch and
   completion/failure, with the dispatch audit id sent through the helper IPC
   envelope.
+- semantic AX dispatch that requires an audit id, avoids token echo, blocks raw
+  AX/web/secure-field bypasses, and routes desktop click/set-value through the
+  helper without Python fallback.

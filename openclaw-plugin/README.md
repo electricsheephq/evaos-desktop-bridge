@@ -49,6 +49,7 @@ use the Workbench connector's customer-granted control session:
 - `desktop_see`
 - `desktop_click`
 - `desktop_type`
+- `desktop_set_value`
 - `desktop_scroll`
 - `desktop_drag`
 - `desktop_hotkey`
