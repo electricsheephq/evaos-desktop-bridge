@@ -490,6 +490,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         resolved_peekaboo_snapshot_id = None
         resolved_peekaboo_element_id = None
         resolved_ax_target: dict[str, Any] | None = None
+        require_snapshot_target = False
         resolved_actions: list[Any] = []
         if snapshot_id and element_id is None and target_label is None and x is not None and y is not None:
             resolved_point = self._resolve_snapshot_coordinates(snapshot_id=snapshot_id, x=x, y=y, expected_target="desktop")
@@ -498,6 +499,8 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             point = resolved_point.data["point"]
             x = int(point["x"])
             y = int(point["y"])
+            resolved_ax_target = resolved_point.data.get("ax_target") if isinstance(resolved_point.data.get("ax_target"), dict) else None
+            require_snapshot_target = True
         else:
             resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=target_label)
             if not resolved.ok:
@@ -598,7 +601,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             return pressed
         if x is None or y is None:
             return CommandResult(ok=False, data={"clicked": False}, errors=[make_error(code="desktop_click_target_required", message="desktop_click requires target_label or x/y.", guidance="Prefer a visible target label from desktop_see; use coordinates only when labels are unavailable.")])
-        return self._mouse_action("click", x=x, y=y, target=resolved_ax_target)
+        return self._mouse_action("click", x=x, y=y, target=resolved_ax_target, require_target=require_snapshot_target)
 
     def desktop_set_value(
         self,
@@ -1535,7 +1538,8 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             data["from"] = self._point(kwargs["from_x"], kwargs["from_y"])
             data["to"] = self._point(kwargs["to_x"], kwargs["to_y"])
         target = kwargs.get("target") if isinstance(kwargs.get("target"), dict) else None
-        if target is None:
+        require_target = kwargs.get("require_target") is True
+        if target is None and not require_target:
             frontmost = self._frontmost_app()
             pid = self._pid_for_app(frontmost)
             process_name = self._process_name_for_pid(pid)
@@ -1564,6 +1568,9 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         identity_block = self._ax_target_process_identity_block(ax_target=target, action=action)
         if identity_block is not None:
             return identity_block
+        browser_block = self._post_to_pid_browser_target_block(ax_target=target, action=action)
+        if browser_block is not None:
+            return browser_block
         inert_block = self._inert_ax_target_action_block(ax_target=target, action=action)
         if inert_block is not None:
             return inert_block
@@ -2313,6 +2320,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                 logical_y = int(round(float(y) * height / image_height))
         global_x = logical_x + int(origin.get("x") or 0)
         global_y = logical_y + int(origin.get("y") or 0)
+        ax_target = self._ax_target_for_snapshot_point(payload, x=global_x, y=global_y)
         return CommandResult(
             ok=True,
             data={
@@ -2322,8 +2330,35 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                 "input_point": {"x": int(x), "y": int(y)},
                 "logical_point": {"x": logical_x, "y": logical_y},
                 "coordinate_space": coordinate_space or {"type": "global"},
+                **({"ax_target": ax_target} if ax_target is not None else {}),
             },
         )
+
+    def _ax_target_for_snapshot_point(self, payload: dict[str, Any], *, x: int, y: int) -> dict[str, Any] | None:
+        elements = payload.get("elements") if isinstance(payload.get("elements"), list) else []
+        candidates: list[tuple[int, dict[str, Any]]] = []
+        for item in elements:
+            if not isinstance(item, dict):
+                continue
+            ax_target = item.get("ax_target")
+            bounds = item.get("bounds")
+            if not isinstance(ax_target, dict) or not isinstance(bounds, dict):
+                continue
+            try:
+                bx = int(bounds.get("x"))
+                by = int(bounds.get("y"))
+                width = int(bounds.get("width"))
+                height = int(bounds.get("height"))
+            except (TypeError, ValueError):
+                continue
+            if width <= 0 or height <= 0:
+                continue
+            if bx <= x <= bx + width and by <= y <= by + height:
+                candidates.append((width * height, ax_target))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda row: row[0])
+        return candidates[0][1]
 
     def _resolve_snapshot_target(self, *, snapshot_id: str | None, element_id: str | None, target_label: str | None) -> CommandResult:
         if not snapshot_id and not element_id:
@@ -2553,6 +2588,27 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                     code="ax_target_process_identity_required",
                     message="AX action target process identity is missing; live action was blocked.",
                     guidance="Run desktop_see again so the snapshot includes process identity before dispatch.",
+                )
+            ],
+        )
+
+    def _post_to_pid_browser_target_block(self, *, ax_target: dict[str, Any], action: str) -> CommandResult | None:
+        path = ax_target.get("path")
+        if isinstance(path, list) and path:
+            return None
+        app_name = ax_target.get("app_name")
+        process_name = ax_target.get("process_name")
+        names = {name for name in (app_name, process_name) if isinstance(name, str)}
+        if not any(name in SAFE_BROWSER_APPS or Path(name).name in SAFE_BROWSER_APPS for name in names):
+            return None
+        return CommandResult(
+            ok=False,
+            data={"performed": False, "action": action, "target_pid": ax_target.get("pid"), "target_app": redact_value(app_name)},
+            errors=[
+                make_error(
+                    code="post_to_pid_browser_target_ambiguous",
+                    message="Browser coordinate targets are not safe for Tier-2 per-process posting.",
+                    guidance="Use browser/CDP/Playwright or a native Accessibility target with a fresh AX path; browser web content is treated as inert for PostToPid.",
                 )
             ],
         )

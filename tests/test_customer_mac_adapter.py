@@ -686,6 +686,140 @@ def test_desktop_click_routes_ax_gap_snapshot_target_through_post_to_pid_helper(
     assert not any(command and command[0] == sys.executable for command in observer.runner.commands)
 
 
+def test_desktop_click_snapshot_coordinates_keep_snapshot_target_when_frontmost_changes(tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-dddddddddddddddddddddddddddddddd"
+    observer = CustomerMacObserver(
+        runner=FakeRunner(
+            {
+                ("osascript", "-e", FRONTMOST_SCRIPT): RunnerResult(returncode=0, stdout="TextEdit\n", stderr=""),
+            }
+        ),
+        helper_client=FakeHelperClient(
+            CommandResult(
+                ok=True,
+                data={"performed": True, "action": "click", "clicked": True, "point": {"x": 190, "y": 216}, "engine": "helper_post_to_pid"},
+                provenance={"source": "computer_use_helper"},
+            )
+        ),
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    ax_target = {
+        "pid": 4242,
+        "app_name": "Finder",
+        "process_name": "Finder",
+        "path": [{"role": "AXWindow", "index": 0}, {"role": "AXRow", "name": "Documents", "index": 3}],
+    }
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "finder-row",
+                "label": "Documents",
+                "role": "AXRow",
+                "bounds": {"x": 100, "y": 200, "width": 180, "height": 32},
+                "center": {"x": 190, "y": 216},
+                "actions": [],
+                "engine": "ax_fallback",
+                "ax_target": ax_target,
+            }
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, x=190, y=216, dry_run=False)
+
+    assert result.ok is True
+    helper = observer.helper_client
+    assert isinstance(helper, FakeHelperClient)
+    assert helper.calls[0][1]["target"] == ax_target
+    assert ("pgrep", "-x", "TextEdit") not in observer.runner.commands
+
+
+def test_desktop_click_snapshot_coordinates_without_ax_target_fail_closed_before_frontmost_retarget(tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "click"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(frontmost_process_outputs(app_name="TextEdit", process_name="TextEdit")),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="peekaboo",
+        elements=[],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, x=10, y=20, dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "post_to_pid_target_required"
+    assert helper.calls == []
+    assert ("pgrep", "-x", "TextEdit") not in observer.runner.commands
+
+
+def test_desktop_click_browser_coordinate_post_to_pid_fails_closed_without_helper_dispatch(tmp_path: Path) -> None:
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "click"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(frontmost_process_outputs(app_name="Google Chrome", process_name="Google Chrome")),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.desktop_click(x=10, y=20, dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "post_to_pid_browser_target_ambiguous"
+    assert helper.calls == []
+
+
+def test_desktop_click_snapshot_coordinates_on_browser_web_content_fails_closed(tmp_path: Path) -> None:
+    snapshot_id = "snap-desktop-ffffffffffffffffffffffffffffffff"
+    helper = FakeHelperClient(CommandResult(ok=True, data={"performed": True, "action": "click"}))
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    observer._write_snapshot_index(
+        snapshot_id=snapshot_id,
+        target="desktop",
+        engine="ax_fallback",
+        elements=[
+            {
+                "element_id": "web-area",
+                "label": "Page",
+                "role": "AXWebArea",
+                "bounds": {"x": 0, "y": 0, "width": 400, "height": 400},
+                "center": {"x": 200, "y": 200},
+                "actions": [],
+                "engine": "ax_fallback",
+                "ax_target": {
+                    "pid": 5151,
+                    "app_name": "Google Chrome",
+                    "process_name": "Google Chrome",
+                    "path": [{"role": "AXWindow", "index": 0}, {"role": "AXWebArea", "index": 0}],
+                },
+            }
+        ],
+    )
+
+    result = observer.desktop_click(snapshot_id=snapshot_id, x=200, y=200, dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "ax_web_content_inert"
+    assert helper.calls == []
+
+
 def test_desktop_scroll_helper_error_fails_closed_without_python_fallback(tmp_path: Path) -> None:
     runner = FakeRunner({**frontmost_process_outputs(), (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "scroll"}), stderr="")})
     helper = FakeHelperClient(CommandResult(ok=False, data={"performed": False, "action": "scroll"}, errors=[{"code": "helper_unavailable", "message": "helper unavailable", "guidance": "restart helper"}]))
