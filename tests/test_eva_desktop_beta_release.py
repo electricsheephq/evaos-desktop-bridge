@@ -178,10 +178,10 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "Tier-1 semantic Accessibility actions" in script
-    assert "fixed audited verbs" in script
-    assert "authenticated dumb hands" in script
-    assert "no raw AX primitive passthrough, generic shell, AppleScript, session database, or Codex mutation surface" in script
+    assert "multi-second alert loop" in script
+    assert "takeover warning audit/session metadata" in script
+    assert "stale app launches" in script
+    assert "old EvaDesktop.app artifact contamination" in script
     assert "format_datetime(published, usegmt=True)" in script
     assert "published_at" in script
     assert "verify_app_signature" in script
