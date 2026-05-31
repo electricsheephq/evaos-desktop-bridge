@@ -164,11 +164,11 @@ public enum WorkbenchProviderHubSummary {
         if profiles.contains(where: { $0.status == .revoked }) {
             return "Revoked"
         }
-        if profiles.contains(where: { $0.status == .planned }) {
-            return "Unavailable"
-        }
         if profiles.contains(where: { $0.status == .error }) {
             return "Blocked"
+        }
+        if profiles.contains(where: { $0.status == .planned }) {
+            return "Unavailable"
         }
         return "Unchecked"
     }

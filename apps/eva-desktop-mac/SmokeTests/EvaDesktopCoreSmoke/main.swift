@@ -897,6 +897,15 @@ precondition(expansionDoc.contains("Rollback action"))
 precondition(expansionDoc.contains("Public copy"))
 precondition(expansionDoc.contains("VITE_EVAOS_SHARED_BROWSER_2"))
 precondition(expansionDoc.contains("No provider, session, or runtime truth is inferred from cached UI state"))
+let creativeStudioDesignGateDoc = try String(contentsOfFile: "../../docs/creative-studio-hosted-comfyui-design-gate.md", encoding: .utf8)
+precondition(creativeStudioDesignGateDoc.contains("ADR: Hosted/configured ComfyUI first"))
+precondition(creativeStudioDesignGateDoc.contains("customer-configured ComfyUI URL"))
+precondition(creativeStudioDesignGateDoc.contains("Comfy Cloud/API grant"))
+precondition(creativeStudioDesignGateDoc.contains("VM-local ComfyUI is deferred"))
+precondition(creativeStudioDesignGateDoc.contains("Disabled or unconfigured customers"))
+let issueCompletionMatrix = try String(contentsOfFile: "../../docs/issue-completion-matrix.md", encoding: .utf8)
+precondition(issueCompletionMatrix.contains("`#101` Creative Studio hosted/configured ComfyUI design gate"))
+precondition(issueCompletionMatrix.contains("docs/creative-studio-hosted-comfyui-design-gate.md"))
 let workbenchModelSource = try String(contentsOfFile: "Sources/EvaDesktop/Services/WorkbenchModel.swift", encoding: .utf8)
 precondition(workbenchModelSource.contains("sessionMissionCards = nextCards"))
 precondition(!workbenchModelSource.contains("NSWorkspace.shared.open(response.connectURL)"))
@@ -1189,6 +1198,12 @@ let blockedProviderProfilesResponse = """
 """.data(using: .utf8)!
 let decodedBlockedProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: blockedProviderProfilesResponse)
 precondition(WorkbenchProviderHubSummary.statusText(for: decodedBlockedProviderProfiles) == "Blocked")
+
+let mixedProviderErrorResponse = """
+{"provider_profiles":[{"provider_key":"google_workspace","title":"Google Workspace","subtitle":"Gmail, Calendar, and Drive","status":"error","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["gmail","calendar","drive"],"usage_summary":"Pipedream config unavailable","last_validated_at":null},{"provider_key":"slack","title":"Slack","subtitle":"Workspace chat","status":"planned","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["channels"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":null,"raw_secrets_stored_in_workbench":false}
+""".data(using: .utf8)!
+let decodedMixedProviderError = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: mixedProviderErrorResponse)
+precondition(WorkbenchProviderHubSummary.statusText(for: decodedMixedProviderError) == "Blocked")
 
 precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: true, macReady: true, iPhoneReady: true) == "Ready. Mac Access and iPhone Mirroring passed the local check.")
 precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: true, macReady: true, iPhoneReady: false) == "Ready. Mac Access passed. Connect iPhone Mirroring when you want phone actions.")
