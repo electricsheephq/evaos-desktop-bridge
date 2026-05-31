@@ -64,8 +64,8 @@ Resume route kinds are exhaustive for `evaos.session_center.v1`:
 
 | State | Meaning |
 | --- | --- |
-| `needs_attention` | Auth, CAPTCHA, disabled/degraded runtime, queue approval/attention/error, bridge command failure, or unavailable Codex readiness. |
-| `active` | Broker runtime is enabled/loaded, or recent Codex thread evidence exists. |
+| `needs_attention` | Auth, CAPTCHA, disabled/degraded/error/unavailable runtime, waiting-on-user runtime, update-available runtime, queue approval/attention/error, bridge command failure, or unavailable Codex readiness. |
+| `active` | Broker runtime is enabled/loaded, an active control session is reported, or recent Codex thread evidence exists. |
 | `done` | Queue/audit evidence says the work completed or a read-only audit succeeded. |
 | `idle` | No active work was reported by queue, Codex threads, or runtime status. |
 | `unknown` | Optional evidence is missing or malformed but the source did not prove a failure. |

@@ -4,6 +4,10 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Harden Session Center runtime cards for issue #100 by decoding broker hints
+  for waiting-on-user, active control sessions, update-available, unavailable,
+  and runtime-error states instead of flattening them into generic idle text.
+
 ## 0.6.20 - 2026-05-31
 
 - Extend the native operator warning sound from a short single beep into an

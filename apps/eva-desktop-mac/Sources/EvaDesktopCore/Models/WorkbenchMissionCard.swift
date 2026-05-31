@@ -231,30 +231,42 @@ public enum WorkbenchMissionCardDeriver {
     }
 
     private static func runtimeAttentionState(status: RuntimeStatusResponse, localURLLoaded: Bool) -> WorkbenchMissionAttentionState {
-        if status.status == "degraded" || status.status == "disabled" || status.authNeeded == true || status.captchaNeeded == true {
+        let normalized = normalizedRuntimeStatus(status.status)
+        if status.authNeeded == true || status.captchaNeeded == true || status.waitingOnUser == true || status.updateAvailable == true {
             return .needsAttention
         }
-        if status.status == "enabled" || localURLLoaded {
+        switch normalized {
+        case "degraded", "disabled", "error", "failed", "unavailable", "offline":
+            return .needsAttention
+        case "enabled", "active", "ready", "loaded":
             return .active
-        }
-        if status.status == "coming_soon" {
+        case "coming_soon", "coming-soon", "unknown":
             return .unknown
+        default:
+            if status.controlSessionActive == true || localURLLoaded {
+                return .active
+            }
+            return .idle
         }
-        return .idle
     }
 
     private static func runtimeStatusText(status: String, localURLLoaded: Bool) -> String {
-        switch status {
-        case "enabled":
+        switch normalizedRuntimeStatus(status) {
+        case "enabled", "ready":
             return localURLLoaded ? "Loaded" : "Ready"
-        case "degraded":
+        case "active", "loaded":
+            return "Active"
+        case "degraded", "error", "failed":
             return "Needs attention"
         case "disabled":
             return "Blocked"
-        case "coming_soon":
+        case "unavailable", "offline", "coming_soon", "coming-soon":
             return "Unavailable"
         default:
-            return status.capitalized
+            return status
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .capitalized
         }
     }
 
@@ -265,7 +277,30 @@ public enum WorkbenchMissionCardDeriver {
         if status.captchaNeeded == true {
             return "\(definition.title) reports CAPTCHA needed."
         }
+        if status.waitingOnUser == true {
+            return "\(definition.title) is waiting on the user."
+        }
+        if status.updateAvailable == true {
+            return "\(definition.title) has an update available."
+        }
+        if status.controlSessionActive == true {
+            return "\(definition.title) has an active control session."
+        }
+        switch normalizedRuntimeStatus(status.status) {
+        case "unavailable", "offline":
+            return "\(definition.title) is unavailable from the broker right now."
+        case "degraded", "error", "failed":
+            return status.healthSummary ?? "\(definition.title) reports a runtime error."
+        case "disabled":
+            return status.healthSummary ?? "\(definition.title) is disabled."
+        default:
+            break
+        }
         return status.healthSummary ?? definition.subtitle
+    }
+
+    private static func normalizedRuntimeStatus(_ status: String) -> String {
+        status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private static func queueAttentionState(_ kind: String) -> WorkbenchMissionAttentionState {

@@ -1265,6 +1265,67 @@ let degradedMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
 precondition(degradedMissionCard.attentionState == .needsAttention)
 precondition(degradedMissionCard.nextAction.contains("auth handoff"))
 
+let captchaRuntimeStatusResponse = """
+{"runtime_key":"browser","display_label":"Shared Browser","status":"enabled","health_summary":"CAPTCHA in browser","last_checked_at":"2026-05-23T10:00:00Z","auth_needed":false,"captcha_needed":true}
+""".data(using: .utf8)!
+let decodedCaptchaRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: captchaRuntimeStatusResponse)
+let captchaMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
+    definition: RuntimeDefinition.definition(for: .liveBrowser),
+    status: decodedCaptchaRuntimeStatus,
+    localURLLoaded: false
+)
+precondition(captchaMissionCard.attentionState == .needsAttention)
+precondition(captchaMissionCard.nextAction.contains("CAPTCHA"))
+
+let waitingRuntimeStatusResponse = """
+{"runtime_key":"terminal","display_label":"Terminal","status":"waiting_on_user","health_summary":"Waiting for operator","last_checked_at":"2026-05-23T10:00:00Z","waiting_on_user":true}
+""".data(using: .utf8)!
+let decodedWaitingRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: waitingRuntimeStatusResponse)
+let waitingMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
+    definition: RuntimeDefinition.definition(for: .terminal),
+    status: decodedWaitingRuntimeStatus,
+    localURLLoaded: false
+)
+precondition(waitingMissionCard.attentionState == .needsAttention)
+precondition(waitingMissionCard.status == "Waiting On User")
+precondition(waitingMissionCard.nextAction.contains("waiting on the user"))
+
+let activeControlRuntimeStatusResponse = """
+{"runtime_key":"browser","display_label":"Shared Browser","status":"enabled","health_summary":"Control session attached","last_checked_at":"2026-05-23T10:00:00Z","control_session_active":true}
+""".data(using: .utf8)!
+let decodedActiveControlRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: activeControlRuntimeStatusResponse)
+let activeControlMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
+    definition: RuntimeDefinition.definition(for: .liveBrowser),
+    status: decodedActiveControlRuntimeStatus,
+    localURLLoaded: false
+)
+precondition(activeControlMissionCard.attentionState == .active)
+precondition(activeControlMissionCard.nextAction.contains("active control session"))
+
+let updateRuntimeStatusResponse = """
+{"runtime_key":"openclaw","display_label":"evaOS (OpenClaw)","status":"enabled","health_summary":"Update available","last_checked_at":"2026-05-23T10:00:00Z","update_available":true}
+""".data(using: .utf8)!
+let decodedUpdateRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: updateRuntimeStatusResponse)
+let updateMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
+    definition: RuntimeDefinition.definition(for: .openclaw),
+    status: decodedUpdateRuntimeStatus,
+    localURLLoaded: false
+)
+precondition(updateMissionCard.attentionState == .needsAttention)
+precondition(updateMissionCard.nextAction.contains("update available"))
+
+let unavailableRuntimeStatusResponse = """
+{"runtime_key":"browser","display_label":"Shared Browser","status":"unavailable","health_summary":"Proxy route unavailable","last_checked_at":"2026-05-23T10:00:00Z"}
+""".data(using: .utf8)!
+let decodedUnavailableRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: unavailableRuntimeStatusResponse)
+let unavailableMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
+    definition: RuntimeDefinition.definition(for: .liveBrowser),
+    status: decodedUnavailableRuntimeStatus,
+    localURLLoaded: false
+)
+precondition(unavailableMissionCard.attentionState == .needsAttention)
+precondition(unavailableMissionCard.status == "Unavailable")
+
 let queueRaw = """
 {"ok":true,"data":{"events":[{"queue_id":"queue-approval","timestamp":"2026-05-28T01:00:00Z","kind":"approval_needed","source_audit_id":"audit-approval","message":"Approve visible action"},{"queue_id":"queue-attention","timestamp":"2026-05-28T01:01:00Z","kind":"attention","source_audit_id":"audit-attention"},{"queue_id":"queue-done","timestamp":"2026-05-28T01:02:00Z","kind":"done","source_audit_id":"audit-done"},{"queue_id":"queue-error","timestamp":"2026-05-28T01:03:00Z","kind":"error","source_audit_id":"audit-error"},{"queue_id":"queue-idle","timestamp":"2026-05-28T01:04:00Z","kind":"idle","source_audit_id":"audit-idle"}]}}
 """

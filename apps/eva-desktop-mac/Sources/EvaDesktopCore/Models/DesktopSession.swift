@@ -147,6 +147,9 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
     public let owner: String?
     public let authNeeded: Bool?
     public let captchaNeeded: Bool?
+    public let waitingOnUser: Bool?
+    public let controlSessionActive: Bool?
+    public let updateAvailable: Bool?
     public let lastActivityAt: Date?
 
     enum CodingKeys: String, CodingKey {
@@ -160,6 +163,9 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
         case owner
         case authNeeded = "auth_needed"
         case captchaNeeded = "captcha_needed"
+        case waitingOnUser = "waiting_on_user"
+        case controlSessionActive = "control_session_active"
+        case updateAvailable = "update_available"
         case lastActivityAt = "last_activity_at"
     }
 }
