@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.18 - 2026-05-31
+
 - Add issue #123 Tier-1 AX actuation for fresh desktop snapshot elements:
   helper IPC now supports fixed semantic `ax_action` verbs (`press`,
   editable-field `set_value`, selected-text replacement, and menu traversal)
