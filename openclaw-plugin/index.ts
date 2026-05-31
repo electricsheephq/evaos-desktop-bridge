@@ -256,7 +256,7 @@ function readOnlyTools(): ToolDefinition[] {
     tool("desktop_control_status", "Read the customer-granted Full Access / Ask Permission control session state.", "customerMacControlStatus"),
     tool(
       "desktop_control_start",
-      "Start a customer-granted agent control session. Full Access allows continuous desktop and iPhone actions without per-action prompts.",
+      "Start a customer-granted agent control session. Live actions wait for the 10-second operator takeover warning; Full Access then allows continuous desktop and iPhone actions without per-action prompts.",
       "customerMacControlStart",
       {
         type: "object",

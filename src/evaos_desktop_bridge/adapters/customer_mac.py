@@ -391,6 +391,10 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                     "full_access": "Customer-granted session: live clicks, typing, scrolling, dragging, app/window/menu/browser, and iPhone Mirroring actions do not require per-action approval, but sensitive apps remain blocked.",
                     "ask_permission": "Same surface, but high-impact text/send-style actions require approval evidence.",
                 },
+                "takeover_warning": {
+                    "seconds": 10,
+                    "effect": "Live Accessibility, mouse, keyboard, and iPhone actions wait until the operator-visible takeover warning finishes.",
+                },
                 "forbidden": ["public_mac_ports", "hidden_shell", "credential_collection", "security_bypass"],
                 "approval_gates": {
                     "full_access": "No per-action approval once the customer starts a Full Access control session.",
@@ -408,6 +412,8 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                 "session": session,
                 "mode": session.get("mode"),
                 "active": bool(session.get("active")),
+                "ready": bool(session.get("ready")),
+                "takeover_warning": session.get("takeover_warning"),
                 "kill_switch": bool(session.get("kill_switch")),
                 "current_agent": session.get("agent_label"),
                 "current_app": redact_value(self._frontmost_app()),
@@ -427,8 +433,24 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                 data={"active": False, "mode": normalized},
                 errors=[make_error(code="control_mode_invalid", message="Control mode must be full_access or ask_permission.", guidance="Start a customer-granted control session with --mode full-access or --mode ask-permission.")],
             )
+        existing = read_control_session(self.state_dir)
+        existing_warning = existing.get("takeover_warning") if isinstance(existing.get("takeover_warning"), dict) else {}
+        warning_reused = existing.get("active") is True and existing_warning.get("active") is True
         session = start_control_session(mode=normalized, agent_label=agent_label, state_dir=self.state_dir)
-        return CommandResult(ok=True, data={"started": True, "session": session, "peekaboo": self._peekaboo_status()}, provenance={"source": "control_session"})
+        if not warning_reused:
+            self._emit_takeover_warning(session)
+        return CommandResult(
+            ok=True,
+            data={
+                "started": True,
+                "ready": bool(session.get("ready")),
+                "takeover_warning": session.get("takeover_warning"),
+                "takeover_warning_reused": warning_reused,
+                "session": session,
+                "peekaboo": self._peekaboo_status(),
+            },
+            provenance={"source": "control_session", "takeover_warning": session.get("takeover_warning")},
+        )
 
     def control_stop(self) -> CommandResult:
         session = stop_control_session(self.state_dir)
@@ -2114,6 +2136,31 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
     def _new_snapshot_id(self, target: str) -> str:
         safe_target = re.sub(r"[^a-z0-9_-]+", "-", target.lower()).strip("-") or "desktop"
         return f"snap-{safe_target}-{uuid.uuid4().hex}"
+
+    def _emit_takeover_warning(self, session: dict[str, Any]) -> None:
+        if self.platform_name != "Darwin" or os.environ.get("EVAOS_DESKTOP_BRIDGE_DISABLE_TAKEOVER_WARNING_UI") == "1":
+            return
+        warning = session.get("takeover_warning") if isinstance(session.get("takeover_warning"), dict) else {}
+        if warning.get("active") is not True:
+            return
+        seconds = warning.get("seconds") if isinstance(warning.get("seconds"), int) else 10
+        message = f"Taking over screen in {seconds} seconds. Yield the screen now."
+        escaped = self._escape_applescript(message)
+        script = f'display notification "{escaped}" with title "evaOS Agent Control" subtitle "Taking over screen"'
+        for command, timeout in [
+            (["osascript", "-e", script], 3.0),
+            (["osascript", "-e", "beep 3"], 3.0),
+        ]:
+            try:
+                self.runner(command, timeout)
+            except Exception:
+                continue
+        sound = Path("/System/Library/Sounds/Basso.aiff")
+        if sound.exists():
+            try:
+                self.runner(["afplay", str(sound)], 3.0)
+            except Exception:
+                pass
 
     def _image_artifact(self, path: Path, *, snapshot_id: str) -> dict[str, Any] | None:
         try:

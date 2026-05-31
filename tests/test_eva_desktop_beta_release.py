@@ -79,12 +79,33 @@ def test_keychain_auth_failures_clear_non_interactively() -> None:
 def test_customer_beta_documents_guarded_agent_control_boundary() -> None:
     readme = (APP_ROOT / "README.md").read_text(encoding="utf-8")
     release = (ROOT / "docs" / "evaos-workbench-beta-release.md").read_text(encoding="utf-8")
+    connector = (ROOT / "docs" / "customer-mac-connector.md").read_text(encoding="utf-8")
+    control_engine = (ROOT / "docs" / "desktop-control-engine-v2.md").read_text(encoding="utf-8")
+    plugin = (ROOT / "openclaw-plugin" / "index.ts").read_text(encoding="utf-8")
 
     assert "Mac and iPhone actions run through" in readme
     assert "audited OpenClaw/Hermes tools" in readme
     assert "customer-facing Mac and iPhone control" in release
     assert "Full Access" in release
     assert "Ask Permission" in release
+    assert "10-second takeover warning" in readme
+    assert "control_takeover_warning_active" in readme
+    assert "10-second operator takeover warning" in connector
+    assert "control_takeover_warning_active" in connector
+    assert "Live actions wait for the 10-second operator takeover warning" in plugin
+    assert "Starting Agent Control shows the 10-second takeover warning" in control_engine
+
+
+def test_workbench_surfaces_agent_takeover_warning_countdown() -> None:
+    model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
+    bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
+
+    assert 'value(at: ["data", "takeover_warning", "active"]' in model
+    assert 'value(at: ["data", "takeover_warning", "remaining_seconds"]' in model
+    assert "Taking over screen in \\(remaining)s" in model
+    assert "Live agent actions are paused for the operator warning." in model
+    assert 'lower.contains("taking over screen")' in bridge_panel
+    assert 'return "Starting"' in bridge_panel
 
 
 def test_workbench_setup_uses_clean_status_formatter_and_app_managed_connector() -> None:

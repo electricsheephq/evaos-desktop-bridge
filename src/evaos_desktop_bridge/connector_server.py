@@ -84,6 +84,14 @@ CONTROLLED_REMOTE_COMMANDS = frozenset(
     }
 )
 
+TAKEOVER_WARNING_REMOTE_COMMANDS = CONTROLLED_REMOTE_COMMANDS | frozenset(
+    {
+        "customerMacAppFocus",
+        "customerMacLocalSiteOpen",
+        "customerMacLocalSiteAction",
+    }
+)
+
 GUARDED_REMOTE_COMMANDS = GUARDED_REMOTE_COMMANDS | CONTROLLED_REMOTE_COMMANDS
 
 KILL_SWITCH_REMOTE_COMMAND_ALLOWLIST = frozenset(
@@ -647,7 +655,12 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                     return
                 approval_error = _live_guarded_approval_error(command, params, state_dir=state_dir)
                 if approval_error is not None:
-                    error_code = "control_kill_switch_active" if "kill switch" in approval_error.lower() else "approval_audit_required"
+                    if "kill switch" in approval_error.lower():
+                        error_code = "control_kill_switch_active"
+                    elif "takeover warning" in approval_error.lower():
+                        error_code = "control_takeover_warning_active"
+                    else:
+                        error_code = "approval_audit_required"
                     self._write_json(
                         403,
                         _error_envelope(
@@ -821,11 +834,15 @@ def _live_guarded_without_approval(command: str, params: dict[str, Any]) -> bool
 
 def _live_guarded_approval_error(command: str, params: dict[str, Any], *, state_dir: Path | None, require_lookup: bool = True) -> str | None:
     command = normalize_connector_command(command)
-    if command in CONTROLLED_REMOTE_COMMANDS and params.get("dry_run") is False:
+    if command in TAKEOVER_WARNING_REMOTE_COMMANDS and params.get("dry_run") is False:
         session = read_control_session(state_dir)
         if session.get("kill_switch") is True:
             return "The customer Mac kill switch is active; live agent control commands are blocked."
-        if session.get("active") is True:
+        warning = session.get("takeover_warning") if isinstance(session.get("takeover_warning"), dict) else {}
+        if session.get("active") is True and warning.get("active") is True:
+            seconds = warning.get("seconds") if isinstance(warning.get("seconds"), int) else 10
+            return f"Agent control is starting; live actions are blocked until the {seconds}-second takeover warning finishes."
+        if command in CONTROLLED_REMOTE_COMMANDS and session.get("active") is True:
             if session.get("mode") == "full_access":
                 return None
             if session.get("mode") == "ask_permission" and not _ask_permission_requires_approval(command, params):
