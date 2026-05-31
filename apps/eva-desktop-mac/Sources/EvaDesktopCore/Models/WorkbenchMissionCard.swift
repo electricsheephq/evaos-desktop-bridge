@@ -17,6 +17,7 @@ public struct WorkbenchMissionCard: Identifiable, Codable, Equatable, Sendable {
     public let attentionState: WorkbenchMissionAttentionState
     public let lastUpdate: String?
     public let nextAction: String
+    public let details: [String]
     public let sourcePointer: String
     public let auditId: String?
 
@@ -29,6 +30,7 @@ public struct WorkbenchMissionCard: Identifiable, Codable, Equatable, Sendable {
         attentionState: WorkbenchMissionAttentionState,
         lastUpdate: String? = nil,
         nextAction: String,
+        details: [String] = [],
         sourcePointer: String,
         auditId: String? = nil
     ) {
@@ -40,8 +42,24 @@ public struct WorkbenchMissionCard: Identifiable, Codable, Equatable, Sendable {
         self.attentionState = attentionState
         self.lastUpdate = lastUpdate
         self.nextAction = nextAction
+        self.details = details
         self.sourcePointer = sourcePointer
         self.auditId = auditId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.surface = try container.decode(String.self, forKey: .surface)
+        self.runtime = try container.decodeIfPresent(RuntimeKey.self, forKey: .runtime)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.status = try container.decode(String.self, forKey: .status)
+        self.attentionState = try container.decode(WorkbenchMissionAttentionState.self, forKey: .attentionState)
+        self.lastUpdate = try container.decodeIfPresent(String.self, forKey: .lastUpdate)
+        self.nextAction = try container.decode(String.self, forKey: .nextAction)
+        self.details = try container.decodeIfPresent([String].self, forKey: .details) ?? []
+        self.sourcePointer = try container.decode(String.self, forKey: .sourcePointer)
+        self.auditId = try container.decodeIfPresent(String.self, forKey: .auditId)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -53,6 +71,7 @@ public struct WorkbenchMissionCard: Identifiable, Codable, Equatable, Sendable {
         case attentionState = "attention_state"
         case lastUpdate = "last_update"
         case nextAction = "next_action"
+        case details
         case sourcePointer = "source_pointer"
         case auditId = "audit_id"
     }
@@ -97,6 +116,7 @@ public enum WorkbenchMissionCardDeriver {
             attentionState: attention,
             lastUpdate: isoString(lastUpdate),
             nextAction: detail,
+            details: runtimeDetails(status: status),
             sourcePointer: "broker:runtime_status:\(definition.key.rawValue)",
             auditId: nil
         )
@@ -297,6 +317,30 @@ public enum WorkbenchMissionCardDeriver {
             break
         }
         return status.healthSummary ?? definition.subtitle
+    }
+
+    private static func runtimeDetails(status: RuntimeStatusResponse?) -> [String] {
+        guard let status else { return [] }
+        return [
+            status.roomId.map { "Room: \(capped($0, limit: 80))" },
+            status.owner.map { "Owner: \(capped($0, limit: 80))" },
+            safeURLSummary(status.currentUrl).map { "Current URL: \($0)" },
+            (status.lastActivityAt ?? status.lastCheckedAt).flatMap { isoString($0) }.map { "Last activity: \($0)" },
+        ].compactMap { $0 }
+    }
+
+    private static func safeURLSummary(_ value: String?) -> String? {
+        guard let value, let url = URL(string: value) else {
+            return nil
+        }
+        let path = String(url.path.prefix(80))
+        if let host = url.host, !host.isEmpty {
+            return capped(host + path, limit: 140)
+        }
+        if !path.isEmpty {
+            return path
+        }
+        return nil
     }
 
     private static func normalizedRuntimeStatus(_ status: String) -> String {

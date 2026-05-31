@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #97/#100 Shared Browser and Session Center sprint slice:
+  brokered runtime pages now expose a read-only status strip with safe Shared
+  Browser room/current URL/last-activity metadata, per-runtime status refresh
+  updates the matching Session Center record, and local Close detaches only the
+  Workbench view without pretending to stop the broker runtime.
 - Harden Session Center runtime cards for issue #100 by decoding broker hints
   for waiting-on-user, active control sessions, update-available, unavailable,
   and runtime-error states instead of flattening them into generic idle text.

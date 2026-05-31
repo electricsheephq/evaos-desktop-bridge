@@ -22,6 +22,11 @@ struct RuntimeDetailView: View {
 
             Divider()
 
+            if RuntimeDefinition.isBrokeredRuntime(runtime) {
+                RuntimeStatusStrip(model: model, definition: definition)
+                Divider()
+            }
+
             ZStack {
                 if !model.loadedRuntimeKeys.isEmpty {
                     RuntimeWebViewDeck(
@@ -85,6 +90,20 @@ private struct RuntimeToolbar: View {
             Spacer()
 
             Button {
+                Task {
+                    await model.refreshSelectedRuntimeStatus()
+                }
+            } label: {
+                Label("Status", systemImage: "waveform.path.ecg")
+            }
+            .disabled(
+                !RuntimeDefinition.isBrokeredRuntime(definition.key)
+                || !model.isSignedIn
+                || !model.isRuntimeAvailable(definition.key)
+                || (definition.key == .liveBrowser && model.isRefreshingSharedBrowserStatus)
+            )
+
+            Button {
                 model.reconnectSelectedRuntime()
             } label: {
                 Label("Reconnect", systemImage: "arrow.clockwise")
@@ -104,6 +123,13 @@ private struct RuntimeToolbar: View {
                 Label("Open", systemImage: "safari")
             }
             .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key) || model.runtimeURLs[definition.key] == nil)
+
+            Button {
+                model.closeSelectedRuntimeView()
+            } label: {
+                Label("Close View", systemImage: "xmark.circle")
+            }
+            .disabled(model.runtimeURLs[definition.key] == nil)
         }
     }
 
@@ -195,6 +221,160 @@ private struct RuntimeSignInView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+}
+
+private struct RuntimeStatusStrip: View {
+    @ObservedObject var model: WorkbenchModel
+    let definition: RuntimeDefinition
+
+    private var status: RuntimeStatusResponse? {
+        model.runtimeStatuses[definition.key]
+    }
+
+    private var error: String? {
+        model.runtimeErrors[definition.key]
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            RuntimeIconBadge(systemImage: statusIcon, tint: tint)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text(statusTitle)
+                        .font(.subheadline.weight(.semibold))
+                    StatusPill(title: statusPillText, systemImage: statusIcon, tint: tint)
+                }
+                Text(statusDetail)
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepSecondaryText)
+                    .lineLimit(2)
+                HStack(spacing: 10) {
+                    ForEach(detailChips, id: \.self) { chip in
+                        Text(chip)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(Color.electricSheepMutedText)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Color.electricSheepSurfaceRaised)
+    }
+
+    private var statusTitle: String {
+        if definition.key == .liveBrowser {
+            return "Shared Browser status"
+        }
+        return "\(definition.title) status"
+    }
+
+    private var statusPillText: String {
+        if let error {
+            return error.isEmpty ? "Unavailable" : "Needs attention"
+        }
+        if definition.key == .liveBrowser, model.sharedBrowserStatusText != "Unchecked" {
+            return model.sharedBrowserStatusText
+        }
+        guard let status else { return "Not checked" }
+        return status.status
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .capitalized
+    }
+
+    private var statusDetail: String {
+        if let error {
+            return error
+        }
+        guard let status else {
+            return "Refresh status to read broker runtime metadata for this customer."
+        }
+        if status.authNeeded == true {
+            return "\(definition.title) needs sign-in."
+        }
+        if status.captchaNeeded == true {
+            return "\(definition.title) needs a CAPTCHA or browser challenge."
+        }
+        if status.waitingOnUser == true {
+            return "\(definition.title) is waiting on the user."
+        }
+        if status.updateAvailable == true {
+            return "\(definition.title) has an update available."
+        }
+        if status.controlSessionActive == true {
+            return "\(definition.title) has an active control session."
+        }
+        return status.healthSummary ?? definition.subtitle
+    }
+
+    private var detailChips: [String] {
+        if definition.key == .liveBrowser {
+            return [
+                "room \(capped(model.sharedBrowserRoomText, limit: 48))",
+                "url \(capped(model.sharedBrowserCurrentURLText, limit: 64))",
+                "activity \(capped(model.sharedBrowserLastActivityText, limit: 64))",
+            ]
+        }
+        guard let status else {
+            return ["source broker:runtime_status:\(definition.key.rawValue)"]
+        }
+        return [
+            status.owner.map { "owner \(capped($0, limit: 48))" },
+            status.roomId.map { "room \(capped($0, limit: 48))" },
+            status.lastCheckedAt.map { "checked \(shortDate($0))" },
+        ].compactMap { $0 }
+    }
+
+    private var tint: Color {
+        if isAttention {
+            return .electricSheepDanger
+        }
+        guard let status else {
+            return .electricSheepGoldSoft
+        }
+        switch status.status.lowercased() {
+        case "enabled", "ready", "active", "loaded":
+            return .electricSheepSuccess
+        default:
+            return .electricSheepGoldSoft
+        }
+    }
+
+    private var isAttention: Bool {
+        if error != nil {
+            return true
+        }
+        guard let status else {
+            return false
+        }
+        if status.authNeeded == true || status.captchaNeeded == true || status.waitingOnUser == true || status.updateAvailable == true {
+            return true
+        }
+        switch status.status.lowercased() {
+        case "degraded", "disabled", "error", "failed", "unavailable", "offline":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var statusIcon: String {
+        isAttention ? "exclamationmark.triangle" : "waveform.path.ecg"
+    }
+
+    private func shortDate(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
+    }
+
+    private func capped(_ value: String, limit: Int) -> String {
+        if value.count <= limit {
+            return value
+        }
+        return String(value.prefix(limit)) + "..."
     }
 }
 

@@ -281,6 +281,24 @@ final class WorkbenchModel: ObservableObject {
         loadSelectedRuntime(force: true)
     }
 
+    func closeSelectedRuntimeView() {
+        closeRuntimeView(selectedRuntime)
+    }
+
+    func closeRuntimeView(_ runtime: RuntimeKey) {
+        let sanitized = resolver.sanitizedCustomerId(customerId)
+        resetRuntime(runtime)
+        webViews.reset(runtime: runtime, customerId: sanitized)
+        if runtime == .liveBrowser {
+            sharedBrowserStatusText = "Closed locally"
+            sharedBrowserRoomText = "Detached"
+            sharedBrowserCurrentURLText = "Unavailable"
+            sharedBrowserLastActivityText = "Not checked"
+        }
+        updateSessionRecord(for: runtime, status: runtimeStatuses[runtime], error: runtimeErrors[runtime])
+        webViewRefreshToken = UUID()
+    }
+
     func loadRuntime(_ runtime: RuntimeKey, force: Bool = false) async {
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
 
@@ -400,6 +418,10 @@ final class WorkbenchModel: ObservableObject {
                 runtimeErrors[runtime] = "External runtime launch failed: \(error.localizedDescription)."
             }
         }
+    }
+
+    func refreshSelectedRuntimeStatus() async {
+        await refreshRuntimeStatus(selectedRuntime)
     }
 
     func signIn() {
@@ -846,34 +868,77 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func refreshSharedBrowserStatus() async {
+        await refreshRuntimeStatus(.liveBrowser)
+    }
+
+    func refreshRuntimeStatus(_ runtime: RuntimeKey) async {
+        let customerSnapshot = sanitizedCustomerId
         guard isSignedIn else {
-            sharedBrowserStatusText = "Sign in first"
-            sharedBrowserRoomText = "Unavailable"
-            sharedBrowserCurrentURLText = "Unavailable"
-            sharedBrowserLastActivityText = "Not checked"
+            if runtime == .liveBrowser {
+                sharedBrowserStatusText = "Sign in first"
+                sharedBrowserRoomText = "Unavailable"
+                sharedBrowserCurrentURLText = "Unavailable"
+                sharedBrowserLastActivityText = "Not checked"
+            }
             return
         }
-        guard !isRefreshingSharedBrowserStatus else { return }
-        isRefreshingSharedBrowserStatus = true
-        defer { isRefreshingSharedBrowserStatus = false }
+        if runtime == .liveBrowser {
+            guard !isRefreshingSharedBrowserStatus else { return }
+            isRefreshingSharedBrowserStatus = true
+        }
+        defer {
+            if runtime == .liveBrowser {
+                isRefreshingSharedBrowserStatus = false
+            }
+        }
         do {
             let status = try await broker.runtimeStatus(
-                customerId: sanitizedCustomerId,
-                runtime: .liveBrowser,
+                customerId: customerSnapshot,
+                runtime: runtime,
                 desktopSession: session
             )
-            sharedBrowserStatusText = Self.shortRuntimeStatus(status.status)
-            sharedBrowserRoomText = status.roomId ?? status.displayLabel
-            sharedBrowserCurrentURLText = Self.safeURLSummary(status.currentUrl)
-            sharedBrowserLastActivityText = Self.activitySummary(status.lastActivityAt ?? status.lastCheckedAt)
+            guard sanitizedCustomerId == customerSnapshot else { return }
+            runtimeStatuses[runtime] = status
+            runtimeErrors[runtime] = nil
+            if runtime == .liveBrowser {
+                sharedBrowserStatusText = Self.shortRuntimeStatus(status.status)
+                sharedBrowserRoomText = status.roomId ?? status.displayLabel
+                sharedBrowserCurrentURLText = Self.safeURLSummary(status.currentUrl)
+                sharedBrowserLastActivityText = Self.activitySummary(status.lastActivityAt ?? status.lastCheckedAt)
+            }
+            updateSessionRecord(for: runtime, status: status, error: nil)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+            guard sanitizedCustomerId == customerSnapshot else { return }
             clearLocalSessionState(allowKeychainInteraction: false)
-            sharedBrowserStatusText = "Session expired"
+            if runtime == .liveBrowser {
+                sharedBrowserStatusText = "Session expired"
+            }
         } catch {
-            sharedBrowserStatusText = "Unavailable"
-            sharedBrowserRoomText = "Status unavailable"
-            sharedBrowserCurrentURLText = "Unavailable"
-            sharedBrowserLastActivityText = error.localizedDescription
+            guard sanitizedCustomerId == customerSnapshot else { return }
+            runtimeErrors[runtime] = error.localizedDescription
+            if runtime == .liveBrowser {
+                sharedBrowserStatusText = "Unavailable"
+                sharedBrowserRoomText = "Status unavailable"
+                sharedBrowserCurrentURLText = "Unavailable"
+                sharedBrowserLastActivityText = error.localizedDescription
+            }
+            updateSessionRecord(for: runtime, status: nil, error: error.localizedDescription)
+        }
+    }
+
+    private func updateSessionRecord(for runtime: RuntimeKey, status: RuntimeStatusResponse?, error: String?) {
+        let card = WorkbenchMissionCardDeriver.runtimeCard(
+            definition: RuntimeDefinition.definition(for: runtime),
+            status: status,
+            localURLLoaded: runtimeURLs[runtime] != nil,
+            error: error
+        )
+        var nextCards = sessionMissionCards.filter { $0.id != card.id }
+        nextCards.insert(card, at: 0)
+        sessionMissionCards = nextCards
+        sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
+        if sessionCenterStatusText == "Unchecked" {
+            sessionCenterStatusText = "Ready"
         }
     }
 
@@ -882,6 +947,7 @@ final class WorkbenchModel: ObservableObject {
             resetSessionCenterState(statusText: "Sign in first")
             return
         }
+        let customerSnapshot = sanitizedCustomerId
         guard !isRefreshingSessionCenter else { return }
         isRefreshingSessionCenter = true
         sessionCenterStatusText = "Refreshing..."
@@ -893,10 +959,11 @@ final class WorkbenchModel: ObservableObject {
         for definition in visibleRuntimes where RuntimeDefinition.isBrokeredRuntime(definition.key) {
             do {
                 let status = try await broker.runtimeStatus(
-                    customerId: sanitizedCustomerId,
+                    customerId: customerSnapshot,
                     runtime: definition.key,
                     desktopSession: session
                 )
+                guard sanitizedCustomerId == customerSnapshot else { return }
                 nextStatuses[definition.key] = status
                 if definition.key == .liveBrowser {
                     sharedBrowserStatusText = Self.shortRuntimeStatus(status.status)
@@ -905,10 +972,12 @@ final class WorkbenchModel: ObservableObject {
                     sharedBrowserLastActivityText = Self.activitySummary(status.lastActivityAt ?? status.lastCheckedAt)
                 }
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+                guard sanitizedCustomerId == customerSnapshot else { return }
                 clearLocalSessionState(allowKeychainInteraction: false)
                 sessionCenterStatusText = "Session expired"
                 return
             } catch {
+                guard sanitizedCustomerId == customerSnapshot else { return }
                 nextErrors[definition.key] = error.localizedDescription
                 failures += 1
             }
@@ -933,9 +1002,19 @@ final class WorkbenchModel: ObservableObject {
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.auditCards(from: auditRaw))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.codexCards(statusRaw: codexStatusRaw, remoteRaw: codexRemoteRaw, threadsRaw: codexThreadsRaw))
 
+        guard sanitizedCustomerId == customerSnapshot else { return }
+        var mergedRuntimeErrors = runtimeErrors
+        for definition in visibleRuntimes where RuntimeDefinition.isBrokeredRuntime(definition.key) {
+            if let error = nextErrors[definition.key] {
+                mergedRuntimeErrors[definition.key] = error
+            } else {
+                mergedRuntimeErrors[definition.key] = nil
+            }
+        }
         runtimeStatuses = nextStatuses
+        runtimeErrors = mergedRuntimeErrors
         sessionMissionCards = nextCards
-        sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
+        sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: customerSnapshot)
         if nextStatuses.isEmpty && failures > 0 {
             sessionCenterStatusText = "Unavailable"
         } else if failures > 0 {

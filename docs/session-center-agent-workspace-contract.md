@@ -22,6 +22,11 @@ Session Center is the shared place where Workbench, dashboard, and agents can ag
   "last_actor": "broker",
   "updated_at": "2026-05-29T16:00:00Z",
   "next_action": "Gateway is loaded in Workbench.",
+  "details": [
+    "Room: room-1",
+    "Current URL: example.com/workspace",
+    "Last activity: 2026-05-29T16:00:00Z"
+  ],
   "resume_route": {
     "kind": "broker_runtime",
     "runtime": "browser",
@@ -46,6 +51,7 @@ Fields:
 - `last_actor`: source owner such as `broker`, `bridge_queue`, `desktop_bridge`, or `codex_app_server`.
 - `updated_at`: source timestamp when present.
 - `next_action`: concise human-readable next step. Readers should tolerate it missing on early `evaos.session_center.v1` records and use a local fallback.
+- `details`: optional bounded, display-only evidence lines such as broker room id, sanitized current URL, or last activity. Readers should tolerate it missing on early `evaos.session_center.v1` records and must not treat it as an authorization source.
 - `resume_route`: typed route for reconnect/open behavior.
 - `source_pointer`: provenance pointer that a support agent can use to fetch the source evidence.
 - `audit_id`: bridge audit id when one exists.
@@ -77,6 +83,8 @@ Resume route kinds are exhaustive for `evaos.session_center.v1`:
 `queue_event`, `audit_record`, and `codex_evidence` routes are evidence routes. They open a details view or source evidence, not a hidden control channel. If a Codex record needs visible GUI action, it must go through the separate guarded Codex visible-message lane with dry-run and approval.
 
 When reconnecting after app restart, Workbench must prefer broker/runtime state and source pointers over stale visible UI state. A runtime can be shown as recently loaded only after the broker or current Workbench WebView store confirms it for the current customer target.
+
+Refreshing a single gateway status is allowed to update the corresponding Session Center record immediately. The record must still keep `source_pointer = broker:runtime_status:<runtime>` and must not infer health from the local WebView alone. Closing a local Workbench runtime view may clear the local loaded state, but it is not a broker-side stop unless the broker exposes an explicit stop action.
 
 ## Workbench And Dashboard Fit
 
