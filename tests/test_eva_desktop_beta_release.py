@@ -178,9 +178,9 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "Recent launches in Session Center" in script
-    assert "minting a fresh broker URL" in script
-    assert "Creative Studio wiring and Codex visible-GUI readiness polish" in script
+    assert "hosted Comfy Cloud web surface" in script
+    assert "future graduation scope" in script
+    assert "Session Center recent-launches" in script
     assert "format_datetime(published, usegmt=True)" in script
     assert "published_at" in script
     assert "verify_app_signature" in script

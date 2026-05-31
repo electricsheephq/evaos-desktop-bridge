@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.22"
-BUILD_NUMBER="62"
+VERSION="0.6.23"
+BUILD_NUMBER="63"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds Workbench Recent launches in Session Center using customer-scoped runtime metadata only.</li>
-  <li>Reopens brokered gateways by minting a fresh broker URL instead of storing stale launch URLs.</li>
-  <li>Adds brokered Creative Studio wiring and Codex visible-GUI readiness polish from the sprint train.</li>
+  <li>Corrects Creative Studio to open the hosted Comfy Cloud web surface directly.</li>
+  <li>Keeps VM-local/proxy ComfyUI as future graduation scope instead of a release blocker.</li>
+  <li>Retains the Session Center recent-launches and Codex visible-GUI readiness polish from 0.6.22.</li>
 </ul>
 EOF
 
