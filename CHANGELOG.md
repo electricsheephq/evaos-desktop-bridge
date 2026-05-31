@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.19 - 2026-05-31
+
 - Add issue #207 agent takeover warning: starting a customer Mac control
   session now creates a 10-second countdown before live desktop/iPhone actions
   can run, Workbench surfaces `Taking over screen...` status, and local/remote
