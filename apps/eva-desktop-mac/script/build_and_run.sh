@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Extends the native operator warning from a short single beep into a multi-second alert loop before live GUI control begins.</li>
-  <li>Records notification, beep-loop, and sound playback availability in the takeover warning audit/session metadata.</li>
-  <li>Hardens Workbench pre-canaries against stale app launches, stale helper-process readings, and old EvaDesktop.app artifact contamination.</li>
+  <li>Surfaces broker-backed Shared Browser status directly in the Workbench runtime view.</li>
+  <li>Shows safe Shared Browser room, current URL, and last-activity metadata without exposing query strings or fragments.</li>
+  <li>Keeps Session Center records synchronized when per-runtime status refreshes or local view detachments happen.</li>
 </ul>
 EOF
 
