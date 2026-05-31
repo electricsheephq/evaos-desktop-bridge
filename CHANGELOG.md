@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.22 - 2026-06-01
+
 - Add the Workbench-side issue #100 recent-launch restore slice: Session Center
   now keeps customer-scoped runtime metadata only, shows Recent launches, and
   reopens brokered gateways by minting a fresh broker URL instead of storing or

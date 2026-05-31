@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.21"
-BUILD_NUMBER="61"
+VERSION="0.6.22"
+BUILD_NUMBER="62"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Surfaces broker-backed Shared Browser status directly in the Workbench runtime view.</li>
-  <li>Shows safe Shared Browser room, current URL, and last-activity metadata without exposing query strings or fragments.</li>
-  <li>Keeps Session Center records synchronized when per-runtime status refreshes or local view detachments happen.</li>
+  <li>Adds Workbench Recent launches in Session Center using customer-scoped runtime metadata only.</li>
+  <li>Reopens brokered gateways by minting a fresh broker URL instead of storing stale launch URLs.</li>
+  <li>Adds brokered Creative Studio wiring and Codex visible-GUI readiness polish from the sprint train.</li>
 </ul>
 EOF
 
