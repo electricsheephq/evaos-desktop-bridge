@@ -491,10 +491,15 @@ EOF
     --link "$UPDATE_RELEASE_NOTES_URL" \
     -o "$APPCAST_OUTPUT" \
     "$archive_dir"
-  python3 - "$APPCAST_OUTPUT" <<'PY'
+  python3 - "$APPCAST_OUTPUT" "$BETA_UPDATE_MANIFEST" <<'PY'
+from datetime import datetime, timezone
+from email.utils import format_datetime
+import json
 from pathlib import Path
+import re
 import sys
 path = Path(sys.argv[1])
+manifest_path = Path(sys.argv[2])
 text = path.read_text()
 text = text.replace("<title>EvaDesktop</title>", "<title>evaOS Workbench</title>", 1)
 text = text.replace("<title>evaOS</title>", "<title>evaOS Workbench</title>", 1)
@@ -502,6 +507,11 @@ text = text.replace("<title>evaOS</title>", "<title>evaOS Workbench</title>", 1)
 # update on supported Apple Silicon Macs. Keep the update universal/eligibility
 # decision on the signed bundle and minimum macOS version instead.
 text = text.replace("            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>\n", "")
+manifest = json.loads(manifest_path.read_text())
+published_at = str(manifest["published_at"])
+published = datetime.fromisoformat(published_at.replace("Z", "+00:00")).astimezone(timezone.utc)
+pub_date = format_datetime(published, usegmt=True)
+text = re.sub(r"<pubDate>[^<]+</pubDate>", f"<pubDate>{pub_date}</pubDate>", text, count=1)
 path.write_text(text)
 PY
   echo "Created Sparkle appcast: $APPCAST_OUTPUT"
