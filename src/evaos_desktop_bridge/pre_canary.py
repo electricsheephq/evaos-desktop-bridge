@@ -21,6 +21,9 @@ DEFAULT_ARTIFACT_ROOTS = (
     "/Volumes/LEXAR/Codex/artifacts",
     "/Volumes/LEXAR/Codex/evaos-provider-auth-96-canary",
 )
+CODEX_MCP_SURFACE = "codex-mcp"
+BRIDGE_PEEKABOO_SURFACE = "bridge-peekaboo"
+CONTROL_SURFACES = (CODEX_MCP_SURFACE, BRIDGE_PEEKABOO_SURFACE)
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,7 @@ def evaluate_inventory(
     expected_build: str | None = None,
     expected_team_id: str | None = DEFAULT_TEAM_ID,
     max_computer_use_helpers: int = 2,
+    control_surface: str = CODEX_MCP_SURFACE,
 ) -> PreCanaryReport:
     checks: list[PreCanaryCheck] = []
     canonical = _bundle_by_path(inventory.app_bundles, canonical_path)
@@ -197,7 +201,15 @@ def evaluate_inventory(
             )
         )
 
-    if len(computer_use_helpers) > max_computer_use_helpers:
+    if len(computer_use_helpers) > max_computer_use_helpers and control_surface == BRIDGE_PEEKABOO_SURFACE:
+        checks.append(
+            _warn(
+                "codex_mcp_helper_count_high",
+                "Codex Computer Use MCP helpers are above the normal limit; continue only with the bridge/Peekaboo surface and do not rely on mcp__computer_use.",
+                f"{len(computer_use_helpers)} helpers running: {_pid_list(computer_use_helpers)}",
+            )
+        )
+    elif len(computer_use_helpers) > max_computer_use_helpers:
         checks.append(
             _fail(
                 "stale_computer_use_helpers",
@@ -218,6 +230,7 @@ def evaluate_inventory(
     summary = {
         "canonical_path": canonical_path,
         "bundle_id": bundle_id,
+        "control_surface": control_surface,
         "registered_count": len(inventory.registered_paths),
         "running_workbench_count": len(running_workbench),
         "computer_use_helper_count": len(computer_use_helpers),
@@ -249,6 +262,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--expected-team-id", default=DEFAULT_TEAM_ID)
     parser.add_argument("--max-computer-use-helpers", type=int, default=2)
     parser.add_argument(
+        "--control-surface",
+        choices=CONTROL_SURFACES,
+        default=CODEX_MCP_SURFACE,
+        help=(
+            "GUI surface being canaried. codex-mcp keeps strict Computer Use helper limits; "
+            "bridge-peekaboo allows Codex MCP helper herds as warnings because control uses the bridge/Peekaboo path."
+        ),
+    )
+    parser.add_argument(
         "--canary-artifact-root",
         action="append",
         dest="artifact_roots",
@@ -265,6 +287,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         expected_build=args.expected_build,
         expected_team_id=args.expected_team_id,
         max_computer_use_helpers=args.max_computer_use_helpers,
+        control_surface=args.control_surface,
     )
     if args.json:
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))

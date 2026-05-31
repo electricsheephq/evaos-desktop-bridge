@@ -146,11 +146,16 @@ evaos-workbench-pre-canary \
   --expected-build N
 ```
 
+Use `--control-surface bridge-peekaboo` for Workbench canaries driven by the
+bridge's own Peekaboo-backed `customer-mac desktop ...` commands. That keeps
+duplicate/stale Workbench app checks strict, but reports Codex MCP helper herds
+as warnings because those helpers are not the active control surface.
+
 The guard must pass before OAuth, provider, Shared Browser, Session Center,
 Creative Studio, or Codex visible GUI evidence is trusted. It catches duplicate
 same-bundle-id Workbench apps, translocated old betas, version/build mismatch,
 old `EvaDesktop.app` artifact bundles under known Lexar canary paths, and stale
-Computer Use helper herds.
+Computer Use helper herds when the canary depends on Codex Computer Use.
 
 For Workbench canaries, never launch or focus by `EvaDesktop` or
 `open -a EvaDesktop`. Use the canonical app path `/Applications/evaOS.app`.

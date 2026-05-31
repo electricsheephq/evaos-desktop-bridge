@@ -31,6 +31,18 @@ Installed environments can use:
 evaos-workbench-pre-canary --json --expected-version "<version>" --expected-build "<build>"
 ```
 
+If the canary will use the bridge's own Peekaboo-backed
+`customer-mac desktop ...` commands instead of Codex's model-visible
+`mcp__computer_use` tools, mark that explicitly:
+
+```bash
+evaos-workbench-pre-canary \
+  --json \
+  --expected-version "<version>" \
+  --expected-build "<build>" \
+  --control-surface bridge-peekaboo
+```
+
 The guard fails closed when:
 
 - the canonical `/Applications/evaOS.app` is missing or the wrong version/build;
@@ -39,7 +51,14 @@ The guard fails closed when:
 - an old `EvaDesktop.app` exists in known Lexar canary artifact directories
   where macOS app-name lookup can still find it;
 - a non-canonical or translocated `EvaDesktop.app` is running;
-- too many `SkyComputerUseClient mcp` helper processes are present.
+- too many `SkyComputerUseClient mcp` helper processes are present for a
+  Codex-MCP canary.
+
+For `--control-surface bridge-peekaboo`, a high Codex MCP helper count is a
+warning instead of a failure because the canary is not using
+`mcp__computer_use`. Continue only with the audited bridge/Peekaboo commands;
+do not mix in Codex Computer Use calls until a separate `list_apps` health check
+passes.
 
 Set `EVAOS_CANARY_ARTIFACT_ROOTS` with `:`-separated paths, or pass repeated
 `--canary-artifact-root PATH`, when a canary machine stores old Workbench app
