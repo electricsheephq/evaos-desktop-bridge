@@ -1470,6 +1470,15 @@ let storedRecentLaunchData = try JSONEncoder().encode([
 let scopedRecentLaunches = WorkbenchRecentLaunchStore.records(from: storedRecentLaunchData, customerId: "golden")
 precondition(scopedRecentLaunches.count == 1)
 precondition(scopedRecentLaunches[0].customerId == "golden")
+let mixedPrecisionRecentLaunches = WorkbenchRecentLaunchStore.merged(
+    WorkbenchRecentLaunchRecord(runtime: .terminal, customerId: "golden", openedAt: "2026-06-01T09:00:00.123Z"),
+    into: [
+        WorkbenchRecentLaunchRecord(runtime: .openclaw, customerId: "golden", openedAt: "2026-06-01T10:00:00+01:00"),
+        WorkbenchRecentLaunchRecord(runtime: .hermes, customerId: "golden", openedAt: "2026-06-01T09:00:00Z")
+    ],
+    maxRecords: 3
+)
+precondition(mixedPrecisionRecentLaunches.map(\.runtime) == [.terminal, .openclaw, .hermes])
 
 let malformedCards = WorkbenchMissionCardDeriver.queueCards(from: "{")
 precondition(malformedCards.count == 1)

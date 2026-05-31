@@ -76,7 +76,7 @@ public enum WorkbenchRecentLaunchStore {
         return Array(decoded
             .filter { sanitizedCustomerId($0.customerId) == scopedCustomerId }
             .filter { RuntimeDefinition.isBrokeredRuntime($0.runtime) }
-            .sorted { $0.openedAt > $1.openedAt }
+            .sorted(by: isNewer)
             .prefix(maxRecords))
     }
 
@@ -89,7 +89,7 @@ public enum WorkbenchRecentLaunchStore {
             !($0.runtime == record.runtime && sanitizedCustomerId($0.customerId) == sanitizedCustomerId(record.customerId))
         }
         return Array(([record] + withoutDuplicateRuntime)
-            .sorted { $0.openedAt > $1.openedAt }
+            .sorted(by: isNewer)
             .prefix(maxRecords))
     }
 
@@ -123,5 +123,28 @@ public enum WorkbenchRecentLaunchStore {
             sourcePointer: record.sourcePointer,
             auditId: nil
         )
+    }
+
+    private static func isNewer(
+        _ lhs: WorkbenchRecentLaunchRecord,
+        _ rhs: WorkbenchRecentLaunchRecord
+    ) -> Bool {
+        switch (openedAtDate(lhs.openedAt), openedAtDate(rhs.openedAt)) {
+        case let (lhsDate?, rhsDate?):
+            if lhsDate == rhsDate {
+                return lhs.openedAt > rhs.openedAt
+            }
+            return lhsDate > rhsDate
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        case (nil, nil):
+            return lhs.openedAt > rhs.openedAt
+        }
+    }
+
+    private static func openedAtDate(_ value: String) -> Date? {
+        EvaDesktopISO8601.parse(value)
     }
 }
