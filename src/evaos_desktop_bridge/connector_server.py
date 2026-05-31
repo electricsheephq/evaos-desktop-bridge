@@ -70,6 +70,7 @@ CONTROLLED_REMOTE_COMMANDS = frozenset(
         "customerMacIphoneMirroringSendApprovedMessage",
         "desktopClick",
         "desktopType",
+        "desktopSetValue",
         "desktopScroll",
         "desktopDrag",
         "desktopHotkey",
@@ -100,6 +101,7 @@ ASK_PERMISSION_HIGH_IMPACT_REMOTE_COMMANDS = frozenset(
         "customerMacIphoneMirroringSwipeDown",
         "customerMacIphoneMirroringTypeApprovedText",
         "customerMacIphoneMirroringSendApprovedMessage",
+        "desktopSetValue",
         "desktopType",
         "iphoneSwipe",
         "iphoneType",
@@ -191,6 +193,7 @@ CONNECTOR_COMMAND_ALIASES = {
     "desktop_see": "desktopSee",
     "desktop_click": "desktopClick",
     "desktop_type": "desktopType",
+    "desktop_set_value": "desktopSetValue",
     "desktop_scroll": "desktopScroll",
     "desktop_drag": "desktopDrag",
     "desktop_hotkey": "desktopHotkey",
@@ -232,6 +235,7 @@ CONNECTOR_COMMAND_APPROVAL: dict[str, tuple[str, tuple[str, ...]]] = {
     "customerMacIphoneMirroringSendApprovedMessage": ("customer_mac.iphone_mirroring_send_approved_message", ("text", "recipient_context", "target_label")),
     "desktopClick": ("customer_mac.desktop_click", ("snapshot_id", "element_id", "target_label", "x", "y")),
     "desktopType": ("customer_mac.desktop_type", ("text",)),
+    "desktopSetValue": ("customer_mac.desktop_set_value", ("snapshot_id", "element_id", "attribute", "value_hash")),
     "desktopScroll": ("customer_mac.desktop_scroll", ("direction", "amount")),
     "desktopDrag": ("customer_mac.desktop_drag", ("from_x", "from_y", "to_x", "to_y")),
     "desktopHotkey": ("customer_mac.desktop_hotkey", ("keys",)),
@@ -385,6 +389,28 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
         return argv
     if command == "desktopType":
         return ["customer-mac", "desktop", "type", "--json", "--text", _required_string(params, "text"), *_dry_run_arg(params), *_approval_arg(params)]
+    if command == "desktopSetValue":
+        argv = [
+            "customer-mac",
+            "desktop",
+            "set-value",
+            "--json",
+            "--snapshot-id",
+            _required_string(params, "snapshot_id"),
+            "--element-id",
+            _required_string(params, "element_id"),
+        ]
+        value_file = params.get("value_file")
+        if isinstance(value_file, str) and value_file.strip():
+            if params.get("_prepared_value_file") is not True:
+                raise ValueError("value_file is reserved for connector internals; provide value.")
+            argv.extend(["--value-file", value_file.strip()])
+        else:
+            raise ValueError("desktopSetValue value must be materialized before building CLI argv.")
+        argv.extend(["--attribute", str(params.get("attribute") or "value")])
+        argv.extend(_dry_run_arg(params))
+        argv.extend(_approval_arg(params))
+        return argv
     if command == "desktopScroll":
         return ["customer-mac", "desktop", "scroll", "--json", "--direction", str(params.get("direction") or "down"), "--amount", str(_clamp_int(params.get("amount"), 600, 1, 5000)), *_dry_run_arg(params), *_approval_arg(params)]
     if command == "desktopDrag":
@@ -500,19 +526,33 @@ def build_bridge_argv(command: str, params: dict[str, Any] | None = None) -> lis
 
 def _prepare_connector_params(command: str, params: dict[str, Any], *, state_dir: Path | None) -> tuple[dict[str, Any], list[Path]]:
     command = normalize_connector_command(command)
-    if command != "codexSendVisibleMessage":
+    if command not in {"codexSendVisibleMessage", "desktopSetValue"}:
         return params, []
-    if isinstance(params.get("message_file"), str) and params.get("message_file", "").strip():
-        raise ValueError("message_file is reserved for connector internals; provide message.")
-    if not isinstance(params.get("message"), str):
-        raise ValueError("message is required")
+    if command == "codexSendVisibleMessage":
+        if isinstance(params.get("message_file"), str) and params.get("message_file", "").strip():
+            raise ValueError("message_file is reserved for connector internals; provide message.")
+        if not isinstance(params.get("message"), str):
+            raise ValueError("message is required")
+        payload_key = "message"
+        file_key = "message_file"
+        prepared_flag = "_prepared_message_file"
+        prefix = "codex-visible-message-"
+    else:
+        if isinstance(params.get("value_file"), str) and params.get("value_file", "").strip():
+            raise ValueError("value_file is reserved for connector internals; provide value.")
+        if not isinstance(params.get("value"), str):
+            raise ValueError("value is required")
+        payload_key = "value"
+        file_key = "value_file"
+        prepared_flag = "_prepared_value_file"
+        prefix = "desktop-set-value-"
     root = (state_dir or default_state_dir()) / "tmp"
     root.mkdir(parents=True, exist_ok=True)
-    fd, path_text = tempfile.mkstemp(prefix="codex-visible-message-", suffix=".txt", dir=str(root), text=True)
+    fd, path_text = tempfile.mkstemp(prefix=prefix, suffix=".txt", dir=str(root), text=True)
     path = Path(path_text)
     try:
         try:
-            os.write(fd, str(params["message"]).encode("utf-8"))
+            os.write(fd, str(params[payload_key]).encode("utf-8"))
         finally:
             os.close(fd)
         os.chmod(path, 0o600)
@@ -520,9 +560,9 @@ def _prepare_connector_params(command: str, params: dict[str, Any], *, state_dir
         path.unlink(missing_ok=True)
         raise
     prepared = dict(params)
-    prepared.pop("message", None)
-    prepared["message_file"] = str(path)
-    prepared["_prepared_message_file"] = True
+    prepared.pop(payload_key, None)
+    prepared[file_key] = str(path)
+    prepared[prepared_flag] = True
     return prepared, [path]
 
 
@@ -886,6 +926,8 @@ def _approval_field_value(command: str, params: dict[str, Any], field: str) -> A
         return params.get("prompt") or "continue"
     if field == "message_hash" and command == "codexSendVisibleMessage":
         return hashlib.sha256(str(params.get("message") or "").strip().encode("utf-8")).hexdigest()[:16]
+    if field == "value_hash" and command == "desktopSetValue":
+        return hashlib.sha256(str(params.get("value") or "").encode("utf-8")).hexdigest()[:16]
     if field == "direction" and command == "customerMacIphoneMirroringScroll":
         return params.get("direction") or "down"
     if field == "target_label" and command == "customerMacIphoneMirroringSendApprovedMessage":

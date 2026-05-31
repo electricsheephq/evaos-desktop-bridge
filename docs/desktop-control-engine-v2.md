@@ -51,9 +51,9 @@ OpenClaw exposes these first-class tools:
 
 - `desktop_control_status`, `desktop_control_start`, `desktop_control_stop`,
   `desktop_kill_switch`
-- `desktop_see`, `desktop_click`, `desktop_type`, `desktop_scroll`,
-  `desktop_drag`, `desktop_hotkey`, `desktop_focus_app`, `desktop_window`,
-  `desktop_menu`, `desktop_browser_action`
+- `desktop_see`, `desktop_click`, `desktop_type`, `desktop_set_value`,
+  `desktop_scroll`, `desktop_drag`, `desktop_hotkey`, `desktop_focus_app`,
+  `desktop_window`, `desktop_menu`, `desktop_browser_action`
 - `iphone_see`, `iphone_tap`, `iphone_swipe`, `iphone_type`
 
 `desktop_see` and `iphone_see` return Codex-style visual grounding:
@@ -62,7 +62,10 @@ bytes when small enough, active app/window context, and clickable elements with
 labels and bounds. `desktop_click` and `iphone_tap` can target an `element_id`
 from that latest snapshot, a unique `target_label`, or explicit coordinates.
 `desktop_see` refuses sensitive frontmost apps before invoking Peekaboo or
-fallback screenshot/AX capture.
+fallback screenshot/AX capture. `desktop_set_value` is narrower than generic
+typing: it requires a fresh AX-backed `snapshot_id`/`element_id`, blocks secure
+or credential-like fields, and sends only a fixed helper `ax_action` after the
+bridge has written approval/audit provenance.
 
 Hermes should call the same connector command keys through its existing wrapper
 instead of creating a second backend.

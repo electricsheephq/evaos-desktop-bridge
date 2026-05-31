@@ -4,6 +4,15 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add issue #123 Tier-1 AX actuation for fresh desktop snapshot elements:
+  helper IPC now supports fixed semantic `ax_action` verbs (`press`,
+  editable-field `set_value`, selected-text replacement, and menu traversal)
+  after bridge-side policy, target-sensitive-app/process checks,
+  dry-run/approval gates, and audit dispatch records. The OpenClaw wrapper
+  exposes only the fixed `desktop_set_value` tool, materializes values into
+  0600 temp files instead of subprocess argv, and continues to block raw AX
+  primitive bypasses.
+
 ## 0.6.17 - 2026-05-31
 
 - Complete issue #129 IPC-seam safety for the current helper route: every

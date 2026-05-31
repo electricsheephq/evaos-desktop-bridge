@@ -70,9 +70,10 @@ requires its parent process path to live inside the claimed Workbench app
 bundle, so a terminal cannot spoof the Workbench identity with environment
 variables alone. If the helper is missing, the token file is stale/unsafe, the
 helper was not launched by Workbench, required grants are missing/unknown, or
-the helper rejects the bridge-provided audit id, live mouse actions fail closed
-instead of falling back to Python. The helper accepts no desktop typing, iPhone
-action, shell, AppleScript, or Codex mutation command.
+the helper rejects the bridge-provided audit id, live mouse and semantic AX
+actions fail closed instead of falling back to Python. The helper accepts no raw
+AX primitive passthrough, broad desktop typing, iPhone action, shell,
+AppleScript, or Codex mutation command.
 
 `connector-service status --json` reports the permission target plus the bridge,
 bundled Peekaboo, and connector helper paths. Use those paths when macOS does
@@ -172,9 +173,9 @@ Control/session actions:
 - `desktop_control_start` with `mode=full-access` or `mode=ask-permission`;
 - `desktop_control_stop`;
 - `desktop_kill_switch`;
-- `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`,
-  `desktop_hotkey`, `desktop_focus_app`, `desktop_window`, `desktop_menu`,
-  `desktop_browser_action`;
+- `desktop_click`, `desktop_type`, `desktop_set_value`, `desktop_scroll`,
+  `desktop_drag`, `desktop_hotkey`, `desktop_focus_app`, `desktop_window`,
+  `desktop_menu`, `desktop_browser_action`;
 - `iphone_tap`, `iphone_swipe`, `iphone_type`.
 
 Legacy guarded actions:

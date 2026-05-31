@@ -183,7 +183,8 @@ def test_connector_defaults_guarded_commands_to_dry_run() -> None:
     ]
 
 
-def test_connector_builds_desktop_control_argv() -> None:
+def test_connector_builds_desktop_control_argv(tmp_path: Path) -> None:
+    value_file = tmp_path / "value.txt"
     assert build_bridge_argv("customerMacControlStart", {"mode": "full-access", "agent_label": "Aurelius"}) == [
         "customer-mac",
         "control",
@@ -204,6 +205,29 @@ def test_connector_builds_desktop_control_argv() -> None:
         "Continue",
     ]
     assert "--snapshot-id" in build_bridge_argv("desktopClick", {"snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "element_id": "el-0001"})
+    assert build_bridge_argv(
+        "desktopSetValue",
+        {
+            "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "element_id": "el-0001",
+            "value_file": str(value_file),
+            "_prepared_value_file": True,
+        },
+    ) == [
+        "customer-mac",
+        "desktop",
+        "set-value",
+        "--json",
+        "--snapshot-id",
+        "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "--element-id",
+        "el-0001",
+        "--value-file",
+        str(value_file),
+        "--attribute",
+        "value",
+        "--dry-run",
+    ]
     assert "--element-id" in build_bridge_argv("iphoneTap", {"snapshot_id": "snap-iphone-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "element_id": "el-0001"})
     assert build_bridge_argv("iphoneSwipe", {"direction": "left", "dry_run": False}) == [
         "customer-mac",
@@ -257,6 +281,16 @@ def test_connector_full_access_allows_live_remote_control_without_approval(tmp_p
     start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
 
     assert _live_guarded_approval_error("desktopType", {"text": "hello", "dry_run": False}, state_dir=tmp_path) is None
+    assert _live_guarded_approval_error(
+        "desktopSetValue",
+        {
+            "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "element_id": "el-0001",
+            "value": "hello",
+            "dry_run": False,
+        },
+        state_dir=tmp_path,
+    ) is None
     assert _live_guarded_approval_error("iphoneSwipe", {"direction": "left", "dry_run": False}, state_dir=tmp_path) is None
     assert _live_guarded_approval_error("codexContinueThread", {"title": "SDK Docs", "prompt": "continue", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
     assert _live_guarded_approval_error("codexSendVisibleMessage", {"thread_id": "visible-0-abc", "message": "hello", "dry_run": False, "confirm": True}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
@@ -273,6 +307,16 @@ def test_connector_ask_permission_allows_navigation_but_gates_high_impact(tmp_pa
     assert _live_guarded_approval_error("desktopClick", {"x": 10, "y": 20, "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
     assert _live_guarded_approval_error("desktopHotkey", {"keys": "return", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
     assert _live_guarded_approval_error("desktopType", {"text": "hello", "dry_run": False}, state_dir=tmp_path) == "Live remote control actions require a prior dry-run and approval_audit_id."
+    assert _live_guarded_approval_error(
+        "desktopSetValue",
+        {
+            "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "element_id": "el-0001",
+            "value": "hello",
+            "dry_run": False,
+        },
+        state_dir=tmp_path,
+    ) == "Live remote control actions require a prior dry-run and approval_audit_id."
 
 
 def test_connector_kill_switch_blocks_remote_control(tmp_path: Path) -> None:
@@ -347,6 +391,77 @@ def test_connector_codex_visible_message_requires_matching_hash_and_confirm(tmp_
         {"thread_id": "visible-0-abc", "message": "different", "dry_run": False, "confirm": True, "approval_audit_id": dry_run_audit},
         state_dir=tmp_path,
     ) == "approval_audit_id does not match message_hash."
+
+
+def test_connector_desktop_set_value_requires_matching_value_hash(tmp_path: Path) -> None:
+    value_hash = hashlib.sha256(b"hello").hexdigest()[:16]
+    dry_run_audit = append_audit(
+        command="customer_mac.desktop_set_value",
+        target="customer_mac",
+        args={
+            "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "element_id": "el-0001",
+            "attribute": "value",
+            "value_hash": value_hash,
+            "dry_run": True,
+            "json": True,
+            "approval_audit_id": None,
+        },
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+
+    assert _live_guarded_approval_error(
+        "desktopSetValue",
+        {
+            "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "element_id": "el-0001",
+            "attribute": "value",
+            "value": "hello",
+            "dry_run": False,
+            "approval_audit_id": dry_run_audit,
+        },
+        state_dir=tmp_path,
+    ) is None
+    assert _live_guarded_approval_error(
+        "desktopSetValue",
+        {
+            "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "element_id": "el-0001",
+            "attribute": "value",
+            "value": "different",
+            "dry_run": False,
+            "approval_audit_id": dry_run_audit,
+        },
+        state_dir=tmp_path,
+    ) == "approval_audit_id does not match value_hash."
+
+
+def test_connector_desktop_set_value_materializes_value_file_for_local_argv(tmp_path: Path) -> None:
+    prepared, temp_paths = _prepare_connector_params(
+        "desktopSetValue",
+        {
+            "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "element_id": "el-0001",
+            "value": "private text",
+            "dry_run": True,
+        },
+        state_dir=tmp_path,
+    )
+
+    assert "value" not in prepared
+    assert prepared.get("_prepared_value_file") is True
+    argv = build_bridge_argv("desktopSetValue", prepared)
+
+    assert "--value-file" in argv
+    assert "--value" not in argv
+    assert "private text" not in argv
+    assert temp_paths and temp_paths[0].read_text(encoding="utf-8") == "private text"
+    assert temp_paths[0].stat().st_mode & 0o777 == 0o600
+    for path in temp_paths:
+        path.unlink(missing_ok=True)
 
 
 def test_connector_codex_visible_message_moves_raw_message_to_temp_file(tmp_path: Path) -> None:

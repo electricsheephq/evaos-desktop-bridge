@@ -37,6 +37,7 @@ SAFE_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 SAFE_BROWSER_APPS = {"Safari", "Google Chrome", "Arc", "Firefox", "Brave Browser"}
 SAFE_LOCAL_SITE_ACTIONS = {"reload", "back", "forward"}
 CONTROL_MODES = {"full_access", "ask_permission"}
+AX_EDITABLE_VALUE_ROLES = {"AXTextField", "AXTextArea", "AXComboBox"}
 PEEKABOO_BIN_CANDIDATES = (
     "evaos-connector-helper",
     "peekaboo",
@@ -181,26 +182,35 @@ def actions(element):
         return []
 
 
-def walk(element, rows, depth=0, window_index=None):
+def walk(element, rows, depth=0, window_index=None, path=None, sibling_index=0):
     if len(rows) >= max_nodes:
         return True
     role = text_value(ax_value(element, AS.kAXRoleAttribute)) or "unknown"
     name = text_value(ax_value(element, AS.kAXTitleAttribute)) or text_value(ax_value(element, AS.kAXDescriptionAttribute))
+    identifier = text_value(ax_value(element, getattr(AS, "kAXIdentifierAttribute", "AXIdentifier")))
+    segment = {"role": role, "index": int(sibling_index)}
+    if name:
+        segment["name"] = name
+    if identifier:
+        segment["identifier"] = identifier
+    ax_path = list(path or []) + [segment]
     rows.append({
         "role": role,
         "name": name,
+        "identifier": identifier,
         "depth": depth,
         "window_index": window_index,
         "bounds": rect_value(element),
         "actions": actions(element),
+        "ax_path": ax_path,
     })
     children = ax_value(element, AS.kAXChildrenAttribute) or []
     try:
         child_iter = list(children)
     except Exception:
         child_iter = []
-    for child in child_iter:
-        if walk(child, rows, depth + 1, window_index):
+    for child_index, child in enumerate(child_iter):
+        if walk(child, rows, depth + 1, window_index, ax_path, child_index):
             return True
     return False
 
@@ -215,7 +225,7 @@ except Exception:
 nodes = []
 truncated = False
 for idx, window in enumerate(windows_list):
-    truncated = walk(window, nodes, 0, idx) or truncated
+    truncated = walk(window, nodes, 0, idx, [], idx) or truncated
 
 print(json.dumps({"ok": True, "nodes": nodes, "truncated": truncated}))
 """.strip()
@@ -589,6 +599,8 @@ except Exception as exc:
         resolved_engine = None
         resolved_peekaboo_snapshot_id = None
         resolved_peekaboo_element_id = None
+        resolved_ax_target: dict[str, Any] | None = None
+        resolved_actions: list[Any] = []
         if snapshot_id and element_id is None and target_label is None and x is not None and y is not None:
             resolved_point = self._resolve_snapshot_coordinates(snapshot_id=snapshot_id, x=x, y=y, expected_target="desktop")
             if not resolved_point.ok:
@@ -603,6 +615,8 @@ except Exception as exc:
             resolved_engine = resolved.data.get("engine")
             resolved_peekaboo_snapshot_id = resolved.data.get("peekaboo_snapshot_id")
             resolved_peekaboo_element_id = resolved.data.get("peekaboo_element_id")
+            resolved_ax_target = resolved.data.get("ax_target") if isinstance(resolved.data.get("ax_target"), dict) else None
+            resolved_actions = resolved.data.get("actions") if isinstance(resolved.data.get("actions"), list) else []
             if resolved.data.get("point"):
                 point = resolved.data["point"]
                 x = int(point["x"])
@@ -624,6 +638,28 @@ except Exception as exc:
         sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="click")
         if sensitive_block is not None:
             return sensitive_block
+        if resolved_ax_target is not None:
+            target_block = self._sensitive_ax_target_action_block(ax_target=resolved_ax_target, action="press")
+            if target_block is not None:
+                return target_block
+            inert_block = self._inert_ax_target_action_block(ax_target=resolved_ax_target, action="press")
+            if inert_block is not None:
+                return inert_block
+            if "AXPress" in {str(item) for item in resolved_actions} or resolved_engine == "ax_fallback":
+                pressed = self._helper_ax_action(
+                    action="press",
+                    target=resolved_ax_target,
+                    fallback_data={
+                        "clicked": False,
+                        "target_label": resolved_label,
+                        "snapshot_id": snapshot_id,
+                        "element_id": element_id,
+                        "point": self._point(x, y),
+                    },
+                )
+                if pressed.ok:
+                    pressed.data.update({"clicked": True, "target_label": resolved_label, "snapshot_id": snapshot_id, "element_id": element_id, "point": self._point(x, y)})
+                return pressed
         peekaboo = self._peekaboo_status()
         if peekaboo.get("available"):
             if resolved_engine == "peekaboo" and resolved_peekaboo_snapshot_id and resolved_peekaboo_element_id:
@@ -673,6 +709,61 @@ except Exception as exc:
         if x is None or y is None:
             return CommandResult(ok=False, data={"clicked": False}, errors=[make_error(code="desktop_click_target_required", message="desktop_click requires target_label or x/y.", guidance="Prefer a visible target label from desktop_see; use coordinates only when labels are unavailable.")])
         return self._mouse_action("click", x=x, y=y)
+
+    def desktop_set_value(
+        self,
+        *,
+        snapshot_id: str,
+        element_id: str,
+        value: str,
+        attribute: str = "value",
+        dry_run: bool = False,
+    ) -> CommandResult:
+        if attribute not in {"value", "selected_text"}:
+            return CommandResult(ok=False, data={"set": False, "attribute": attribute}, errors=[make_error(code="desktop_set_value_attribute_invalid", message="desktop_set_value attribute must be value or selected_text.", guidance="Use the fixed AXValue or AXSelectedText setter only.")])
+        if not isinstance(value, str) or value == "":
+            return CommandResult(ok=False, data={"set": False}, errors=[make_error(code="desktop_set_value_required", message="desktop_set_value requires non-empty text.", guidance="Pass exact approved text for the selected native field.")])
+        if len(value) > 4000:
+            return CommandResult(ok=False, data={"set": False, "value_sha256": self._text_hash(value)}, errors=[make_error(code="desktop_set_value_too_long", message="desktop_set_value is capped at 4000 characters.", guidance="Split longer content or use an app-specific import path.")])
+        if self._looks_like_secret(value):
+            return CommandResult(ok=False, data={"set": False, "value_sha256": self._text_hash(value)}, errors=[make_error(code="desktop_set_value_secret_blocked", message="desktop_set_value refuses token-like or password-like content.", guidance="Do not send credentials or secrets through agent desktop control.")])
+        resolved = self._resolve_snapshot_target(snapshot_id=snapshot_id, element_id=element_id, target_label=None)
+        if not resolved.ok:
+            return resolved
+        ax_target = resolved.data.get("ax_target") if isinstance(resolved.data.get("ax_target"), dict) else None
+        if ax_target is None:
+            return CommandResult(ok=False, data={"set": False, "snapshot_id": snapshot_id, "element_id": element_id}, errors=[make_error(code="desktop_set_value_ax_target_required", message="desktop_set_value requires an Accessibility-backed snapshot element.", guidance="Run desktop_see with the built-in AX fallback or choose a native AX text field from the latest snapshot.")])
+        role = str(resolved.data.get("role") or "")
+        if role == "AXSecureTextField" or re.search(r"password|passcode|token|secret", str(resolved.data.get("target_label") or ""), re.IGNORECASE):
+            return CommandResult(ok=False, data={"set": False, "role": role, "value_sha256": self._text_hash(value)}, errors=[make_error(code="desktop_set_value_secure_field_blocked", message="desktop_set_value is blocked for secure or credential-like fields.", guidance="Do not use desktop control to enter credentials or secrets.")])
+        if role not in AX_EDITABLE_VALUE_ROLES:
+            return CommandResult(ok=False, data={"set": False, "role": role, "value_sha256": self._text_hash(value)}, errors=[make_error(code="desktop_set_value_non_text_field_blocked", message="desktop_set_value is blocked for non-text Accessibility roles.", guidance="Choose a native editable AXTextField, AXTextArea, or AXComboBox element from a fresh desktop_see snapshot.")])
+        data = {
+            "set": False,
+            "would_set": dry_run,
+            "snapshot_id": snapshot_id,
+            "element_id": element_id,
+            "target_label": resolved.data.get("target_label"),
+            "role": role,
+            "attribute": "AXSelectedText" if attribute == "selected_text" else "AXValue",
+            "value_sha256": self._text_hash(value),
+        }
+        if dry_run:
+            return CommandResult(ok=True, data=data)
+        sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="set_value")
+        if sensitive_block is not None:
+            return sensitive_block
+        target_block = self._sensitive_ax_target_action_block(ax_target=ax_target, action="set_value")
+        if target_block is not None:
+            return target_block
+        inert_block = self._inert_ax_target_action_block(ax_target=ax_target, action="set_value")
+        if inert_block is not None:
+            return inert_block
+        action = "set_selected_text" if attribute == "selected_text" else "set_value"
+        result = self._helper_ax_action(action=action, target=ax_target, value=value, attribute=data["attribute"], fallback_data=data)
+        if result.ok:
+            result.data.update({**data, "set": True, "would_set": False, "engine": result.data.get("engine", "helper_ax")})
+        return result
 
     def desktop_type(self, *, text: str, dry_run: bool = False) -> CommandResult:
         if not isinstance(text, str) or text == "":
@@ -816,6 +907,20 @@ except Exception as exc:
         sensitive_block = self._sensitive_app_action_block(frontmost=self._frontmost_app(), action="menu")
         if sensitive_block is not None:
             return sensitive_block
+        frontmost = self._frontmost_app()
+        pid = self._pid_for_app(frontmost)
+        if pid is not None and self.helper_client is not None:
+            result = self._helper_ax_action(
+                action="menu",
+                target={"pid": pid, "app_name": frontmost, "process_name": self._process_name_for_pid(pid), "path": []},
+                menu_path=menu_path,
+                fallback_data={"performed": False, "menu_path": menu_path},
+            )
+            if result.ok:
+                result.data.update({"performed": True, "menu_path": menu_path, "engine": result.data.get("engine", "helper_ax")})
+                return result
+            if result.errors and result.errors[0].get("code") not in {"helper_ax_menu_not_found", "helper_ax_menu_failed"}:
+                return result
         peekaboo = self._peekaboo_status()
         if not peekaboo.get("available"):
             return CommandResult(ok=False, data={"performed": False, "menu_path": menu_path}, errors=[make_error(code="peekaboo_required", message="desktop_menu requires Peekaboo for reliable menu traversal.", guidance="Install Peekaboo with brew install steipete/tap/peekaboo and approve Workbench permissions.")])
@@ -988,11 +1093,20 @@ except Exception as exc:
         payload, errors, warnings = self._ax_snapshot(pid=pid, max_nodes=max_nodes)
         if payload is None:
             return CommandResult(ok=False, data={"nodes": [], "truncated": False}, errors=errors, warnings=warnings)
-        nodes = [self._safe_node(row) for row in payload.get("nodes", [])][:max_nodes]
+        process_name = self._process_name_for_pid(pid)
+        raw_nodes: list[Any] = []
+        for row in payload.get("nodes", [])[:max_nodes]:
+            if isinstance(row, dict):
+                row = dict(row)
+                path = row.get("ax_path")
+                if isinstance(path, list):
+                    row["ax_target"] = {"pid": pid, "app_name": frontmost, "process_name": process_name, "path": path}
+            raw_nodes.append(row)
+        nodes = [self._safe_node(row) for row in raw_nodes][:max_nodes]
         truncated = bool(payload.get("truncated"))
         if truncated:
             warnings.append(f"AX tree truncated at {max_nodes} nodes")
-        return CommandResult(ok=True, data={"frontmost_app": redact_value(frontmost), "nodes": nodes, "truncated": truncated, "max_nodes": max_nodes}, warnings=warnings)
+        return CommandResult(ok=True, data={"frontmost_app": redact_value(frontmost), "pid": pid, "nodes": nodes, "truncated": truncated, "max_nodes": max_nodes}, warnings=warnings)
 
     def app_focus(self, *, app_name: str, dry_run: bool = False) -> CommandResult:
         if not self._safe_app_name(app_name):
@@ -1550,12 +1664,13 @@ except Exception as exc:
                         "to_y": int(kwargs["to_y"]),
                     }
                 )
-            self._append_helper_actuation_attempt(helper_audit_id=helper_audit_id, payload=payload)
+            self._append_helper_actuation_attempt(helper_audit_id=helper_audit_id, helper_command="mouse_action", payload=payload)
             try:
                 result = self.helper_client.dispatch("mouse_action", payload, audit_id=helper_audit_id)
                 result.provenance.setdefault("helper_audit_id", helper_audit_id)
                 self._append_helper_actuation_result(
                     helper_audit_id=helper_audit_id,
+                    helper_command="mouse_action",
                     payload=payload,
                     result=result,
                 )
@@ -1576,6 +1691,7 @@ except Exception as exc:
                 )
                 self._append_helper_actuation_result(
                     helper_audit_id=helper_audit_id,
+                    helper_command="mouse_action",
                     payload=payload,
                     result=result,
                 )
@@ -1597,14 +1713,86 @@ except Exception as exc:
             data["dragged"] = True
         return CommandResult(ok=True, data=data, warnings=warnings, provenance={"source": "quartz"})
 
+    def _helper_ax_action(
+        self,
+        *,
+        action: str,
+        target: dict[str, Any],
+        fallback_data: dict[str, Any],
+        value: str | None = None,
+        attribute: str | None = None,
+        menu_path: str | None = None,
+    ) -> CommandResult:
+        identity_block = self._ax_target_process_identity_block(ax_target=target, action=action)
+        if identity_block is not None:
+            return identity_block
+        payload: dict[str, object] = {"action": action, "target": target}
+        if value is not None:
+            payload["value"] = value
+        if attribute is not None:
+            payload["attribute"] = attribute
+        if menu_path is not None:
+            payload["menu_path"] = menu_path
+        if self.helper_client is None:
+            return CommandResult(
+                ok=False,
+                data=fallback_data,
+                errors=[
+                    make_error(
+                        code="helper_required_for_ax_action",
+                        message="Tier-1 AX actions require the Workbench-managed computer-use helper.",
+                        guidance="Start Mac Access from evaOS Workbench so semantic AX actions run under the signed helper identity.",
+                    )
+                ],
+                provenance={"source": "computer_use_helper"},
+            )
+        helper_audit_id = f"audit-helper-{uuid.uuid4().hex}"
+        audit_payload = dict(payload)
+        if value is not None:
+            audit_payload["value"] = "<redacted>"
+            audit_payload["value_sha256"] = self._text_hash(value)
+        self._append_helper_actuation_attempt(helper_audit_id=helper_audit_id, helper_command="ax_action", payload=audit_payload)
+        try:
+            result = self.helper_client.dispatch("ax_action", payload, audit_id=helper_audit_id)
+            result.provenance.setdefault("helper_audit_id", helper_audit_id)
+            self._append_helper_actuation_result(
+                helper_audit_id=helper_audit_id,
+                helper_command="ax_action",
+                payload=audit_payload,
+                result=result,
+            )
+            return result
+        except Exception as exc:
+            result = CommandResult(
+                ok=False,
+                data=fallback_data,
+                errors=[
+                    make_error(
+                        code="helper_unavailable",
+                        message=f"Persistent computer-use helper failed before performing AX {action}.",
+                        guidance="Restart the evaOS helper or rerun after Mac Access reports ready.",
+                    )
+                ],
+                warnings=[str(redact_value(exc))],
+                provenance={"source": "computer_use_helper"},
+            )
+            self._append_helper_actuation_result(
+                helper_audit_id=helper_audit_id,
+                helper_command="ax_action",
+                payload=audit_payload,
+                result=result,
+            )
+            return result
+
     def _append_helper_actuation_attempt(
         self,
         *,
         helper_audit_id: str,
+        helper_command: str = "mouse_action",
         payload: dict[str, object],
     ) -> None:
         append_audit(
-            command="helper.mouse_action",
+            command=f"helper.{helper_command}",
             target="computer_use_helper",
             args={"payload": payload},
             ok=True,
@@ -1612,7 +1800,7 @@ except Exception as exc:
             errors=[],
             provenance={
                 "source": "computer_use_helper",
-                "helper_command": "mouse_action",
+                "helper_command": helper_command,
                 "helper_audit_id": helper_audit_id,
                 "audit_phase": "authorized_dispatch",
             },
@@ -1624,11 +1812,12 @@ except Exception as exc:
         self,
         *,
         helper_audit_id: str,
+        helper_command: str = "mouse_action",
         payload: dict[str, object],
         result: CommandResult,
     ) -> None:
         append_audit(
-            command="helper.mouse_action",
+            command=f"helper.{helper_command}",
             target="computer_use_helper",
             args={"payload": payload},
             ok=result.ok,
@@ -1637,7 +1826,7 @@ except Exception as exc:
             provenance={
                 **result.provenance,
                 "source": "computer_use_helper",
-                "helper_command": "mouse_action",
+                "helper_command": helper_command,
                 "helper_audit_id": helper_audit_id,
                 "audit_phase": "completion",
             },
@@ -1874,6 +2063,14 @@ except Exception as exc:
         except ValueError:
             return None
 
+    def _process_name_for_pid(self, pid: int | None) -> str | None:
+        if type(pid) is not int or pid <= 0:
+            return None
+        result = self.runner(["ps", "-p", str(pid), "-o", "comm="], 1.0)
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        return Path(result.stdout.strip().splitlines()[0]).name
+
     def _activate_app(self, app_name: str) -> bool:
         if self.platform_name != "Darwin":
             return False
@@ -2066,6 +2263,7 @@ except Exception as exc:
                     "center": {"x": x + width // 2, "y": y + height // 2},
                     "actions": item.get("actions", []),
                     "engine": "ax_fallback",
+                    "ax_target": item.get("ax_target") if isinstance(item.get("ax_target"), dict) else None,
                 }
             )
         return elements
@@ -2264,6 +2462,9 @@ except Exception as exc:
                 "element_id": match.get("element_id"),
                 "peekaboo_element_id": match.get("peekaboo_element_id"),
                 "target_label": match.get("label"),
+                "role": match.get("role"),
+                "actions": match.get("actions") if isinstance(match.get("actions"), list) else [],
+                "ax_target": match.get("ax_target") if isinstance(match.get("ax_target"), dict) else None,
                 "engine": match.get("engine") or payload.get("engine"),
                 "peekaboo_snapshot_id": payload.get("peekaboo_snapshot_id"),
                 "point": {"x": int(point["x"]), "y": int(point["y"])},
@@ -2304,7 +2505,49 @@ except Exception as exc:
         actions = row.get("actions")
         if isinstance(actions, list):
             node["actions"] = [str(redact_value(item)) for item in actions[:20]]
+        identifier = row.get("identifier")
+        if isinstance(identifier, str) and identifier:
+            node["identifier"] = str(redact_value(identifier))[:160]
+        ax_target = row.get("ax_target")
+        if isinstance(ax_target, dict):
+            node["ax_target"] = self._safe_ax_target(ax_target)
         return node
+
+    def _safe_ax_target(self, target: dict[str, Any]) -> dict[str, Any]:
+        safe: dict[str, Any] = {}
+        pid = target.get("pid")
+        if type(pid) is int and pid > 0:
+            safe["pid"] = pid
+        app_name = target.get("app_name")
+        if isinstance(app_name, str) and app_name:
+            safe["app_name"] = redact_value(app_name)
+        process_name = target.get("process_name")
+        if isinstance(process_name, str) and process_name:
+            safe["process_name"] = redact_value(process_name)
+        path = target.get("path")
+        if isinstance(path, list):
+            safe_path: list[dict[str, Any]] = []
+            for segment in path[:24]:
+                if not isinstance(segment, dict):
+                    continue
+                safe_segment: dict[str, Any] = {}
+                role = segment.get("role")
+                if isinstance(role, str) and role.startswith("AX"):
+                    safe_segment["role"] = role[:80]
+                name = segment.get("name")
+                if isinstance(name, str) and name:
+                    safe_segment["name"] = str(redact_value(name))[:160]
+                identifier = segment.get("identifier")
+                if isinstance(identifier, str) and identifier:
+                    safe_segment["identifier"] = str(redact_value(identifier))[:160]
+                index = segment.get("index")
+                if type(index) is int and index >= 0:
+                    safe_segment["index"] = index
+                if safe_segment:
+                    safe_path.append(safe_segment)
+            safe["path"] = safe_path
+            safe["path_hash"] = hashlib.sha256(json.dumps(safe_path, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        return safe
 
     def _safe_local_url(self, url: str) -> bool:
         try:
@@ -2364,6 +2607,56 @@ except Exception as exc:
             ],
         )
 
+    def _sensitive_ax_target_action_block(self, *, ax_target: dict[str, Any], action: str) -> CommandResult | None:
+        app_name = ax_target.get("app_name")
+        if not isinstance(app_name, str) or not self._is_sensitive_app(app_name):
+            return None
+        return CommandResult(
+            ok=False,
+            data={"performed": False, "action": action, "target_app": redact_value(app_name), "target_pid": ax_target.get("pid")},
+            errors=[
+                make_error(
+                    code="sensitive_app_blocked",
+                    message="The target app is on the sensitive-app denylist; background AX control was blocked.",
+                    guidance="Use customer-visible non-sensitive apps only. Background AX target identity is checked separately from the frontmost app.",
+                )
+            ],
+        )
+
+    def _ax_target_process_identity_block(self, *, ax_target: dict[str, Any], action: str) -> CommandResult | None:
+        process_name = ax_target.get("process_name")
+        if isinstance(process_name, str) and process_name.strip():
+            return None
+        return CommandResult(
+            ok=False,
+            data={"performed": False, "action": action, "target_pid": ax_target.get("pid")},
+            errors=[
+                make_error(
+                    code="ax_target_process_identity_required",
+                    message="AX action target process identity is missing; live action was blocked.",
+                    guidance="Run desktop_see again so the snapshot includes process identity before dispatch.",
+                )
+            ],
+        )
+
+    def _inert_ax_target_action_block(self, *, ax_target: dict[str, Any], action: str) -> CommandResult | None:
+        path = ax_target.get("path")
+        if not isinstance(path, list):
+            return None
+        if not any(isinstance(segment, dict) and segment.get("role") == "AXWebArea" for segment in path):
+            return None
+        return CommandResult(
+            ok=False,
+            data={"performed": False, "action": action, "target_pid": ax_target.get("pid")},
+            errors=[
+                make_error(
+                    code="ax_web_content_inert",
+                    message="AX actions against browser web content are treated as inert and are not reported as success.",
+                    guidance="Use the browser/CDP/Playwright strategy for web content instead of Tier-1 AX.",
+                )
+            ],
+        )
+
     def _is_iphone_sensitive_app(self, app_name: str | None) -> bool:
         if not app_name:
             return False
@@ -2378,6 +2671,17 @@ except Exception as exc:
             return None
         capped, _ = cap_text(redact_value(text), 80)
         return capped
+
+    def _looks_like_secret(self, text: str) -> bool:
+        normalized = text.strip()
+        if re.search(r"(?i)(password|passwd|secret|token|api[_-]?key|authorization)\s*[:=]", normalized):
+            return True
+        if re.search(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{16,}", normalized):
+            return True
+        if re.search(r"\b(?:sk|pk|rk|ghp|gho|github_pat|xox[baprs])[_-][A-Za-z0-9_=-]{16,}", normalized):
+            return True
+        compact = re.sub(r"\s+", "", normalized)
+        return len(compact) >= 48 and bool(re.fullmatch(r"[A-Za-z0-9_./+=:-]+", compact))
 
     def _unsafe_text_error(self, action: str, *, dry_run: bool) -> CommandResult:
         return CommandResult(

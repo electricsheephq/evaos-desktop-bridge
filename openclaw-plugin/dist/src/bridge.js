@@ -167,6 +167,30 @@ export function buildBridgeArgv(command, params = {}) {
     if (command === "desktopType") {
         return ["customer-mac", "desktop", "type", "--json", "--text", requiredString(params.text, "text"), ...(params.dry_run !== false ? ["--dry-run"] : []), ...guardedApprovalArg(params)];
     }
+    if (command === "desktopSetValue") {
+        const valueFile = typeof params.value_file === "string" && params.value_file.trim() !== ""
+            ? params.value_file.trim()
+            : undefined;
+        if (!valueFile) {
+            throw new Error("desktopSetValue value must be materialized before building CLI argv.");
+        }
+        return [
+            "customer-mac",
+            "desktop",
+            "set-value",
+            "--json",
+            "--snapshot-id",
+            requiredString(params.snapshot_id, "snapshot_id"),
+            "--element-id",
+            requiredString(params.element_id, "element_id"),
+            "--value-file",
+            valueFile,
+            "--attribute",
+            String(params.attribute || "value"),
+            ...(params.dry_run !== false ? ["--dry-run"] : []),
+            ...guardedApprovalArg(params),
+        ];
+    }
     if (command === "desktopScroll") {
         return [
             "customer-mac",
@@ -476,20 +500,24 @@ export async function runBridge(command, params = {}) {
     });
 }
 async function withLocalMessagePayload(command, params, callback) {
-    if (command !== "codexSendVisibleMessage" || typeof params.message !== "string") {
+    const isCodexMessage = command === "codexSendVisibleMessage" && typeof params.message === "string";
+    const isDesktopSetValue = command === "desktopSetValue" && typeof params.value === "string";
+    if (!isCodexMessage && !isDesktopSetValue) {
         return callback(params);
     }
-    const dir = fsCompat.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "evaos-codex-visible-message-"));
-    const messageFile = path.join(dir, "message.txt");
+    const dir = fsCompat.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", isCodexMessage ? "evaos-codex-visible-message-" : "evaos-desktop-set-value-"));
+    const payloadFile = path.join(dir, isCodexMessage ? "message.txt" : "value.txt");
     try {
-        await writeFile(messageFile, params.message, { encoding: "utf8", mode: 0o600 });
+        await writeFile(payloadFile, isCodexMessage ? String(params.message) : String(params.value), { encoding: "utf8", mode: 0o600 });
         try {
-            fsCompat.chmodSync(messageFile, 0o600);
+            fsCompat.chmodSync(payloadFile, 0o600);
         }
         catch {
             // Best-effort on platforms that do not support chmod.
         }
-        const safeParams = { ...params, message: undefined, message_file: messageFile };
+        const safeParams = isCodexMessage
+            ? { ...params, message: undefined, message_file: payloadFile }
+            : { ...params, value: undefined, value_file: payloadFile };
         return await callback(safeParams);
     }
     finally {
@@ -1028,7 +1056,8 @@ function timeoutForCommand(command) {
         command === "iphoneTap") {
         return 30_000;
     }
-    if (command === "desktopType" ||
+    if (command === "desktopSetValue" ||
+        command === "desktopType" ||
         command === "desktopHotkey" ||
         command === "iphoneType" ||
         command === "customerMacIphoneMirroringTypeApprovedText" ||

@@ -58,12 +58,12 @@ Guarded visible action:
 Full-access computer-control tools:
 
 - `desktop_control_start`, `desktop_control_stop`, `desktop_kill_switch`
-- `desktop_click`, `desktop_type`, `desktop_scroll`, `desktop_drag`,
-  `desktop_hotkey`, `desktop_focus_app`, `desktop_window`, `desktop_menu`,
-  `desktop_browser_action`
+- `desktop_click`, `desktop_type`, `desktop_set_value`, `desktop_scroll`,
+  `desktop_drag`, `desktop_hotkey`, `desktop_focus_app`, `desktop_window`,
+  `desktop_menu`, `desktop_browser_action`
 - `iphone_tap`, `iphone_swipe`, `iphone_type`
 
-`desktop_click` and `iphone_tap` accept `snapshot_id` plus either `element_id`,
+`desktop_click`, `desktop_set_value`, and `iphone_tap` accept `snapshot_id` plus either `element_id`,
 `target_label`, or `x/y` coordinates. Prefer `element_id` from the latest
 `desktop_see` / `iphone_see` result; stale snapshots are rejected by the
 connector so the agent does not act on an old screen.

@@ -336,6 +336,24 @@ function readOnlyTools(): ToolDefinition[] {
       },
     ),
     tool(
+      "desktop_set_value",
+      "Set an AX-backed native text field from a fresh desktop snapshot element. Dry-run defaults on and live mode may require approval.",
+      "desktopSetValue",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["snapshot_id", "element_id", "value"],
+        properties: {
+          snapshot_id: { type: "string", minLength: 1, maxLength: 120 },
+          element_id: { type: "string", minLength: 1, maxLength: 80 },
+          value: { type: "string", minLength: 1, maxLength: 4000 },
+          attribute: { type: "string", enum: ["value", "selected_text"], default: "value" },
+          dry_run: { type: "boolean", default: true },
+          approval_audit_id: approvalAuditIdProperty,
+        },
+      },
+    ),
+    tool(
       "desktop_scroll",
       "Scroll the focused Mac surface.",
       "desktopScroll",
