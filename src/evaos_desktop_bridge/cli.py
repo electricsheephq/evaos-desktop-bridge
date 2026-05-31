@@ -19,7 +19,7 @@ from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.customer_mac import CustomerMacObserver
 from .audit import append_audit, default_state_dir
 from .connector_server import read_token, run_connector_server
-from .helper_ipc import UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
+from .helper_ipc import HelperIpcError, UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
 from .schema import build_envelope, make_error
@@ -1055,7 +1055,7 @@ def _helper_ping(args: argparse.Namespace, *, state_dir: Path | None) -> Command
     socket_path = Path(args.socket_path).expanduser() if args.socket_path else default_helper_socket_path(state_dir)
     try:
         token = read_helper_token(token_file=getattr(args, "token_file", None), state_dir=state_dir, auto_create=False)
-    except Exception as exc:
+    except (HelperIpcError, OSError) as exc:
         code = getattr(exc, "code", "helper_token_missing")
         message = getattr(exc, "message", str(exc))
         return CommandResult(
