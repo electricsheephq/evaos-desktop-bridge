@@ -20,7 +20,10 @@ COMPUTER_USE_CLIENT_SUFFIX = "SkyComputerUseClient mcp"
 DEFAULT_ARTIFACT_ROOTS = (
     "/Volumes/LEXAR/Codex/artifacts",
     "/Volumes/LEXAR/Codex/evaos-provider-auth-96-canary",
+    "/Volumes/LEXAR/repos/evaos-desktop-bridge-worktrees",
+    "/Volumes/LEXAR/repos/worktrees",
 )
+ARTIFACT_SEARCH_MAX_DEPTH = "6"
 CODEX_MCP_SURFACE = "codex-mcp"
 BRIDGE_PEEKABOO_SURFACE = "bridge-peekaboo"
 CONTROL_SURFACES = (CODEX_MCP_SURFACE, BRIDGE_PEEKABOO_SURFACE)
@@ -363,7 +366,7 @@ def _artifact_workbench_bundle_paths(*, artifact_roots: Sequence[str] | None = N
     for root in roots:
         if not Path(root).exists():
             continue
-        output = _run(["find", root, "-maxdepth", "4", "-type", "d", "-name", "EvaDesktop.app", "-prune", "-print"])
+        output = _run(["find", root, "-maxdepth", ARTIFACT_SEARCH_MAX_DEPTH, "-type", "d", "-name", "EvaDesktop.app", "-prune", "-print"])
         paths.extend(line.strip() for line in output.splitlines() if line.strip())
     return tuple(paths)
 

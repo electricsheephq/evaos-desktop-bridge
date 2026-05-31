@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from evaos_desktop_bridge.pre_canary import (
     BRIDGE_PEEKABOO_SURFACE,
+    DEFAULT_ARTIFACT_ROOTS,
     AppBundle,
     ProcessInfo,
     WorkbenchInventory,
@@ -115,6 +116,11 @@ def test_stale_artifact_workbench_bundle_fails_even_when_not_registered() -> Non
     failed = {check.code: check for check in report.checks if check.status == "fail"}
     assert "stale_workbench_app_bundle_present" in failed
     assert "0.1.0" in failed["stale_workbench_app_bundle_present"].evidence
+
+
+def test_default_artifact_roots_cover_legacy_worktree_dist_apps() -> None:
+    assert "/Volumes/LEXAR/repos/evaos-desktop-bridge-worktrees" in DEFAULT_ARTIFACT_ROOTS
+    assert "/Volumes/LEXAR/repos/worktrees" in DEFAULT_ARTIFACT_ROOTS
 
 
 def test_stale_artifact_detected_by_name_when_bundle_id_missing() -> None:
