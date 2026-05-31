@@ -104,6 +104,7 @@ def default_control_session() -> dict[str, Any]:
         "takeover_warning_started_at": None,
         "takeover_warning_until": None,
         "takeover_warning_seconds": TAKEOVER_WARNING_SECONDS,
+        "takeover_alert_signal_status": {},
     }
 
 
@@ -185,6 +186,9 @@ def kill_control_session(state_dir: Path | None = None) -> dict[str, Any]:
 def annotate_control_session(session: dict[str, Any]) -> dict[str, Any]:
     session = dict(session)
     warning = takeover_warning_state(session)
+    signal_status = session.get("takeover_alert_signal_status")
+    if isinstance(signal_status, dict):
+        warning["signal_status"] = signal_status
     session["takeover_warning"] = warning
     session["ready"] = bool(session.get("active")) and not bool(session.get("kill_switch")) and not warning["active"]
     return session

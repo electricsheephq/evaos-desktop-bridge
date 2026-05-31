@@ -21,7 +21,7 @@ from ..audit import append_audit, default_state_dir
 from ..helper_ipc import helper_client_from_environment
 from ..redaction import cap_text, redact_value
 from ..schema import make_error, timestamp_utc
-from ..state import kill_control_session, read_control_session, start_control_session, stop_control_session
+from ..state import kill_control_session, read_control_session, start_control_session, stop_control_session, write_control_session
 from ..types import CommandResult
 from .codex_macos import (
     ACCESSIBILITY_GUIDANCE,
@@ -447,6 +447,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         session = start_control_session(mode=normalized, agent_label=agent_label, state_dir=self.state_dir)
         if not warning_reused:
             self._emit_takeover_warning(session)
+            session = write_control_session(session, self.state_dir)
         return CommandResult(
             ok=True,
             data={
@@ -2221,21 +2222,53 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
         seconds = warning.get("seconds") if isinstance(warning.get("seconds"), int) else 10
         message = f"Taking over screen in {seconds} seconds. Yield the screen now."
         escaped = self._escape_applescript(message)
-        script = f'display notification "{escaped}" with title "evaOS Agent Control" subtitle "Taking over screen"'
-        for command, timeout in [
-            (["osascript", "-e", script], 3.0),
-            (["osascript", "-e", "beep 3"], 3.0),
+        notification_script = f'display notification "{escaped}" with title "evaOS Agent Control" subtitle "Taking over screen"'
+        beep_script = """
+repeat 6 times
+    beep
+    delay 0.35
+end repeat
+""".strip()
+        signal_status: dict[str, Any] = {}
+        for key, command, timeout in [
+            ("notification", ["osascript", "-e", notification_script], 3.0),
+            ("beep_loop", ["osascript", "-e", beep_script], 5.0),
         ]:
             try:
-                self.runner(command, timeout)
-            except Exception:
-                continue
+                result = self.runner(command, timeout)
+            except Exception as exc:  # noqa: BLE001
+                signal_status[key] = {"available": False, "error": self._safe_signal_error(exc)}
+            else:
+                signal_status[key] = {"available": result.returncode == 0}
+                if result.returncode != 0:
+                    error = result.stderr.strip() or result.stdout.strip()
+                    if error:
+                        signal_status[key]["error"] = str(redact_value(error))[:240]
         sound = Path("/System/Library/Sounds/Basso.aiff")
         if sound.exists():
-            try:
-                self.runner(["afplay", str(sound)], 3.0)
-            except Exception:
-                pass
+            play_count = 0
+            errors: list[str] = []
+            for _ in range(3):
+                try:
+                    result = self.runner(["afplay", str(sound)], 3.0)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(self._safe_signal_error(exc))
+                    continue
+                if result.returncode == 0:
+                    play_count += 1
+                else:
+                    error = result.stderr.strip() or result.stdout.strip()
+                    if error:
+                        errors.append(str(redact_value(error))[:240])
+            signal_status["basso_sound"] = {"available": play_count > 0, "plays": play_count}
+            if errors:
+                signal_status["basso_sound"]["errors"] = errors[:3]
+        else:
+            signal_status["basso_sound"] = {"available": False, "reason": "sound_missing"}
+        session["takeover_alert_signal_status"] = signal_status
+
+    def _safe_signal_error(self, exc: BaseException) -> str:
+        return str(redact_value(str(exc)))[:240]
 
     def _image_artifact(self, path: Path, *, snapshot_id: str) -> dict[str, Any] | None:
         try:

@@ -226,8 +226,8 @@ enablement are blocked.
 
 Starting a customer Mac control session also starts a 10-second operator
 takeover warning. Workbench surfaces this as `Taking over screen in Ns`, and
-the bridge emits a local macOS notification plus alert beeps. During the
-countdown, read-only status/snapshot/AX commands, `control stop`, and
+the bridge emits a local macOS notification plus a multi-second alert beep
+loop. During the countdown, read-only status/snapshot/AX commands, `control stop`, and
 `kill-switch` remain available, but live click/type/scroll/hotkey/iPhone
 actions fail closed with `control_takeover_warning_active`. Rerun the live
 action after the countdown instead of treating the first failure as a

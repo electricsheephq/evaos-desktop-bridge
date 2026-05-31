@@ -142,7 +142,7 @@ def test_control_session_start_stop_and_kill_switch(tmp_path: Path) -> None:
 
 
 def test_control_session_start_sets_takeover_warning_countdown(tmp_path: Path) -> None:
-    runner = FakeRunner()
+    runner = FakeRunner({("osascript", "-e"): RunnerResult(returncode=0, stdout="", stderr="")})
     observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
 
     started = observer.control_start(mode="full-access", agent_label="Aurelius")
@@ -158,7 +158,11 @@ def test_control_session_start_sets_takeover_warning_countdown(tmp_path: Path) -
     assert status.data["takeover_warning"]["active"] is True
     assert status.data["takeover_warning"]["remaining_seconds"] >= 1
     assert any(command[:2] == ("osascript", "-e") and "Taking over screen" in command[2] for command in runner.commands)
-    assert ("osascript", "-e", "beep 3") in runner.commands
+    assert any(command[:2] == ("osascript", "-e") and "repeat 6 times" in command[2] and "delay 0.35" in command[2] for command in runner.commands)
+    signal_status = started.data["takeover_warning"]["signal_status"]
+    assert signal_status["notification"]["available"] is True
+    assert signal_status["beep_loop"]["available"] is True
+    assert status.data["takeover_warning"]["signal_status"]["beep_loop"]["available"] is True
 
 
 def test_control_session_repeated_start_does_not_extend_or_rebuzz_warning(tmp_path: Path) -> None:
