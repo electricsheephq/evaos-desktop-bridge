@@ -86,6 +86,12 @@ When reconnecting after app restart, Workbench must prefer broker/runtime state 
 
 Refreshing a single gateway status is allowed to update the corresponding Session Center record immediately. The record must still keep `source_pointer = broker:runtime_status:<runtime>` and must not infer health from the local WebView alone. Closing a local Workbench runtime view may clear the local loaded state, but it is not a broker-side stop unless the broker exposes an explicit stop action.
 
+## Recent Launch Metadata
+
+Workbench may keep a small customer-scoped recent-launch list so Session Center can offer a restore affordance after app relaunch. These records are local metadata only: runtime key, sanitized customer id, title, last-opened timestamp, bounded display details, and `source_pointer = broker:runtime_status:<runtime>`.
+
+Recent-launch storage must not store broker launch URLs, query strings, fragments, cookies, gateway tokens, provider tokens, or desktop-session payloads. Reopening a recent launch must call the normal broker runtime launch path with the current signed-in desktop session and mint a fresh broker URL. It must not replay a saved URL or infer runtime health from the recent-launch row.
+
 ## Workbench And Dashboard Fit
 
 Workbench owns native rendering, local Keychain session, brokered runtime open/reconnect, and Desktop Bridge evidence collection. The dashboard can render the same session record shape from backend evidence and can link users back into Workbench using the `resume_route`, but it should not depend on macOS Accessibility state, local WebView cookies, or Codex session files.

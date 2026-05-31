@@ -1433,6 +1433,44 @@ precondition(sessionRecords[1].resumeRoute.kind == .queueEvent)
 precondition(sessionRecords[2].resumeRoute.kind == .auditRecord)
 precondition(sessionRecords[3].resumeRoute.kind == .codexEvidence)
 
+let recentLaunch = WorkbenchRecentLaunchRecord(
+    runtime: .liveBrowser,
+    customerId: "golden",
+    openedAt: "2026-06-01T10:00:00Z"
+)
+precondition(recentLaunch.id == "recent-browser")
+precondition(recentLaunch.title == "Shared Browser")
+precondition(recentLaunch.status == "Restorable")
+precondition(recentLaunch.sourcePointer == "broker:runtime_status:browser")
+precondition(recentLaunch.details.contains("Runtime metadata only"))
+let recentSessionRecord = WorkbenchRecentLaunchStore.sessionRecord(from: recentLaunch)
+precondition(recentSessionRecord.surface == .broker)
+precondition(recentSessionRecord.resumeRoute.kind == .brokerRuntime)
+precondition(recentSessionRecord.resumeRoute.runtime == .liveBrowser)
+precondition(recentSessionRecord.nextAction.contains("fresh broker URL"))
+precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: recentSessionRecord) == .liveBrowser)
+let recentLaunchJSON = String(data: try JSONEncoder().encode([recentLaunch]), encoding: .utf8)!
+precondition(!recentLaunchJSON.contains("http"))
+precondition(!recentLaunchJSON.lowercased().contains("token"))
+let mergedRecentLaunches = WorkbenchRecentLaunchStore.merged(
+    recentLaunch,
+    into: [
+        WorkbenchRecentLaunchRecord(runtime: .terminal, customerId: "golden", openedAt: "2026-06-01T09:00:00Z"),
+        WorkbenchRecentLaunchRecord(runtime: .liveBrowser, customerId: "golden", openedAt: "2026-06-01T08:00:00Z")
+    ],
+    maxRecords: 2
+)
+precondition(mergedRecentLaunches.map(\.runtime) == [.liveBrowser, .terminal])
+precondition(WorkbenchRecentLaunchStore.sessionRecords(from: mergedRecentLaunches).count == 2)
+precondition(WorkbenchRecentLaunchStore.storageKey(customerId: "Matt Bailey") == "EvaDesktop.recentLaunches.matt-bailey")
+let storedRecentLaunchData = try JSONEncoder().encode([
+    recentLaunch,
+    WorkbenchRecentLaunchRecord(runtime: .terminal, customerId: "other-customer", openedAt: "2026-06-01T10:05:00Z")
+])
+let scopedRecentLaunches = WorkbenchRecentLaunchStore.records(from: storedRecentLaunchData, customerId: "golden")
+precondition(scopedRecentLaunches.count == 1)
+precondition(scopedRecentLaunches[0].customerId == "golden")
+
 let malformedCards = WorkbenchMissionCardDeriver.queueCards(from: "{")
 precondition(malformedCards.count == 1)
 precondition(malformedCards[0].attentionState == .needsAttention)
@@ -1451,10 +1489,17 @@ precondition(sessionContractDocSource.contains("must not treat it as an authoriz
 precondition(!sessionContractSource.contains("shell"))
 precondition(!sessionContractSource.contains("app-server rpc"))
 precondition(workbenchModelSource.contains("@Published var sessionRecords: [WorkbenchSessionRecord]"))
+precondition(workbenchModelSource.contains("@Published var recentSessionRecords: [WorkbenchSessionRecord]"))
 precondition(workbenchModelSource.contains("sessionRecords = WorkbenchSessionContract.records"))
+precondition(workbenchModelSource.contains("recordRecentLaunch(runtime: runtime"))
+precondition(workbenchModelSource.contains("func reopenRecentSession"))
+precondition(workbenchModelSource.contains("loadRecentSessionRecords()"))
 precondition(workbenchModelSource.contains("sessionRecords.removeAll()"))
 let workbenchOSViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
 precondition(workbenchOSViewsSource.contains("ForEach(model.sessionRecords)"))
+precondition(workbenchOSViewsSource.contains("Recent launches"))
+precondition(workbenchOSViewsSource.contains("ForEach(model.recentSessionRecords)"))
+precondition(workbenchOSViewsSource.contains("model.reopenRecentSession"))
 precondition(workbenchOSViewsSource.contains("WorkbenchSessionContract.brokerRuntimeToOpen"))
 let sessionContractDoc = try String(contentsOfFile: "../../docs/session-center-agent-workspace-contract.md", encoding: .utf8)
 precondition(sessionContractDoc.contains("Canonical Session Record"))
@@ -1462,6 +1507,8 @@ precondition(sessionContractDoc.contains("No Generic Control Surface"))
 precondition(sessionContractDoc.contains("broker_runtime"))
 precondition(sessionContractDoc.contains("next_action"))
 precondition(sessionContractDoc.contains("Readers should tolerate it missing"))
+precondition(sessionContractDoc.contains("Recent Launch Metadata"))
+precondition(sessionContractDoc.contains("must not store broker launch URLs"))
 
 let callbackURL = URL(string: "evaos://auth/callback?desktop_session=eds_test&desktop_session_expires_at=2026-05-20T10:48:51.123Z&email=admin%40100yen.org")!
 let callbackSession = try DesktopSessionCallbackParser.parse(callbackURL)
