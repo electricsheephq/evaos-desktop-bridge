@@ -815,8 +815,8 @@ precondition(resolver.sanitizedCustomerId("") == "golden")
 precondition(RuntimeDefinition.isBrokeredRuntime(.openclaw))
 precondition(RuntimeDefinition.isBrokeredRuntime(.terminal))
 precondition(RuntimeDefinition.isBrokeredRuntime(.openDesign))
-precondition(!RuntimeDefinition.isBrokeredRuntime(.creativeStudio))
-precondition(RuntimeDefinition.externalURL(for: .creativeStudio)?.absoluteString == "https://www.comfy.org/cloud")
+precondition(RuntimeDefinition.isBrokeredRuntime(.creativeStudio))
+precondition(RuntimeDefinition.externalURL(for: .creativeStudio) == nil)
 precondition(RuntimeDefinition.externalURL(for: .openDesign) == nil)
 precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: false).contains { $0.key == .terminal })
 precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: true).contains { $0.key == .terminal })
@@ -828,7 +828,7 @@ precondition(RuntimeDefinition.definition(for: .openclaw).title == "evaOS (OpenC
 precondition(RuntimeDefinition.definition(for: .openDesign).title == "OpenDesign")
 precondition(RuntimeDefinition.definition(for: .liveBrowser).title == "Shared Browser")
 precondition(RuntimeDefinition.definition(for: .creativeStudio).title == "Creative Studio")
-precondition(RuntimeDefinition.definition(for: .creativeStudio).subtitle.contains("ComfyUI Cloud"))
+precondition(RuntimeDefinition.definition(for: .creativeStudio).subtitle.contains("evaOS gateway"))
 precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .creativeStudio])
 
 let contentViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/ContentView.swift", encoding: .utf8)
@@ -1380,19 +1380,19 @@ let malformedRuntimeEvidence = WorkbenchMissionCard(
 let malformedRuntimeRecord = WorkbenchSessionContract.record(from: malformedRuntimeEvidence)
 precondition(malformedRuntimeRecord.resumeRoute.kind == .queueEvent)
 precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: malformedRuntimeRecord) == nil)
-let nonBrokerRuntimeEvidence = WorkbenchMissionCard(
+let creativeRuntimeEvidence = WorkbenchMissionCard(
     id: "runtime-creative-studio",
     surface: "broker",
     runtime: .creativeStudio,
     title: "Creative Studio",
-    status: "external",
-    attentionState: .idle,
-    nextAction: "External runtime should not be opened through broker runtime route.",
+    status: "Ready",
+    attentionState: .active,
+    nextAction: "Open the customer ComfyUI workspace.",
     sourcePointer: "broker:runtime_status:creative_studio"
 )
-let nonBrokerRuntimeRecord = WorkbenchSessionContract.record(from: nonBrokerRuntimeEvidence)
-precondition(nonBrokerRuntimeRecord.resumeRoute.kind == .evidenceOnly)
-precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: nonBrokerRuntimeRecord) == nil)
+let creativeRuntimeRecord = WorkbenchSessionContract.record(from: creativeRuntimeEvidence)
+precondition(creativeRuntimeRecord.resumeRoute.kind == .brokerRuntime)
+precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: creativeRuntimeRecord) == .creativeStudio)
 
 let auditRaw = """
 {"ok":true,"data":{"records":[{"audit_id":"audit-ok","timestamp":"2026-05-28T01:10:00Z","command":"status","ok":true},{"audit_id":"audit-failed","timestamp":"2026-05-28T01:11:00Z","command":"codex.app_server.status","ok":false}]}}
