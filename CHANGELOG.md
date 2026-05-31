@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.23 - 2026-06-01
+
 - Correct the issue #102 Creative Studio product path back to the hosted Comfy
   web surface: Workbench now loads `https://www.comfy.org/cloud` directly in the
   Creative Studio runtime WebView and keeps VM-local ComfyUI as future
