@@ -116,14 +116,25 @@ def evaluate_inventory(
         checks.append(_fail("canonical_workbench_missing", "Canonical Workbench app is missing.", canonical_path))
     else:
         checks.append(_pass("canonical_workbench_present", "Canonical Workbench app is present.", _bundle_evidence(canonical)))
-        if canonical.bundle_id and canonical.bundle_id != bundle_id:
+        if canonical.bundle_id is None:
+            checks.append(_fail("canonical_bundle_id_unverifiable", "Canonical Workbench bundle id could not be verified.", f"expected {bundle_id}, found unknown"))
+        elif canonical.bundle_id != bundle_id:
             checks.append(_fail("canonical_bundle_id_mismatch", "Canonical Workbench has the wrong bundle id.", f"expected {bundle_id}, found {canonical.bundle_id}"))
-        if expected_version and canonical.version != expected_version:
-            checks.append(_fail("canonical_version_mismatch", "Canonical Workbench version does not match the requested canary.", f"expected {expected_version}, found {canonical.version or 'unknown'}"))
-        if expected_build and canonical.build != expected_build:
-            checks.append(_fail("canonical_build_mismatch", "Canonical Workbench build does not match the requested canary.", f"expected {expected_build}, found {canonical.build or 'unknown'}"))
-        if expected_team_id and canonical.team_id and canonical.team_id != expected_team_id:
-            checks.append(_fail("canonical_team_id_mismatch", "Canonical Workbench is signed by an unexpected team.", f"expected {expected_team_id}, found {canonical.team_id}"))
+        if expected_version:
+            if canonical.version is None:
+                checks.append(_fail("canonical_version_unverifiable", "Canonical Workbench version could not be verified.", f"expected {expected_version}, found unknown"))
+            elif canonical.version != expected_version:
+                checks.append(_fail("canonical_version_mismatch", "Canonical Workbench version does not match the requested canary.", f"expected {expected_version}, found {canonical.version}"))
+        if expected_build:
+            if canonical.build is None:
+                checks.append(_fail("canonical_build_unverifiable", "Canonical Workbench build could not be verified.", f"expected {expected_build}, found unknown"))
+            elif canonical.build != expected_build:
+                checks.append(_fail("canonical_build_mismatch", "Canonical Workbench build does not match the requested canary.", f"expected {expected_build}, found {canonical.build}"))
+        if expected_team_id:
+            if canonical.team_id is None:
+                checks.append(_fail("canonical_team_id_unverifiable", "Canonical Workbench signing team could not be verified.", f"expected {expected_team_id}, found unknown"))
+            elif canonical.team_id != expected_team_id:
+                checks.append(_fail("canonical_team_id_mismatch", "Canonical Workbench is signed by an unexpected team.", f"expected {expected_team_id}, found {canonical.team_id}"))
 
     if registered_duplicates:
         checks.append(

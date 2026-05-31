@@ -103,6 +103,23 @@ def test_expected_version_or_build_mismatch_fails() -> None:
     assert failed["canonical_build_mismatch"].evidence == "expected 58, found 57"
 
 
+def test_expected_identity_fields_must_be_verifiable() -> None:
+    inventory = WorkbenchInventory(
+        registered_paths=("/Applications/evaOS.app",),
+        app_bundles=(AppBundle(path="/Applications/evaOS.app"),),
+        processes=(),
+    )
+
+    report = evaluate_inventory(inventory, expected_version="0.6.18", expected_build="58")
+
+    assert report.ok is False
+    failed = {check.code: check for check in report.checks if check.status == "fail"}
+    assert failed["canonical_bundle_id_unverifiable"].evidence == "expected com.electricsheephq.EvaDesktop, found unknown"
+    assert failed["canonical_version_unverifiable"].evidence == "expected 0.6.18, found unknown"
+    assert failed["canonical_build_unverifiable"].evidence == "expected 58, found unknown"
+    assert failed["canonical_team_id_unverifiable"].evidence == "expected TC6MS3T6NN, found unknown"
+
+
 def test_stale_computer_use_helper_herd_fails_with_pids() -> None:
     inventory = WorkbenchInventory(
         registered_paths=("/Applications/evaOS.app",),

@@ -137,6 +137,15 @@ PYTHONPATH=src python3 -m evaos_desktop_bridge.pre_canary \
   --expected-build N
 ```
 
+Installed environments can use:
+
+```bash
+evaos-workbench-pre-canary \
+  --json \
+  --expected-version X.Y.Z \
+  --expected-build N
+```
+
 The guard must pass before OAuth, provider, Shared Browser, Session Center,
 Creative Studio, or Codex visible GUI evidence is trusted. It catches duplicate
 same-bundle-id Workbench apps, translocated old betas, version/build mismatch,
