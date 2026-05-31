@@ -143,9 +143,11 @@ Expected behavior:
 - If `status` reports Accessibility as `missing`, grant Accessibility to the exact app that launches the bridge.
 - If `status` reports Accessibility as `granted` interactively but `missing`
   through the VM connector, the LaunchAgent/helper process has a different TCC
-  identity than the interactive shell. For v0.5.0, approve the evaOS/Peekaboo
-  helper shown by macOS; if the prompt says Python, treat it as a TCC identity
-  blocker for release certification.
+  identity than the interactive shell. Start Mac Access from evaOS Workbench so
+  the Workbench-managed helper reports the `com.electricsheephq.EvaDesktop`
+  identity and enforced permission preflight. If a customer-facing build asks
+  for Python or a terminal app instead, treat it as a TCC identity blocker for
+  release certification.
 - If `snapshot` returns `screenshot_path: null`, grant Screen Recording and rerun the terminal.
 - If `ax-tree` returns `ax_tree_unavailable`, confirm Codex Desktop is running and visible, then recheck Accessibility.
 - If `ax-tree`, `windows`, or `threads` returns `ax_dependency_missing`, install the GUI extras with `python3 -m pip install -e '.[gui]'` in the bridge environment.

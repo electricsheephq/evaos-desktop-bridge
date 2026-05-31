@@ -162,6 +162,7 @@ testing.
 ## Public GA Blockers
 
 - External friendly-customer canary evidence.
-- Stable app-owned/helper-owned TCC identity for background connector startup.
+- Live canary evidence that the Workbench-managed helper keeps TCC ownership on
+  evaOS Workbench and fails closed when grants are missing.
 - Accepted notarization, stapled app, and passing `spctl --assess`.
 - Sparkle update proven from an older installed build.

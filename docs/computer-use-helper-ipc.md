@@ -8,6 +8,11 @@ actions out of per-action Python subprocesses and into a resident process. It
 starts with the authenticated IPC contract from `#163` and adds the first `#121`
 live route: helper-owned Quartz mouse actions for the existing
 `customer_mac.desktop_click`/scroll/drag fallback path when explicitly enabled.
+Issue `#122` adds the Workbench-owned launch/preflight contract so the beta path
+does not ask customers or test agents to approve a raw Python or terminal TCC
+identity. The helper accepts the Workbench identity only when the claimed
+bundle/app marker matches and the helper's parent process path is inside that
+app bundle.
 
 It is still not VNC, SSH, AppleScript passthrough, generic computer-use,
 generic shell, Codex app-server mutation, or an OpenClaw control socket.
@@ -51,7 +56,23 @@ Example response:
   "data": {
     "command": "ping",
     "helper_mode": "resident_local",
-    "actuation_enabled": true
+    "actuation_enabled": true,
+    "permission_preflight": {
+      "ok": true,
+      "enforced": true,
+      "identity": {
+        "expected_bundle_id": "com.electricsheephq.EvaDesktop",
+        "status": "workbench_signed_app"
+      },
+      "permissions": {
+        "accessibility": {
+          "status": "granted"
+        },
+        "screen_recording": {
+          "status": "granted"
+        }
+      }
+    }
   },
   "warnings": [],
   "errors": []
@@ -67,10 +88,19 @@ unknown actions, and malformed numeric payloads before touching Quartz.
 
 ## Local Run And Opt-In
 
-Start a local helper with a short private Unix socket path and rotated
-per-launch token file. The default socket lives under `/tmp` to stay below
-macOS `AF_UNIX` pathname limits; the token remains in the bridge state
-directory unless overridden.
+The customer beta path is Workbench-owned: click **Turn On Mac Access** in
+evaOS Workbench. Workbench starts `helper run` from the signed app bundle,
+passes `EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID`,
+`EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH`, and
+`EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS=1`, then starts the connector
+with `EVAOS_DESKTOP_BRIDGE_USE_HELPER=1` plus the managed socket/token paths.
+The helper also checks its parent process path; a terminal cannot become a
+trusted Workbench helper merely by setting those environment variables.
+
+For diagnostics only, a developer can still start a local helper with a short
+private Unix socket path and rotated per-launch token file. The default socket
+lives under `/tmp` to stay below macOS `AF_UNIX` pathname limits; the token
+remains in the bridge state directory unless overridden.
 
 ```bash
 evaos-desktop-bridge helper run
@@ -94,6 +124,12 @@ If helper opt-in is enabled but the socket/token is unavailable, stale, or
 unsafe to read, live mouse actions fail closed instead of silently falling back
 to per-action Python.
 
+If enforced preflight is enabled and macOS reports missing or unknown
+Accessibility/Screen Recording grants, `mouse_action` returns
+`permission_missing` with System Settings deep-links. If the helper was not
+launched by Workbench's signed app identity, it returns
+`helper_identity_unverified`. In both cases no Quartz event is posted.
+
 ## Safety Boundary
 
 The helper remains dumb hands. Policy, redaction, approval, sensitive-app blocks, customer control mode, and audit decisions stay above the seam in the bridge process.
@@ -112,8 +148,10 @@ mutation, or generic computer-use requests. Future #121/#129 work must keep the
 same direction: authenticate the sender first, check policy before the seam,
 then audit every actuation request before a helper can touch the Mac.
 
-`#122` remains the signed identity/TCC packaging track. This helper foundation
-does not claim a stable notarized helper identity yet.
+The signed-identity track is intentionally narrow. Workbench may launch the
+resident helper and connector, but the helper still does not accept generic
+desktop control. CLI-launched helpers remain useful for diagnostics, not release
+certification.
 
 ## Tests
 
@@ -135,4 +173,7 @@ does not claim a stable notarized helper identity yet.
   socket path refusal;
 - local Unix-socket server/client ping, bad-token failure, required audit id
   for `mouse_action`, and helper-routed desktop click/scroll/drag behavior
-  with no per-action Python fallback.
+  with no per-action Python fallback;
+- helper permission preflight identity/grant reporting, fail-closed
+  `permission_missing`, fail-closed `helper_identity_unverified`, and no Quartz
+  execution when enforced preflight fails.

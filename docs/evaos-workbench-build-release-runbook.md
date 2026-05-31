@@ -289,8 +289,11 @@ Repair steps:
   iPhone readiness, local smoke, and revoke.
 - Settings setup uses customer-facing labels and standard native cards;
   raw CLI/JSON output should never be the primary setup experience.
-- Turn On Mac Access uses the Workbench-managed beta connector; LaunchAgent remains
-  a background/restart test path until stable helper signing is in place.
+- Turn On Mac Access uses the Workbench-managed connector plus resident
+  computer-use helper. The helper must report the evaOS Workbench bundle
+  identity and fail closed when Accessibility or Screen Recording is missing;
+  LaunchAgent remains a background/restart test path, not the customer-facing
+  permission-owner path.
 
 ## Release Readiness
 

@@ -173,10 +173,12 @@ Milestone: `0.7 background and parallel Mac control foundation`
 | Issue | Acceptance | Implemented |
 | --- | --- | --- |
 | `#163` Computer-use helper IPC auth contract skeleton | Define a safe helper IPC seam with capability-token and peer-uid checks, malformed envelope/frame rejection, oversized-frame rejection before JSON parsing, no token echo, and no generic actuation passthrough. | `helper_ipc.py` defines `evaos.helper_ipc.v1`, length-prefixed JSON framing, short default socket path, rotated per-launch token generation, atomic token validation/read, unsafe token-file rejection, strict peer uid authorization, accepted-connection timeouts, request envelope validation, and a token-redacted ping response. The current `#121` foundation extends the same seam to the first narrow live route, `mouse_action` click/scroll/drag with required bridge audit id, while still rejecting shell, Python, AppleScript, generic computer-use, iPhone action, and Codex mutation commands. `docs/computer-use-helper-ipc.md` documents the local helper opt-in and dumb-hands boundary. `tests/test_helper_ipc.py` locks the exact helper command surface, token/peer policy rejection, malformed envelope/frame rejection, oversized-frame rejection before JSON parsing, regular-file socket path refusal, stalled-client timeout, and unknown command denial. |
+| `#122` Signed helper/TCC identity | Run the helper through the signed evaOS Workbench launch path, report Accessibility/Screen Recording grant preflight under that identity, and fail closed when the helper is unattributed or grants are missing/unknown. | Workbench now starts `helper run` before the customer Mac connector, passes the Workbench bundle id/app path plus `EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS=1`, verifies the helper parent process is inside the claimed Workbench app bundle, and starts the connector with only that managed helper socket/token. `helper ping` reports identity and grant provenance. Helper `mouse_action` returns structured `helper_identity_unverified` or `permission_missing` errors without touching Quartz when enforced preflight fails. |
 
 Verification:
 
 ```bash
 python3 -m pytest tests/test_helper_ipc.py -q
+python3 -m pytest tests/test_eva_desktop_beta_release.py -q
 git diff --check
 ```

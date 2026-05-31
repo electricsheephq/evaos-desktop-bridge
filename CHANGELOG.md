@@ -4,6 +4,16 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Implement issue #122 signed-helper/TCC identity closure: Workbench now starts
+  the resident computer-use helper before the customer Mac connector, passes a
+  Workbench bundle/app identity marker into the helper, verifies the helper's
+  parent process is inside that app bundle, enables enforced Accessibility/
+  Screen Recording preflight, and gives the connector only that managed helper
+  socket/token. Helper `ping` now reports identity/grant provenance, and helper
+  `mouse_action` fails closed with structured `helper_identity_unverified` or
+  `permission_missing` errors instead of silently falling back to a terminal/
+  Python permission owner.
+
 ## 0.6.15 - 2026-05-31
 
 - Start the issue #121 persistent computer-use helper foundation: add a local
