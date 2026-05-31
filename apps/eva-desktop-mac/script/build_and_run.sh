@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.17"
-BUILD_NUMBER="57"
+VERSION="0.6.18"
+BUILD_NUMBER="58"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Writes a durable helper mouse-action audit record before dispatching through the resident helper IPC seam.</li>
-  <li>Passes that audit id through the helper request and records a separate completion or failure entry when the helper returns.</li>
-  <li>Keeps the helper as authenticated dumb hands: no shell, AppleScript, generic computer-use, iPhone action, or Codex mutation passthrough.</li>
+  <li>Adds Tier-1 semantic Accessibility actions for fresh desktop snapshot elements through the resident helper.</li>
+  <li>Routes native press, editable-field value setting, selected-text replacement, and menu traversal through fixed audited verbs.</li>
+  <li>Preserves the helper as authenticated dumb hands: no raw AX primitive passthrough, generic shell, AppleScript, session database, or Codex mutation surface.</li>
 </ul>
 EOF
 
