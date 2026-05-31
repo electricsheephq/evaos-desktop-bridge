@@ -60,6 +60,17 @@ Workbench, evaOS Connector, or the bundled Peekaboo helper macOS displays in
 Privacy & Security. If macOS asks for Python, treat that as a release blocker
 instead of asking the customer to approve it.
 
+For the `#121` helper foundation, the existing bridge process may optionally
+route Quartz mouse fallback actions through a resident local helper instead of
+spawning a fresh Python process for each click/scroll/drag. This path is
+disabled by default and requires `EVAOS_DESKTOP_BRIDGE_USE_HELPER=1` plus a
+short local Unix socket and rotated private token file. The default socket path
+uses `/tmp/evaos-helper-<uid>.sock` to avoid macOS Unix-socket pathname limits.
+If helper opt-in is enabled but the helper is missing, the token file is
+stale/unsafe, or the helper rejects the bridge-provided audit id, live mouse
+actions fail closed instead of falling back to Python. The helper accepts no
+desktop typing, iPhone action, shell, AppleScript, or Codex mutation command.
+
 `connector-service status --json` reports the permission target plus the bridge,
 bundled Peekaboo, and connector helper paths. Use those paths when macOS does
 not show a toggle after opening Privacy & Security and you need to add the

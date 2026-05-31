@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import plistlib
+import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,6 +13,7 @@ from urllib.parse import urlparse
 
 from evaos_desktop_bridge import cli as bridge_cli
 from evaos_desktop_bridge.cli import main
+from evaos_desktop_bridge.helper_ipc import make_capability_token, run_helper_server
 from evaos_desktop_bridge.state import kill_control_session, start_control_session
 from evaos_desktop_bridge.types import CommandResult
 
@@ -354,6 +358,10 @@ def run_cli(argv: list[str], observer: FakeObserver, tmp_path: Path) -> dict:
     return payload
 
 
+def short_socket_path() -> Path:
+    return Path("/tmp") / f"evaos-cli-helper-{uuid.uuid4().hex}.sock"
+
+
 def test_status_json_reports_absent_codex_without_error(tmp_path: Path) -> None:
     payload = run_cli(["status", "--json"], FakeObserver(mode="absent"), tmp_path)
 
@@ -376,6 +384,67 @@ def test_capabilities_reports_read_only_surface(tmp_path: Path) -> None:
     assert "unguarded_send_prompts_or_messages" in payload["data"]["forbidden"]
     assert payload["data"]["guarded_prompt_or_message_commands"] == ["codex.send_visible_message"]
     assert payload["data"]["data_minimization"]["append_only_audit_log"] is True
+    helper_entry = next(command for command in payload["data"]["commands"] if command["id"] == "helper.ping")
+    assert helper_entry["target"] == "computer_use_helper"
+
+
+def test_helper_ping_cli_round_trips_local_unix_socket(tmp_path: Path) -> None:
+    token = make_capability_token()
+    token_file = tmp_path / "helper.token"
+    token_file.write_text(token, encoding="utf-8")
+    token_file.chmod(0o600)
+    socket_path = short_socket_path()
+    ready = threading.Event()
+    thread = threading.Thread(
+        target=run_helper_server,
+        kwargs={
+            "socket_path": socket_path,
+            "token": token,
+            "expected_uid": os.getuid(),
+            "ready": ready,
+            "max_requests": 1,
+            "peer_uid_getter": lambda _sock: os.getuid(),
+        },
+        daemon=True,
+    )
+    thread.start()
+    assert ready.wait(timeout=2)
+
+    stdout = io.StringIO()
+    code = main(
+        ["helper", "ping", "--json", "--socket-path", str(socket_path), "--token-file", str(token_file)],
+        observer_factory=lambda: FakeObserver(),
+        customer_mac_factory=lambda: FakeCustomerMac(),
+        app_server_factory=lambda: FakeAppServer(),
+        stdout=stdout,
+        state_dir=tmp_path,
+    )
+
+    thread.join(timeout=2)
+    payload = json.loads(stdout.getvalue())
+    assert code == 0
+    assert payload["command"] == "helper.ping"
+    assert payload["target"] == "computer_use_helper"
+    assert payload["ok"] is True
+    assert payload["data"]["command"] == "ping"
+
+
+def test_helper_ping_cli_missing_token_file_fails_closed(tmp_path: Path) -> None:
+    stdout = io.StringIO()
+
+    code = main(
+        ["helper", "ping", "--json", "--socket-path", str(short_socket_path()), "--token-file", str(tmp_path / "missing.token")],
+        observer_factory=lambda: FakeObserver(),
+        customer_mac_factory=lambda: FakeCustomerMac(),
+        app_server_factory=lambda: FakeAppServer(),
+        stdout=stdout,
+        state_dir=tmp_path,
+    )
+
+    payload = json.loads(stdout.getvalue())
+    assert code == 2
+    assert payload["ok"] is False
+    assert payload["errors"][0]["code"] == "helper_token_missing"
 
 
 def test_latest_returns_last_observation_without_overwriting_it(tmp_path: Path) -> None:

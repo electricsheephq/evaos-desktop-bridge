@@ -14,10 +14,11 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 from urllib.parse import urlparse
 
 from ..audit import default_state_dir
+from ..helper_ipc import helper_client_from_environment
 from ..redaction import cap_text, redact_value
 from ..schema import make_error, timestamp_utc
 from ..state import kill_control_session, read_control_session, start_control_session, stop_control_session
@@ -115,6 +116,11 @@ SAFE_TEXT_RE = re.compile(r"^[A-Za-z0-9 ._+@:/#-]{1,80}$")
 APPROVED_TEXT_RE = re.compile(r"^[^\r\n]{1,240}$")
 SNAPSHOT_MAX_AGE_SECONDS = 15 * 60
 SNAPSHOT_INLINE_MAX_BYTES = int(os.environ.get("EVAOS_DESKTOP_BRIDGE_INLINE_IMAGE_MAX_BYTES", str(3 * 1024 * 1024)))
+
+
+class CustomerMacHelperClient(Protocol):
+    def dispatch(self, command: str, payload: dict[str, object], *, audit_id: str | None = None) -> CommandResult:
+        ...
 
 
 class CustomerMacObserver:
@@ -435,6 +441,7 @@ except Exception as exc:
         accessibility_checker: Callable[[], bool | None] = check_accessibility_trusted,
         screen_recording_checker: Callable[[], bool | None] = check_screen_recording_trusted,
         now: Callable[[], str] = timestamp_utc,
+        helper_client: CustomerMacHelperClient | None = None,
     ) -> None:
         self.runner = runner
         self.state_dir = state_dir or default_state_dir()
@@ -442,6 +449,7 @@ except Exception as exc:
         self.accessibility_checker = accessibility_checker
         self.screen_recording_checker = screen_recording_checker
         self.now = now
+        self.helper_client = helper_client if helper_client is not None else helper_client_from_environment(state_dir=self.state_dir)
 
     def status(self) -> CommandResult:
         frontmost = self._frontmost_app()
@@ -1526,6 +1534,40 @@ except Exception as exc:
             argv.extend([str(kwargs["from_x"]), str(kwargs["from_y"]), str(kwargs["to_x"]), str(kwargs["to_y"])])
             data["from"] = self._point(kwargs["from_x"], kwargs["from_y"])
             data["to"] = self._point(kwargs["to_x"], kwargs["to_y"])
+        if self.helper_client is not None:
+            helper_audit_id = f"audit-helper-{uuid.uuid4().hex}"
+            payload: dict[str, object] = {"action": action}
+            if action == "click":
+                payload.update({"x": int(kwargs["x"]), "y": int(kwargs["y"])})
+            elif action == "scroll":
+                payload.update({"direction": str(kwargs["direction"]), "amount": int(kwargs["amount"])})
+            elif action == "drag":
+                payload.update(
+                    {
+                        "from_x": int(kwargs["from_x"]),
+                        "from_y": int(kwargs["from_y"]),
+                        "to_x": int(kwargs["to_x"]),
+                        "to_y": int(kwargs["to_y"]),
+                    }
+                )
+            try:
+                result = self.helper_client.dispatch("mouse_action", payload, audit_id=helper_audit_id)
+                result.provenance.setdefault("helper_audit_id", helper_audit_id)
+                return result
+            except Exception as exc:
+                return CommandResult(
+                    ok=False,
+                    data=data,
+                    errors=[
+                        make_error(
+                            code="helper_unavailable",
+                            message=f"Persistent computer-use helper failed before performing desktop {action}.",
+                            guidance="Restart the evaOS helper or rerun without helper mode only during supervised local debugging.",
+                        )
+                    ],
+                    warnings=[str(redact_value(exc))],
+                    provenance={"source": "computer_use_helper"},
+                )
         result = self.runner(argv, 10.0)
         warnings = self._stderr_warning(result)
         try:
