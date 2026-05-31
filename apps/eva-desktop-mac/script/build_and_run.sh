@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.15"
-BUILD_NUMBER="55"
+VERSION="0.6.16"
+BUILD_NUMBER="56"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds the persistent computer-use helper foundation with a local authenticated Unix-socket helper server and client.</li>
-  <li>Uses short macOS-safe helper socket paths, rotates private helper tokens on start, and atomically validates helper token files.</li>
-  <li>Keeps helper actuation narrow and audited: mouse actions require bridge audit provenance, stalled clients time out, and response failures cannot take down the resident helper.</li>
+  <li>Runs the resident computer-use helper from evaOS Workbench before starting Mac Access.</li>
+  <li>Verifies the helper parent process is inside the Workbench app bundle before accepting the Workbench TCC identity.</li>
+  <li>Fails helper mouse actions closed with structured identity or permission errors instead of falling back to Python or a terminal permission owner.</li>
 </ul>
 EOF
 
