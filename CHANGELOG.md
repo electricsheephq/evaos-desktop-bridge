@@ -8,6 +8,10 @@ All notable repo release changes should be recorded here before a release branch
   merely mention `SkyComputerUseClient mcp` are not counted as live Computer Use
   helpers, and document the safer recovery path when the current Codex tool
   transport is stale.
+- Fix Workbench focus safety so `EvaDesktop`/`evaOS Workbench` aliases resolve
+  only to canonical `/Applications/evaOS.app`, and extend the pre-canary guard
+  to fail when old `EvaDesktop.app` artifact bundles could contaminate macOS
+  app-name lookup.
 
 ## 0.6.19 - 2026-05-31
 

@@ -36,11 +36,22 @@ The guard fails closed when:
 - the canonical `/Applications/evaOS.app` is missing or the wrong version/build;
 - Spotlight registers another app with bundle id
   `com.electricsheephq.EvaDesktop`;
+- an old `EvaDesktop.app` exists in known Lexar canary artifact directories
+  where macOS app-name lookup can still find it;
 - a non-canonical or translocated `EvaDesktop.app` is running;
 - too many `SkyComputerUseClient mcp` helper processes are present.
 
+Set `EVAOS_CANARY_ARTIFACT_ROOTS` with `:`-separated paths, or pass repeated
+`--canary-artifact-root PATH`, when a canary machine stores old Workbench app
+artifacts outside the default Lexar locations.
+
 If the guard fails, quarantine or quit the duplicate app/process first. Do not
 collect signed-in canary screenshots from a contaminated environment.
+
+Do not focus Workbench by the process name `EvaDesktop` or through
+`open -a EvaDesktop`. The current supported app path is
+`/Applications/evaOS.app`; app-name lookup can select deprecated beta artifacts
+with the same bundle id/name.
 
 Do not blindly `pkill` `SkyComputerUseClient mcp` helpers from the same Codex
 thread that will run the GUI canary. Those helpers can be the live Computer Use

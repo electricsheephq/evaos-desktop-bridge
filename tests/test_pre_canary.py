@@ -80,6 +80,59 @@ def test_duplicate_registered_and_translocated_workbench_fail_closed() -> None:
     assert "19891" in failed["translocated_workbench_running"].evidence
 
 
+def test_stale_artifact_workbench_bundle_fails_even_when_not_registered() -> None:
+    inventory = WorkbenchInventory(
+        registered_paths=("/Applications/evaOS.app",),
+        app_bundles=(
+            AppBundle(path="/Applications/evaOS.app", bundle_id="com.electricsheephq.EvaDesktop", version="0.6.18", build="58"),
+            AppBundle(
+                path="/Volumes/LEXAR/Codex/artifacts/evaos-workbench-beta-canary-20260521/EvaDesktop.app",
+                bundle_id="com.electricsheephq.EvaDesktop",
+                version="0.1.0",
+                build="1",
+            ),
+        ),
+        processes=(
+            ProcessInfo(
+                pid=94733,
+                command="/Applications/evaOS.app/Contents/MacOS/EvaDesktop",
+                path="/Applications/evaOS.app",
+                kind="workbench",
+            ),
+        ),
+    )
+
+    report = evaluate_inventory(inventory)
+
+    assert report.ok is False
+    failed = {check.code: check for check in report.checks if check.status == "fail"}
+    assert "stale_workbench_app_bundle_present" in failed
+    assert "0.1.0" in failed["stale_workbench_app_bundle_present"].evidence
+
+
+def test_stale_artifact_detected_by_name_when_bundle_id_missing() -> None:
+    inventory = WorkbenchInventory(
+        registered_paths=("/Applications/evaOS.app",),
+        app_bundles=(
+            AppBundle(path="/Applications/evaOS.app", bundle_id="com.electricsheephq.EvaDesktop", version="0.6.18", build="58"),
+            AppBundle(
+                path="/Volumes/LEXAR/Codex/artifacts/corrupted/EvaDesktop.app",
+                bundle_id=None,
+                version="0.1.0",
+                build="1",
+            ),
+        ),
+        processes=(),
+    )
+
+    report = evaluate_inventory(inventory)
+
+    assert report.ok is False
+    failed = {check.code: check for check in report.checks if check.status == "fail"}
+    assert "stale_workbench_app_bundle_present" in failed
+    assert "corrupted/EvaDesktop.app" in failed["stale_workbench_app_bundle_present"].evidence
+
+
 def test_expected_version_or_build_mismatch_fails() -> None:
     inventory = WorkbenchInventory(
         registered_paths=("/Applications/evaOS.app",),

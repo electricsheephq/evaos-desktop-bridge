@@ -38,6 +38,14 @@ SAFE_BROWSER_APPS = {"Safari", "Google Chrome", "Arc", "Firefox", "Brave Browser
 SAFE_LOCAL_SITE_ACTIONS = {"reload", "back", "forward"}
 CONTROL_MODES = {"full_access", "ask_permission"}
 AX_EDITABLE_VALUE_ROLES = {"AXTextField", "AXTextArea", "AXComboBox"}
+WORKBENCH_CANONICAL_APP_PATH = Path("/Applications/evaOS.app")
+WORKBENCH_PROCESS_NAME = "EvaDesktop"
+WORKBENCH_APP_ALIASES = {
+    "com.electricsheephq.evadesktop",
+    "evadesktop",
+    "evaos",
+    "evaos workbench",
+}
 PEEKABOO_BIN_CANDIDATES = (
     "evaos-connector-helper",
     "peekaboo",
@@ -784,6 +792,9 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             return CommandResult(ok=False, data={"focused": False}, errors=[make_error(code="app_name_not_allowed", message="App name is outside the supported character set.", guidance="Use a visible macOS app name.")])
         if self._is_sensitive_app(app_name):
             return CommandResult(ok=False, data={"focused": False, "would_focus": dry_run, "app_name": app_name}, errors=[make_error(code="sensitive_app_blocked", message="This app is on the sensitive-app denylist.", guidance="Only request named actions against non-sensitive apps.")])
+        workbench_focus = self._workbench_focus_result(app_name=app_name, dry_run=dry_run, verify_frontmost=True)
+        if workbench_focus is not None:
+            return workbench_focus
         if dry_run:
             return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
         peekaboo = self._peekaboo_status()
@@ -1028,6 +1039,9 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             return CommandResult(ok=False, data={"focused": False, "would_focus": dry_run}, errors=[make_error(code="app_name_not_allowed", message="App name is outside the safe named-action character set.", guidance="Use a visible macOS app name with letters, numbers, spaces, dots, underscores, plus, at-sign, slash, colon, hash, or hyphen.")])
         if self._is_sensitive_app(app_name):
             return CommandResult(ok=False, data={"focused": False, "would_focus": dry_run, "app_name": app_name}, errors=[make_error(code="sensitive_app_blocked", message="This app is on the sensitive-app denylist.", guidance="Only request named actions against non-sensitive apps.")])
+        workbench_focus = self._workbench_focus_result(app_name=app_name, dry_run=dry_run, verify_frontmost=True)
+        if workbench_focus is not None:
+            return workbench_focus
         if dry_run:
             return CommandResult(ok=True, data={"focused": False, "would_focus": True, "app_name": app_name})
         warnings: list[str] = []
@@ -2023,6 +2037,67 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             return False
         result = self.runner(["osascript", "-e", f'tell application "{self._escape_applescript(app_name)}" to activate'], 5.0)
         return result.returncode == 0
+
+    def _workbench_focus_result(self, *, app_name: str, dry_run: bool, verify_frontmost: bool) -> CommandResult | None:
+        if not self._is_workbench_app_alias(app_name):
+            return None
+        data = {
+            "focused": False,
+            "would_focus": dry_run,
+            "app_name": app_name,
+            "app_path": str(WORKBENCH_CANONICAL_APP_PATH),
+            "process_name": WORKBENCH_PROCESS_NAME,
+        }
+        if dry_run:
+            return CommandResult(ok=True, data=data)
+        if not WORKBENCH_CANONICAL_APP_PATH.exists():
+            return CommandResult(
+                ok=False,
+                data=data,
+                errors=[
+                    make_error(
+                        code="workbench_canonical_app_missing",
+                        message="Canonical evaOS Workbench app is missing.",
+                        guidance=f"Install the current Workbench at {WORKBENCH_CANONICAL_APP_PATH}; refusing app-name lookup to avoid stale EvaDesktop builds.",
+                    )
+                ],
+            )
+        result = self.runner(["open", str(WORKBENCH_CANONICAL_APP_PATH)], 10.0)
+        warnings = self._stderr_warning(result)
+        if result.returncode != 0:
+            return CommandResult(
+                ok=False,
+                data=data,
+                errors=[
+                    make_error(
+                        code="workbench_focus_failed",
+                        message="macOS refused to open the canonical evaOS Workbench app.",
+                        guidance=f"Verify {WORKBENCH_CANONICAL_APP_PATH} exists and can launch.",
+                    )
+                ],
+                warnings=warnings,
+            )
+        data = {**data, "focused": True, "would_focus": False, "engine": "macos_open_path"}
+        if verify_frontmost and not self._wait_for_frontmost(WORKBENCH_PROCESS_NAME, timeout_seconds=3.0):
+            return CommandResult(
+                ok=False,
+                data={**data, "focused": False, "frontmost_app": redact_value(self._frontmost_app())},
+                errors=[
+                    make_error(
+                        code="workbench_focus_not_frontmost",
+                        message="Canonical evaOS Workbench opened, but did not become frontmost.",
+                        guidance="Close competing modal windows and retry; do not fall back to `open -a EvaDesktop`.",
+                    )
+                ],
+                warnings=warnings,
+            )
+        return CommandResult(ok=True, data=data if not verify_frontmost else {**data, "frontmost": True}, warnings=warnings, provenance={"source": "macos_open_path"})
+
+    def _is_workbench_app_alias(self, app_name: str) -> bool:
+        normalized = " ".join(app_name.strip().split()).casefold()
+        if normalized.endswith(".app"):
+            normalized = normalized[:-4]
+        return normalized in WORKBENCH_APP_ALIASES
 
     def _wait_for_frontmost(self, app_name: str, *, timeout_seconds: float) -> bool:
         if self.platform_name != "Darwin":
