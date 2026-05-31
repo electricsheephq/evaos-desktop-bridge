@@ -143,10 +143,10 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "per-agent LLM token and dollar usage cards" in script
-    assert "Capability Manifest budget caps" in script
-    assert "budget-paused notifications" in script
-    assert "Increase cap and Stop agent actions" in script
+    assert "persistent computer-use helper foundation" in script
+    assert "short macOS-safe helper socket paths" in script
+    assert "mouse actions require bridge audit provenance" in script
+    assert "response failures cannot take down the resident helper" in script
     assert "verify_app_signature" in script
     assert 'codesign --verify --deep --strict "$bundle"' in script
     assert 'verify_app_signature "$APP_BUNDLE"' in script
