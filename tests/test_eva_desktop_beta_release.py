@@ -147,6 +147,8 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "short macOS-safe helper socket paths" in script
     assert "mouse actions require bridge audit provenance" in script
     assert "response failures cannot take down the resident helper" in script
+    assert "format_datetime(published, usegmt=True)" in script
+    assert "published_at" in script
     assert "verify_app_signature" in script
     assert 'codesign --verify --deep --strict "$bundle"' in script
     assert 'verify_app_signature "$APP_BUNDLE"' in script
