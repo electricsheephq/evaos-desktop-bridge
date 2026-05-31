@@ -457,6 +457,9 @@ struct BridgePanelView: View {
         if lower.contains("not active") {
             return "Inactive"
         }
+        if lower.contains("taking over screen") {
+            return "Starting"
+        }
         if lower.contains("full access") {
             return "Full Access"
         }

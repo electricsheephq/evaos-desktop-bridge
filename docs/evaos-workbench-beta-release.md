@@ -150,6 +150,11 @@ Mac. Full Access mode lets the active agent operate continuously until the user
 stops the session or hits the kill switch. Ask Permission mode keeps the same
 tool surface but prompts at high-impact boundaries.
 
+Starting Agent Control creates a 10-second takeover warning. During that window
+Workbench displays `Taking over screen in Ns`, and live mouse/keyboard/iPhone
+actions fail closed so the operator can yield the screen before automation
+begins.
+
 Allowed customer-facing controls include app focus, localhost/browser actions,
 iPhone Mirroring focus/Home/App Switcher/Spotlight/open-app/tap named target,
 scroll/swipe gestures, approved text entry, and one approved message send with

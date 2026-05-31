@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add issue #207 agent takeover warning: starting a customer Mac control
+  session now creates a 10-second countdown before live desktop/iPhone actions
+  can run, Workbench surfaces `Taking over screen...` status, and local/remote
+  live commands fail closed with `control_takeover_warning_active` until the
+  warning window expires.
 - Add an `evaos-workbench-pre-canary` guard for signed-in Workbench acceptance:
   it verifies the canonical `/Applications/evaOS.app` version/build, detects
   duplicate same-bundle-id app registrations, flags translocated stale

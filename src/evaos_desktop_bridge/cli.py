@@ -134,6 +134,14 @@ CONTROLLED_LIVE_COMMANDS = frozenset(
     }
 )
 
+TAKEOVER_WARNING_GATED_COMMANDS = CONTROLLED_LIVE_COMMANDS | frozenset(
+    {
+        "customer_mac.app_focus",
+        "customer_mac.local_site_open",
+        "customer_mac.local_site_action",
+    }
+)
+
 ASK_PERMISSION_HIGH_IMPACT_COMMANDS = frozenset(
     {
         "customer_mac.iphone_mirroring_swipe_left",
@@ -1106,7 +1114,7 @@ def _helper_ping(args: argparse.Namespace, *, state_dir: Path | None) -> Command
 
 
 def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_dir: Path | None) -> CommandResult:
-    if command_id in CONTROLLED_LIVE_COMMANDS and getattr(args, "dry_run", None) is False:
+    if command_id in TAKEOVER_WARNING_GATED_COMMANDS and getattr(args, "dry_run", None) is False:
         session = read_control_session(state_dir)
         if session.get("kill_switch") is True:
             return CommandResult(
@@ -1120,7 +1128,10 @@ def _validate_guarded_approval(command_id: str, args: argparse.Namespace, state_
                     )
                 ],
             )
-        if session.get("active") is True:
+        warning = session.get("takeover_warning") if isinstance(session.get("takeover_warning"), dict) else {}
+        if session.get("active") is True and warning.get("active") is True:
+            return _takeover_warning_active_result(warning)
+        if command_id in CONTROLLED_LIVE_COMMANDS and session.get("active") is True:
             if session.get("mode") == "full_access":
                 return CommandResult(ok=True)
             if session.get("mode") == "ask_permission" and not _ask_permission_requires_approval(command_id, args):
@@ -1221,6 +1232,22 @@ def _approval_required_result(command_id: str, fields: tuple[str, ...], message:
                 guidance=f"Run {command_id} with --dry-run first, then rerun the exact same action with --approval-audit-id set to that audit_id.",
             )
         ],
+    )
+
+
+def _takeover_warning_active_result(warning: dict[str, object]) -> CommandResult:
+    seconds = warning.get("seconds") if isinstance(warning.get("seconds"), int) else 10
+    return CommandResult(
+        ok=False,
+        data={"takeover_warning": warning},
+        errors=[
+            make_error(
+                code="control_takeover_warning_active",
+                message=f"Agent control is starting; live actions are blocked until the {seconds}-second takeover warning finishes.",
+                guidance="Wait for the visible takeover countdown to finish, then rerun the same live action. Read-only status, stop, and kill-switch remain available.",
+            )
+        ],
+        provenance={"source": "control_session", "takeover_warning": warning},
     )
 
 

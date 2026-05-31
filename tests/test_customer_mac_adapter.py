@@ -141,6 +141,40 @@ def test_control_session_start_stop_and_kill_switch(tmp_path: Path) -> None:
     assert killed.data["session"]["kill_switch"] is True
 
 
+def test_control_session_start_sets_takeover_warning_countdown(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
+
+    started = observer.control_start(mode="full-access", agent_label="Aurelius")
+    status = observer.control_status()
+
+    assert started.ok is True
+    assert started.data["ready"] is False
+    assert started.data["takeover_warning"]["active"] is True
+    assert started.data["takeover_warning"]["seconds"] == 10
+    assert started.data["session"]["takeover_warning_started_at"]
+    assert started.data["session"]["takeover_warning_until"]
+    assert status.data["ready"] is False
+    assert status.data["takeover_warning"]["active"] is True
+    assert status.data["takeover_warning"]["remaining_seconds"] >= 1
+    assert any(command[:2] == ("osascript", "-e") and "Taking over screen" in command[2] for command in runner.commands)
+    assert ("osascript", "-e", "beep 3") in runner.commands
+
+
+def test_control_session_repeated_start_does_not_extend_or_rebuzz_warning(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
+
+    first = observer.control_start(mode="full-access", agent_label="Aurelius")
+    warning_commands = [command for command in runner.commands if command and command[0] in {"osascript", "afplay"}]
+    second = observer.control_start(mode="full-access", agent_label="Aurelius")
+    repeated_warning_commands = [command for command in runner.commands if command and command[0] in {"osascript", "afplay"}]
+
+    assert second.data["session"]["takeover_warning_until"] == first.data["session"]["takeover_warning_until"]
+    assert second.data["takeover_warning_reused"] is True
+    assert repeated_warning_commands == warning_commands
+
+
 def test_desktop_click_dry_run_allows_coordinate_fallback_without_mutation(tmp_path: Path) -> None:
     observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
 

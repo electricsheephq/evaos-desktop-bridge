@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from evaos_desktop_bridge import cli as bridge_cli
 from evaos_desktop_bridge.cli import main
 from evaos_desktop_bridge.helper_ipc import make_capability_token, run_helper_server
-from evaos_desktop_bridge.state import kill_control_session, start_control_session
+from evaos_desktop_bridge.state import kill_control_session, start_control_session, write_control_session
 from evaos_desktop_bridge.types import CommandResult
 
 
@@ -876,6 +876,7 @@ def test_customer_mac_app_focus_live_requires_matching_dry_run_audit(tmp_path: P
 
 def test_customer_mac_full_access_session_allows_live_desktop_actions_without_approval(tmp_path: Path) -> None:
     start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+    write_control_session({"active": True, "mode": "full_access", "takeover_warning_until": "2000-01-01T00:00:00Z"}, state_dir=tmp_path)
     payload = run_cli(["customer-mac", "desktop", "type", "--json", "--text", "hello"], FakeObserver(), tmp_path)
     set_value = run_cli(["customer-mac", "desktop", "set-value", "--json", "--snapshot-id", "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "--element-id", "el-0001", "--value", "hello"], FakeObserver(), tmp_path)
     legacy = run_cli(["codex", "continue-thread", "--json", "--title", "SDK Docs"], FakeObserver(), tmp_path)
@@ -895,8 +896,46 @@ def test_customer_mac_full_access_session_allows_live_desktop_actions_without_ap
     assert legacy["errors"][0]["code"] == "approval_audit_required"
 
 
+def test_customer_mac_live_actions_wait_for_takeover_warning_countdown(tmp_path: Path) -> None:
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+
+    rejected = run_cli(["customer-mac", "desktop", "scroll", "--json", "--direction", "down"], FakeObserver(), tmp_path)
+    status = run_cli(["customer-mac", "control", "status", "--json"], FakeObserver(), tmp_path)
+
+    assert rejected["_exit_code"] == 2
+    assert rejected["errors"][0]["code"] == "control_takeover_warning_active"
+    assert rejected["data"]["takeover_warning"]["active"] is True
+    assert status["_exit_code"] == 0
+
+
+def test_customer_mac_legacy_live_actions_wait_for_takeover_warning_countdown(tmp_path: Path) -> None:
+    cases = [
+        (
+            ["customer-mac", "app-focus", "--json", "--app-name", "Safari"],
+            ["customer-mac", "app-focus", "--json", "--app-name", "Safari", "--dry-run"],
+        ),
+        (
+            ["customer-mac", "local-site", "open", "--json", "--url", "http://127.0.0.1:8080"],
+            ["customer-mac", "local-site", "open", "--json", "--url", "http://127.0.0.1:8080", "--dry-run"],
+        ),
+        (
+            ["customer-mac", "local-site", "action", "--json", "--action", "reload"],
+            ["customer-mac", "local-site", "action", "--json", "--action", "reload", "--dry-run"],
+        ),
+    ]
+
+    approvals = [run_cli(dry_run_argv, FakeObserver(), tmp_path)["audit_id"] for _live_argv, dry_run_argv in cases]
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+
+    for (live_argv, _dry_run_argv), approval_audit_id in zip(cases, approvals, strict=True):
+        rejected = run_cli([*live_argv, "--approval-audit-id", approval_audit_id], FakeObserver(), tmp_path)
+        assert rejected["_exit_code"] == 2
+        assert rejected["errors"][0]["code"] == "control_takeover_warning_active"
+
+
 def test_customer_mac_ask_permission_allows_navigation_but_gates_text(tmp_path: Path) -> None:
     start_control_session(mode="ask_permission", agent_label="Hermes", state_dir=tmp_path)
+    write_control_session({"active": True, "mode": "ask_permission", "takeover_warning_until": "2000-01-01T00:00:00Z"}, state_dir=tmp_path)
 
     scroll = run_cli(["customer-mac", "desktop", "scroll", "--json", "--direction", "down"], FakeObserver(), tmp_path)
     safe_click = run_cli(["customer-mac", "desktop", "click", "--json", "--target-label", "Continue"], FakeObserver(), tmp_path)
@@ -1014,6 +1053,7 @@ def test_customer_mac_iphone_mirroring_send_approved_message_is_guarded(tmp_path
 
 def test_full_access_allows_legacy_iphone_message_without_approval(tmp_path: Path) -> None:
     start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+    write_control_session({"active": True, "mode": "full_access", "takeover_warning_until": "2000-01-01T00:00:00Z"}, state_dir=tmp_path)
 
     payload = run_cli(
         ["customer-mac", "iphone-mirroring", "send-approved-message", "--json", "--text", "Hello", "--recipient-context", "Bumble canary profile"],

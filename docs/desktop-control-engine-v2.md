@@ -15,6 +15,14 @@ iPhone computer control. The architecture stays the same:
 
 No public VNC, SSH, CDP, or raw Mac port is exposed.
 
+After `desktop_control_start`, live actuation waits through a 10-second
+operator takeover warning. Workbench displays `Taking over screen in Ns`; the
+bridge also emits a local macOS notification and alert beeps when the session
+starts. The bridge rejects live Accessibility, mouse, keyboard, browser, and
+iPhone actions with `control_takeover_warning_active` until the warning expires.
+Status, observation, stop, and kill-switch commands still work during the
+countdown.
+
 ## Control Modes
 
 - `Full Access`: live `desktop_*` and `iphone_*` tools can click, type, scroll,
@@ -82,12 +90,15 @@ desktop_see
 
 If no active session exists, ask the customer to open Workbench -> Settings ->
 Mac & iPhone -> Agent Control and choose Full Access or Ask Permission. Once the
-session is active, operate normally and watch audit feedback. If the kill switch
-is active, stop and tell the customer they need to start a new session.
+session is active, wait for the takeover warning to finish, then operate
+normally and watch audit feedback. If the kill switch is active, stop and tell
+the customer they need to start a new session.
 
 ## Release Gates
 
 - The Workbench UI shows Agent Control state and the kill switch.
+- Starting Agent Control shows the 10-second takeover warning and live actions
+  fail closed until it expires.
 - Connector auth and token checks remain required for `/v1/commands`.
 - Full Access mode does not require per-action approval.
 - Ask Permission mode gates risky clicks, taps, hotkeys, typing, sends, and

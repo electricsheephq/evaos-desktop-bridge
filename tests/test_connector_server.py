@@ -19,7 +19,7 @@ from evaos_desktop_bridge.connector_server import (
     normalize_connector_command,
     read_token,
 )
-from evaos_desktop_bridge.state import kill_control_session, start_control_session
+from evaos_desktop_bridge.state import kill_control_session, start_control_session, write_control_session
 
 
 def rewrite_audit_timestamp(state_dir: Path, audit_id: str, timestamp: str) -> None:
@@ -279,6 +279,7 @@ def test_connector_live_guarded_remote_actions_require_approval_audit_id() -> No
 
 def test_connector_full_access_allows_live_remote_control_without_approval(tmp_path: Path) -> None:
     start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+    write_control_session({"active": True, "mode": "full_access", "takeover_warning_until": "2000-01-01T00:00:00Z"}, state_dir=tmp_path)
 
     assert _live_guarded_approval_error("desktopType", {"text": "hello", "dry_run": False}, state_dir=tmp_path) is None
     assert _live_guarded_approval_error(
@@ -297,8 +298,46 @@ def test_connector_full_access_allows_live_remote_control_without_approval(tmp_p
     assert _live_guarded_approval_error("customerMacIphoneMirroringSendApprovedMessage", {"text": "hello", "recipient_context": "test", "dry_run": False}, state_dir=tmp_path) is None
 
 
+def test_connector_blocks_live_remote_control_during_takeover_warning(tmp_path: Path) -> None:
+    start_control_session(mode="full_access", agent_label="Aurelius", state_dir=tmp_path)
+    app_focus_audit = append_audit(
+        command="customer_mac.app_focus",
+        target="customer_mac",
+        args={"app_name": "Safari", "dry_run": True, "json": True, "approval_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+    local_site_open_audit = append_audit(
+        command="customer_mac.local_site_open",
+        target="customer_mac",
+        args={"url": "http://127.0.0.1:8080", "dry_run": True, "json": True, "approval_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+    local_site_action_audit = append_audit(
+        command="customer_mac.local_site_action",
+        target="customer_mac",
+        args={"action": "reload", "dry_run": True, "json": True, "approval_audit_id": None},
+        ok=True,
+        warnings=[],
+        errors=[],
+        state_dir=tmp_path,
+    )
+
+    assert _live_guarded_approval_error("desktopScroll", {"direction": "down", "dry_run": False}, state_dir=tmp_path) == "Agent control is starting; live actions are blocked until the 10-second takeover warning finishes."
+    assert _live_guarded_approval_error("customerMacAppFocus", {"app_name": "Safari", "dry_run": False, "approval_audit_id": app_focus_audit}, state_dir=tmp_path) == "Agent control is starting; live actions are blocked until the 10-second takeover warning finishes."
+    assert _live_guarded_approval_error("customerMacLocalSiteOpen", {"url": "http://127.0.0.1:8080", "dry_run": False, "approval_audit_id": local_site_open_audit}, state_dir=tmp_path) == "Agent control is starting; live actions are blocked until the 10-second takeover warning finishes."
+    assert _live_guarded_approval_error("customerMacLocalSiteAction", {"action": "reload", "dry_run": False, "approval_audit_id": local_site_action_audit}, state_dir=tmp_path) == "Agent control is starting; live actions are blocked until the 10-second takeover warning finishes."
+    assert _live_guarded_approval_error("customerMacControlStatus", {}, state_dir=tmp_path) is None
+
+
 def test_connector_ask_permission_allows_navigation_but_gates_high_impact(tmp_path: Path) -> None:
     start_control_session(mode="ask_permission", agent_label="Hermes", state_dir=tmp_path)
+    write_control_session({"active": True, "mode": "ask_permission", "takeover_warning_until": "2000-01-01T00:00:00Z"}, state_dir=tmp_path)
 
     assert _live_guarded_approval_error("desktopScroll", {"direction": "down", "dry_run": False}, state_dir=tmp_path) is None
     assert _live_guarded_approval_error("desktopClick", {"target_label": "Continue", "dry_run": False}, state_dir=tmp_path) is None

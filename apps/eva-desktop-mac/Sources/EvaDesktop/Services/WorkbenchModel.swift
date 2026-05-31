@@ -2806,6 +2806,9 @@ enum BridgeStatusFormatter {
         let active = value(at: ["data", "active"], in: object) as? Bool
         let mode = value(at: ["data", "mode"], in: object) as? String
         let killSwitch = value(at: ["data", "kill_switch"], in: object) as? Bool
+        let ready = value(at: ["data", "ready"], in: object) as? Bool
+        let warningActive = value(at: ["data", "takeover_warning", "active"], in: object) as? Bool
+        let warningRemaining = value(at: ["data", "takeover_warning", "remaining_seconds"], in: object) as? Int
         let currentApp = value(at: ["data", "current_app"], in: object) as? String
         let peekabooAvailable = value(at: ["data", "peekaboo", "available"], in: object) as? Bool
         if killSwitch == true {
@@ -2818,8 +2821,17 @@ enum BridgeStatusFormatter {
                 peekabooAvailable.map { "Peekaboo: \($0 ? "ready" : "fallback mode")" }
             ])
         }
+        if warningActive == true {
+            let remaining = max(1, warningRemaining ?? 10)
+            return compact([
+                "Taking over screen in \(remaining)s",
+                "Live agent actions are paused for the operator warning.",
+                mode.map { $0 == "full_access" ? "Mode: Full Access" : "Mode: Ask Permission" },
+                currentApp.map { "Current app: \($0)" }
+            ])
+        }
         return compact([
-            "Ready",
+            ready == false ? "Starting" : "Ready",
             mode.map { $0 == "full_access" ? "Mode: Full Access" : "Mode: Ask Permission" },
             currentApp.map { "Current app: \($0)" },
             peekabooAvailable.map { "Peekaboo: \($0 ? "ready" : "fallback mode")" }

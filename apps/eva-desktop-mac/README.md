@@ -18,6 +18,13 @@ high-impact boundaries. The app does not expose arbitrary shell, hidden
 AppleScript, password capture, payment automation, or generic Codex app-server
 mutation.
 
+Starting Agent Control triggers a 10-second takeover warning before live
+mouse/keyboard/iPhone actions can run. Workbench shows `Taking over screen in
+Ns`, and the bridge emits a local macOS notification plus alert beeps so an
+operator can yield the screen or hit the kill switch before control begins.
+Live actions attempted during this countdown fail closed with
+`control_takeover_warning_active`.
+
 The visible app name and native shell use ElectricSheep branding, while the
 packaged app bundle is `evaOS.app`. The internal executable and bundle id remain `EvaDesktop` /
 `com.electricsheephq.EvaDesktop` so existing Keychain sessions and URL-scheme
