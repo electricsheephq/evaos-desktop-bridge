@@ -291,6 +291,10 @@ def handle_helper_request(
                 "errors": preflight_errors,
             }
         executed = command_executor(command, payload)
+        data = executed.get("data")
+        if isinstance(data, dict):
+            executed = dict(executed)
+            executed["data"] = {**data, "permission_preflight": permission_preflight}
         return _response_from_executor(request_id=request_id, audit_id=audit_id, executed=executed)
     permission_preflight = permission_checker() if permission_checker is not None else helper_permission_preflight()
     return {

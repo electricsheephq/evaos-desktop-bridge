@@ -328,6 +328,8 @@ def test_helper_mouse_action_runs_when_enforced_preflight_is_granted() -> None:
 
     assert response["ok"] is True
     assert response["data"]["performed"] is True
+    assert response["data"]["permission_preflight"]["ok"] is True
+    assert response["data"]["permission_preflight"]["identity"]["status"] == "workbench_signed_app"
     assert calls == 1
 
 
