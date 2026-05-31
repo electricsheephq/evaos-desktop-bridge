@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.21 - 2026-05-31
+
 - Add the issue #97/#100 Shared Browser and Session Center sprint slice:
   brokered runtime pages now expose a read-only status strip with safe Shared
   Browser room/current URL/last-activity metadata, per-runtime status refresh
