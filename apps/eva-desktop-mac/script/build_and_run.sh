@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.16"
-BUILD_NUMBER="56"
+VERSION="0.6.17"
+BUILD_NUMBER="57"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Runs the resident computer-use helper from evaOS Workbench before starting Mac Access.</li>
-  <li>Verifies the helper parent process is inside the Workbench app bundle before accepting the Workbench TCC identity.</li>
-  <li>Fails helper mouse actions closed with structured identity or permission errors instead of falling back to Python or a terminal permission owner.</li>
+  <li>Writes a durable helper mouse-action audit record before dispatching through the resident helper IPC seam.</li>
+  <li>Passes that audit id through the helper request and records a separate completion or failure entry when the helper returns.</li>
+  <li>Keeps the helper as authenticated dumb hands: no shell, AppleScript, generic computer-use, iPhone action, or Codex mutation passthrough.</li>
 </ul>
 EOF
 

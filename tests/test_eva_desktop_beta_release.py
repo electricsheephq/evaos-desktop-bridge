@@ -157,10 +157,10 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "resident computer-use helper from evaOS Workbench" in script
-    assert "helper parent process is inside the Workbench app bundle" in script
-    assert "Fails helper mouse actions closed" in script
-    assert "instead of falling back to Python or a terminal permission owner" in script
+    assert "durable helper mouse-action audit record before dispatching" in script
+    assert "separate completion or failure entry" in script
+    assert "authenticated dumb hands" in script
+    assert "no shell, AppleScript, generic computer-use, iPhone action, or Codex mutation passthrough" in script
     assert "format_datetime(published, usegmt=True)" in script
     assert "published_at" in script
     assert "verify_app_signature" in script

@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.17 - 2026-05-31
+
 - Complete issue #129 IPC-seam safety for the current helper route: every
   helper `mouse_action` now writes an append-only `helper.mouse_action`
   authorized-dispatch audit record before IPC dispatch, sends that durable
