@@ -43,6 +43,19 @@ class FakeHelperClient:
         return self.result
 
 
+class AuditCheckingHelperClient(FakeHelperClient):
+    def __init__(self, result: CommandResult, *, state_dir: Path) -> None:
+        super().__init__(result)
+        self.state_dir = state_dir
+        self.audit_seen_before_dispatch = False
+
+    def dispatch(self, command: str, payload: dict[str, object], *, audit_id: str | None = None) -> CommandResult:
+        assert audit_id
+        records = [json.loads(line) for line in (self.state_dir / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.audit_seen_before_dispatch = any(record.get("audit_id") == audit_id for record in records)
+        return super().dispatch(command, payload, audit_id=audit_id)
+
+
 def png_header(width: int = 4, height: int = 4) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + struct.pack(">II", width, height) + b"\x00" * 16
 
@@ -155,6 +168,43 @@ def test_desktop_click_routes_quartz_fallback_through_helper_without_python_spaw
     assert not any(command and command[0] == sys.executable for command in runner.commands)
 
 
+def test_desktop_click_helper_dispatch_writes_actuation_audit_record(tmp_path: Path) -> None:
+    helper = AuditCheckingHelperClient(
+        CommandResult(
+            ok=True,
+            data={"performed": True, "action": "click", "clicked": True, "point": {"x": 10, "y": 20}, "engine": "helper_quartz"},
+            provenance={"source": "computer_use_helper"},
+        ),
+        state_dir=tmp_path,
+    )
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.desktop_click(x=10, y=20, dry_run=False)
+
+    assert result.ok is True
+    helper_audit_id = helper.calls[0][2]
+    assert helper_audit_id and helper_audit_id.startswith("audit-helper-")
+    assert helper.audit_seen_before_dispatch is True
+    records = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    attempt = next(record for record in records if record["audit_id"] == helper_audit_id)
+    completion = next(record for record in records if record["provenance"].get("audit_phase") == "completion")
+    assert attempt["command"] == "helper.mouse_action"
+    assert attempt["target"] == "computer_use_helper"
+    assert attempt["ok"] is True
+    assert attempt["args"]["payload"] == {"action": "click", "x": 10, "y": 20}
+    assert attempt["provenance"]["source"] == "computer_use_helper"
+    assert attempt["provenance"]["helper_command"] == "mouse_action"
+    assert attempt["provenance"]["audit_phase"] == "authorized_dispatch"
+    assert completion["ok"] is True
+    assert completion["provenance"]["helper_audit_id"] == helper_audit_id
+
+
 def test_desktop_click_helper_error_fails_closed_without_python_fallback(tmp_path: Path) -> None:
     runner = FakeRunner({(sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "click"}), stderr="")})
     helper = FakeHelperClient(
@@ -179,6 +229,69 @@ def test_desktop_click_helper_error_fails_closed_without_python_fallback(tmp_pat
     assert helper.calls[0][:2] == ("mouse_action", {"action": "click", "x": 10, "y": 20})
     assert helper.calls[0][2] and helper.calls[0][2].startswith("audit-helper-")
     assert not any(command and command[0] == sys.executable for command in runner.commands)
+
+
+def test_desktop_click_helper_failure_writes_failed_actuation_audit_record(tmp_path: Path) -> None:
+    helper = FakeHelperClient(
+        CommandResult(
+            ok=False,
+            data={"performed": False, "action": "click"},
+            errors=[{"code": "helper_unavailable", "message": "helper unavailable", "guidance": "restart helper"}],
+            provenance={"source": "computer_use_helper"},
+        )
+    )
+    observer = CustomerMacObserver(
+        runner=FakeRunner(),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.desktop_click(x=10, y=20, dry_run=False)
+
+    assert result.ok is False
+    helper_audit_id = helper.calls[0][2]
+    records = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    attempt = next(record for record in records if record["audit_id"] == helper_audit_id)
+    completion = next(record for record in records if record["provenance"].get("audit_phase") == "completion")
+    assert attempt["ok"] is True
+    assert attempt["provenance"]["audit_phase"] == "authorized_dispatch"
+    assert completion["ok"] is False
+    assert completion["errors"][0]["code"] == "helper_unavailable"
+    assert completion["provenance"]["helper_audit_id"] == helper_audit_id
+
+
+def test_desktop_click_sensitive_frontmost_blocks_before_helper_audit_or_dispatch(tmp_path: Path) -> None:
+    helper = FakeHelperClient(
+        CommandResult(
+            ok=True,
+            data={"performed": True, "action": "click", "clicked": True},
+            provenance={"source": "computer_use_helper"},
+        )
+    )
+    observer = CustomerMacObserver(
+        runner=FakeRunner(
+            {
+                (
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to get name of first application process whose frontmost is true',
+                ): RunnerResult(returncode=0, stdout="Messages\n", stderr=""),
+            }
+        ),
+        helper_client=helper,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+
+    result = observer.desktop_click(x=10, y=20, dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "sensitive_app_blocked"
+    assert helper.calls == []
+    assert not (tmp_path / "audit.jsonl").exists()
 
 
 def test_desktop_scroll_routes_quartz_fallback_through_helper_without_python_spawn(tmp_path: Path) -> None:

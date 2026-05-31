@@ -32,13 +32,16 @@ def append_audit(
     errors: list[dict[str, Any]],
     provenance: dict[str, Any] | None = None,
     state_dir: Path | None = None,
+    audit_id: str | None = None,
 ) -> str:
-    audit_id = f"audit-{uuid.uuid4().hex}"
+    if audit_id is not None and (not isinstance(audit_id, str) or not audit_id.startswith("audit-")):
+        raise ValueError("audit_id must start with audit-")
+    record_audit_id = audit_id or f"audit-{uuid.uuid4().hex}"
     root = state_dir or default_state_dir()
     root.mkdir(parents=True, exist_ok=True)
     record = {
         "schema_version": SCHEMA_VERSION,
-        "audit_id": audit_id,
+        "audit_id": record_audit_id,
         "timestamp": timestamp_utc(),
         "command": command,
         "target": target,
@@ -50,4 +53,4 @@ def append_audit(
     }
     with (root / "audit.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
-    return audit_id
+    return record_audit_id
