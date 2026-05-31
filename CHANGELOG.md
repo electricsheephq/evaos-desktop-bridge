@@ -7,6 +7,11 @@ All notable repo release changes should be recorded here before a release branch
 - Start the issue #102 Creative Studio implementation slice: Creative Studio is
   now modeled as a brokered `creative_studio` gateway in Workbench instead of an
   external Comfy Cloud link, while remaining feature-flagged and non-bundled.
+- Polish the Codex visible-GUI fallback lane: `codex thread-map` now reports
+  Codex frontmost state and live-send readiness warnings so agents can
+  distinguish a valid read-only map from a GUI send precondition failure.
+- Redact connector-service JSON output before writing it to stdout, matching
+  the existing audit redaction policy for home paths and token-like strings.
 
 ## 0.6.21 - 2026-05-31
 

@@ -33,6 +33,7 @@ def rewrite_audit_timestamp(state_dir: Path, audit_id: str, timestamp: str) -> N
 class FakeObserver:
     mode: str = "ok"
     title_hidden: bool = False
+    codex_frontmost: bool = True
 
     def status(self) -> CommandResult:
         return CommandResult(
@@ -51,7 +52,14 @@ class FakeObserver:
         )
 
     def frontmost(self) -> CommandResult:
-        return CommandResult(ok=True, data={"frontmost_app": "Codex", "window_title": "Codex", "codex_frontmost": True})
+        return CommandResult(
+            ok=True,
+            data={
+                "frontmost_app": "Codex" if self.codex_frontmost else "WorldOSApp",
+                "window_title": "Codex" if self.codex_frontmost else None,
+                "codex_frontmost": self.codex_frontmost,
+            },
+        )
 
     def windows(self) -> CommandResult:
         return CommandResult(ok=True, data={"windows": [{"index": 0, "title": "Codex", "role": "AXWindow", "bounds": {"x": 1, "y": 2, "width": 3, "height": 4}, "codex_frontmost": True}], "count": 1})
@@ -526,6 +534,15 @@ def test_thread_map_json_order_matches_title_hidden_visible_rows(tmp_path: Path)
     assert payload["data"]["matches"][0]["match_reason"] == "visible_order_title_hidden"
 
 
+def test_thread_map_json_reports_frontmost_state_for_visible_send_readiness(tmp_path: Path) -> None:
+    payload = run_cli(["codex", "thread-map", "--json", "--max-items", "5"], FakeObserver(codex_frontmost=False), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    assert payload["data"]["frontmost"]["codex_frontmost"] is False
+    assert payload["data"]["visible_send_ready"] is False
+    assert any("not frontmost" in warning for warning in payload["warnings"])
+
+
 def test_focus_dry_run_does_not_focus_or_require_permission(tmp_path: Path) -> None:
     payload = run_cli(
         ["codex", "focus", "--json", "--dry-run"],
@@ -695,6 +712,44 @@ def test_send_visible_message_accepts_message_file_without_auditing_path_or_raw_
     assert "message" not in records[-1]["args"]
     assert records[-1]["args"]["message_preview"] == "hello from file"
     assert str(message_file) not in (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+
+
+def test_send_visible_message_audit_preview_redacts_secret_like_text(tmp_path: Path) -> None:
+    secret = "please use sk-1234567890abcdef for the check"  # noqa: S105 - intentional redaction fixture
+
+    payload = run_cli(
+        ["codex", "send-visible-message", "--json", "--thread-id", "visible-0-abc", "--message", secret, "--dry-run"],
+        FakeObserver(),
+        tmp_path,
+    )
+
+    assert payload["_exit_code"] == 0
+    audit_log = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    records = [json.loads(line) for line in audit_log.splitlines()]
+    assert "sk-1234567890abcdef" not in audit_log
+    assert records[-1]["args"]["message_preview"] == "please use <redacted-secret> for the check"
+
+
+def test_connector_service_json_output_is_redacted(monkeypatch, tmp_path: Path) -> None:
+    def fake_run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
+        return {
+            "ok": True,
+            "action": action,
+            "token": "Bearer abcdef1234567890",  # noqa: S105 - intentional redaction fixture
+            "path": f"{Path.home()}/Library/secret",
+        }
+
+    monkeypatch.setattr(bridge_cli, "_run_connector_service", fake_run_connector_service)
+
+    output = io.StringIO()
+    exit_code = main(["connector-service", "status", "--json"], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert payload["token"] == "Bearer <redacted-secret>"  # noqa: S105 - expected redacted fixture
+    assert payload["path"] == "~/Library/secret"
+    assert "abcdef1234567890" not in output.getvalue()
+    assert str(Path.home()) not in output.getvalue()
 
 
 def test_focus_permission_error_is_graceful_json(tmp_path: Path) -> None:

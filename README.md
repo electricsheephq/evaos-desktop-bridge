@@ -125,7 +125,7 @@ evaos-desktop-bridge codex thread-map --json --max-items 50
 evaos-desktop-bridge codex inspect --json --max-nodes 120
 ```
 
-These commands read only visible GUI state and read-only app-server summaries. `threads` returns capped visible thread candidates with deterministic `visible_id` values, project/status chips when visible, and selection bounds when available. `thread-map` joins those visible candidates to saved app-server thread summaries by normalized title without treating unmatched rows as errors.
+These commands read only visible GUI state and read-only app-server summaries. `threads` returns capped visible thread candidates with deterministic `visible_id` values, project/status chips when visible, and selection bounds when available. `thread-map` joins those visible candidates to saved app-server thread summaries by normalized title without treating unmatched rows as errors; it also reports Codex frontmost state and `visible_send_ready` so agents can tell whether the map is only evidence or can be followed by a guarded visible send.
 
 ### Guarded Visible Actions
 
