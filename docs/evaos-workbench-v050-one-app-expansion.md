@@ -12,7 +12,7 @@ The v0.5 expansion keeps the first screen operational: customers land in the gat
 | Signed in, normal customer | Gateway list; Providers under Settings when enabled; Session Center under Workspace when enabled | Runtime tabs load broker-issued launch URLs in isolated WebViews; Session Center reads broker/bridge evidence | Runtime errors stay on the affected card/tab and do not hide other gateways |
 | Signed in, admin/support customer switch | Same normal-customer layout plus customer-target switcher in the sidebar footer | Switching customer resets loaded runtime URLs and WebView identity to the selected customer | Wrong-customer cookies are discarded through per-customer non-persistent WebView stores |
 | Existing gateway fallback | OpenClaw, Hermes, Mission Control, OpenDesign, Shared Browser, and Terminal remain direct gateway entries | Existing launch/reconnect/reload/open behavior stays stable regardless of dark-launched surfaces | Feature rollback disables only the new surface; direct gateway launch remains available |
-| Creative Studio enabled | Creative Studio appears in Gateways | Opens the brokered hosted/customer ComfyUI route; the macOS app does not bundle ComfyUI, GPUs, or workflows | Disable the flag to remove the entry without affecting brokered runtimes |
+| Creative Studio enabled | Creative Studio appears in Gateways | Opens the hosted Comfy Cloud workspace; the macOS app does not bundle ComfyUI, GPUs, or workflows | Disable the flag to remove the entry without affecting brokered runtimes |
 
 Surface ownership:
 
@@ -30,7 +30,7 @@ All flags default to `false` and are read from `UserDefaults` on app launch.
 | `providers_hub` | `EvaDesktop.feature.providers_hub` | `VITE_EVAOS_PROVIDERS_HUB` | Off | Workbench + Broker | `#96` | Providers / Settings | Broker provider-profile proof, provider connect/revoke canary, OpenClaw/Hermes grant discovery, rollback runbook | Disable flag and keep existing gateway tabs unchanged | Connect provider accounts once so Eva agents can reuse brokered access without raw secrets in Workbench. |
 | `shared_browser_2` | `EvaDesktop.feature.shared_browser_2` | `VITE_EVAOS_SHARED_BROWSER_2` | Off | Workbench + Dashboard + ws-proxy | `#97` | Shared Browser / Gateway metadata | Runtime-status health proof, KasmVNC/noVNC canary, provider handoff canary, customer rollback proof | Hide enhanced metadata while leaving the base Shared Browser gateway visible | Use one shared VM browser for sign-in, CAPTCHA, and collaborative web tasks. |
 | `session_center` | `EvaDesktop.feature.session_center` | `VITE_EVAOS_SESSION_CENTER` | Off | Workbench + Dashboard | `#100` | Session Center / Workspace | Runtime/session truth, queue/audit/Codex evidence, relaunch restore, dashboard parity, signed-in Workbench canary | Disable flag and keep direct gateway launch paths available | See active Eva sessions, attention states, and where to jump back in. |
-| `creative_studio` | `EvaDesktop.feature.creative_studio` | `VITE_EVAOS_CREATIVE_STUDIO` | Off | Workbench + Creative Studio | `#102` | Creative Studio / Gateways | Hosted ComfyUI path, login/degraded-state proof, support canary, no local GPU dependency | Disable flag and remove Creative Studio from the gateway list | Open the hosted creative workflow studio from Workbench. |
+| `creative_studio` | `EvaDesktop.feature.creative_studio` | `VITE_EVAOS_CREATIVE_STUDIO` | Off | Workbench + Creative Studio | `#102` | Creative Studio / Gateways | Hosted Comfy path, login/embedded-page proof, no local GPU dependency | Disable flag and remove Creative Studio from the gateway list | Open the hosted creative workflow studio from Workbench. |
 
 Enable locally with:
 
@@ -58,7 +58,8 @@ When these are absent, the dashboard routes/sidebar entries remain dark even tho
 
 - Existing gateway runtime order and persistent WebViews are unchanged.
 - Shared Browser remains the existing brokered `browser` runtime; customer-facing copy stays `Shared Browser`, while infrastructure may still use `Live Browser`.
-- Creative Studio is a first-class brokered `creative_studio` runtime. Enabled customers land in the hosted ComfyUI gateway; ComfyUI is not bundled in the macOS app.
+- Creative Studio is a feature-flagged hosted WebView. Enabled customers land on
+  the hosted Comfy Cloud workspace; ComfyUI is not bundled in the macOS app.
 - Providers stores no raw provider secrets in this slice. Connected state requires server-side proof metadata; stale metadata is shown as needing login rather than connected.
 - Session Center is a native dark-launch registry for real gateway state and attention summaries.
 - No `cmux`, `cc-switch`, or ComfyUI dependency is embedded in the macOS app.

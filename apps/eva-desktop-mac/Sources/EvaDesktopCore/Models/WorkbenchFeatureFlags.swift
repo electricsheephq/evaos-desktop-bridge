@@ -76,7 +76,7 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
                 owner: "Workbench + Creative Studio",
                 surface: "Creative Studio",
                 navigationPlacement: "Gateways",
-                rolloutCriteria: "Hosted ComfyUI path, login/degraded-state proof, support canary, no local GPU dependency",
+                rolloutCriteria: "Hosted Comfy path, login/embedded-page proof, no local GPU dependency",
                 rollbackAction: "Disable flag and remove Creative Studio from the gateway list",
                 publicCopy: "Open the hosted creative workflow studio from Workbench."
             )
