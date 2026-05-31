@@ -52,6 +52,7 @@ final class WorkbenchModel: ObservableObject {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
             providerHubStatusText = "Unchecked"
             sharedBrowserStatusText = "Unchecked"
+            loadRecentSessionRecords()
             resetCapabilityManifestState(statusText: "Unchecked", clearCache: true)
             resetApprovalCenterState(statusText: "Unchecked")
             webViewRefreshToken = UUID()
@@ -120,6 +121,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var runtimeStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
     @Published var sessionMissionCards: [WorkbenchMissionCard] = []
     @Published var sessionRecords: [WorkbenchSessionRecord] = []
+    @Published var recentSessionRecords: [WorkbenchSessionRecord] = []
     @Published var sessionCenterStatusText = "Unchecked"
     @Published var isRefreshingSessionCenter = false
     @Published var approvalRequests: [WorkbenchApprovalRequest] = []
@@ -169,6 +171,7 @@ final class WorkbenchModel: ObservableObject {
                 session = nil
             }
         }
+        loadRecentSessionRecords()
     }
 
     var selectedRuntimeDefinition: RuntimeDefinition {
@@ -349,6 +352,7 @@ final class WorkbenchModel: ObservableObject {
                 return
             }
             runtimeURLs[runtime] = response.launchUrl
+            recordRecentLaunch(runtime: runtime, customerId: targetCustomerId)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
             handleBrokerAuthorizationFailure(status, runtime: runtime)
         } catch {
@@ -1024,6 +1028,15 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
+    func reopenRecentSession(_ record: WorkbenchSessionRecord) async {
+        guard let runtime = WorkbenchSessionContract.brokerRuntimeToOpen(for: record) else {
+            return
+        }
+        selectedRuntime = runtime
+        runtimeNavigationRequest = RuntimeNavigationRequest(runtime: runtime)
+        await loadRuntime(runtime, force: true)
+    }
+
     func refreshApprovalCenterState() async {
         guard isSignedIn else {
             resetApprovalCenterState(statusText: "Sign in first")
@@ -1683,6 +1696,7 @@ final class WorkbenchModel: ObservableObject {
         providerProfiles = WorkbenchProviderCatalog.defaultStates
         providerHubStatusText = "Sign in to connect providers."
         providerActionInFlight = nil
+        recentSessionRecords.removeAll()
         lastSignInURL = nil
         sharedBrowserStatusText = "Unchecked"
         sharedBrowserRoomText = "Unavailable"
@@ -1723,6 +1737,7 @@ final class WorkbenchModel: ObservableObject {
         providerProfiles = WorkbenchProviderCatalog.defaultStates
         providerHubStatusText = "Unchecked"
         providerActionInFlight = nil
+        loadRecentSessionRecords()
         resetCapabilityManifestState(statusText: "Unchecked", clearCache: false)
         sharedBrowserStatusText = "Unchecked"
         sharedBrowserRoomText = "Not opened"
@@ -1743,6 +1758,38 @@ final class WorkbenchModel: ObservableObject {
         sessionRecords.removeAll()
         sessionCenterStatusText = statusText
         isRefreshingSessionCenter = false
+    }
+
+    private func loadRecentSessionRecords() {
+        guard isSignedIn else {
+            recentSessionRecords.removeAll()
+            return
+        }
+        let key = WorkbenchRecentLaunchStore.storageKey(customerId: sanitizedCustomerId)
+        let records = WorkbenchRecentLaunchStore.records(
+            from: UserDefaults.standard.data(forKey: key),
+            customerId: sanitizedCustomerId
+        )
+        recentSessionRecords = WorkbenchRecentLaunchStore.sessionRecords(from: records)
+    }
+
+    private func recordRecentLaunch(runtime: RuntimeKey, customerId: String) {
+        guard RuntimeDefinition.isBrokeredRuntime(runtime) else {
+            return
+        }
+        let key = WorkbenchRecentLaunchStore.storageKey(customerId: customerId)
+        let existing = WorkbenchRecentLaunchStore.records(
+            from: UserDefaults.standard.data(forKey: key),
+            customerId: customerId
+        )
+        let record = WorkbenchRecentLaunchRecord(runtime: runtime, customerId: customerId)
+        let merged = WorkbenchRecentLaunchStore.merged(record, into: existing)
+        if let data = try? JSONEncoder().encode(merged) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+        if WorkbenchRecentLaunchStore.sanitizedCustomerId(customerId) == sanitizedCustomerId {
+            recentSessionRecords = WorkbenchRecentLaunchStore.sessionRecords(from: merged)
+        }
     }
 
     private func resetApprovalCenterState(statusText: String) {

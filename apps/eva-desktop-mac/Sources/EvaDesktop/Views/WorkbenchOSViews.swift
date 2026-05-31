@@ -339,6 +339,26 @@ struct SessionCenterView: View {
                 }
             }
 
+            if !model.recentSessionRecords.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Text("Recent launches")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Color.electricSheepPrimaryText)
+                        StatusPill(title: "Metadata only", systemImage: "lock.shield", tint: Color.electricSheepMutedText)
+                    }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+                        ForEach(model.recentSessionRecords) { record in
+                            SessionRecordCard(record: record, systemImage: systemImage(for: record)) {
+                                Task {
+                                    await model.reopenRecentSession(record)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             WorkbenchInfoPanel(
                 title: "Needs Input",
                 systemImage: "bell.badge",
@@ -375,6 +395,9 @@ struct SessionCenterView: View {
 
     private var sessionAttentionSummary: String {
         if model.sessionRecords.isEmpty {
+            if !model.recentSessionRecords.isEmpty {
+                return "Recent launch metadata is available. Refresh Session Center to read current gateway status."
+            }
             return "No broker session state has been loaded yet. Refresh Session Center to read gateway status."
         }
         let attentionCount = model.sessionRecords.filter { $0.attentionState == .needsAttention }.count

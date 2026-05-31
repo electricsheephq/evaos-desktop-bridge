@@ -4,6 +4,10 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the Workbench-side issue #100 recent-launch restore slice: Session Center
+  now keeps customer-scoped runtime metadata only, shows Recent launches, and
+  reopens brokered gateways by minting a fresh broker URL instead of storing or
+  replaying stale launch URLs.
 - Start the issue #102 Creative Studio implementation slice: Creative Studio is
   now modeled as a brokered `creative_studio` gateway in Workbench instead of an
   external Comfy Cloud link, while remaining feature-flagged and non-bundled.
