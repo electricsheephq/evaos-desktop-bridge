@@ -22,6 +22,7 @@ from .connector_server import read_token, run_connector_server
 from .helper_ipc import HelperIpcError, UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
+from .redaction import redact_value
 from .schema import build_envelope, make_error
 from .state import approval_audit_freshness_error, read_audit_record, read_audit_tail, read_control_session, read_latest, write_latest
 from .types import CommandResult
@@ -708,7 +709,7 @@ def main(
 
     if command_id.startswith("connector_service."):
         result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
-        stdout.write(json.dumps(result, sort_keys=True) + "\n")
+        stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         return 0 if result.get("ok") is True else 2
 
     try:
@@ -1000,12 +1001,27 @@ def _build_codex_thread_map(
     app_server: CodexAppServerObserver,
     max_items: int,
 ) -> CommandResult:
+    frontmost_result = observer.frontmost()
+    frontmost_data: dict[str, object] = {}
+    visible_send_ready = False
+    frontmost_warnings: list[str] = []
+    if frontmost_result.ok:
+        frontmost_data = dict(frontmost_result.data)
+        visible_send_ready = frontmost_data.get("codex_frontmost") is True
+        frontmost_warnings.extend(frontmost_result.warnings)
+        if not visible_send_ready:
+            frontmost_warnings.append("Codex Desktop is not frontmost; live visible sends will fail until Codex is focused.")
+    else:
+        frontmost_data = {"codex_frontmost": False, "available": False}
+        frontmost_warnings.extend(frontmost_result.warnings)
+        frontmost_warnings.append("Codex Desktop frontmost state unavailable; live visible sends will fail closed until frontmost state can be verified.")
+
     visible_result = observer.threads(max_items=max_items)
     if not visible_result.ok:
         visible_result.provenance.update({"source": "codex_visible_gui"})
         return visible_result
     app_result = app_server.threads(max_items=max_items)
-    warnings = list(visible_result.warnings)
+    warnings = frontmost_warnings + list(visible_result.warnings)
     app_threads: list[dict[str, object]] = []
     app_server_available = app_result.ok
     if app_result.ok:
@@ -1064,6 +1080,8 @@ def _build_codex_thread_map(
             "unmatched_visible_count": max(0, len(visible_threads) - len(matches)),
             "unmatched_app_server_count": len([thread for thread in app_threads if str(thread.get("id") or "") not in matched_app_ids]),
             "app_server_available": app_server_available,
+            "frontmost": frontmost_data,
+            "visible_send_ready": visible_send_ready,
             "max_items": max_items,
             "source": "codex_visible_gui_app_server_read",
         },
