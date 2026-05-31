@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Fix the Workbench pre-canary helper detection so shell cleanup commands that
+  merely mention `SkyComputerUseClient mcp` are not counted as live Computer Use
+  helpers, and document the safer recovery path when the current Codex tool
+  transport is stale.
+
 ## 0.6.19 - 2026-05-31
 
 - Add issue #207 agent takeover warning: starting a customer Mac control

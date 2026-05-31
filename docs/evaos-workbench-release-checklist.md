@@ -151,6 +151,13 @@ Creative Studio, or Codex visible GUI evidence is trusted. It catches duplicate
 same-bundle-id Workbench apps, translocated old betas, version/build mismatch,
 and stale Computer Use helper herds.
 
+If the stale-helper check fails during an agent-driven canary, do not clean it
+up with a same-thread `pkill` unless you are prepared to restart the Codex tool
+host afterward. Active `SkyComputerUseClient mcp` helpers can be the current
+Computer Use transport. The safer recovery is: stop the visible canary, restart
+Codex or begin a fresh tool-host turn, verify `mcp__computer_use.list_apps`, and
+then run the pre-canary guard again.
+
 ## Dashboard Artifact And Lovable
 
 Use a clean dashboard worktree:
