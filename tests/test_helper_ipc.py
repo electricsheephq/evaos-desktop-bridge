@@ -231,6 +231,32 @@ def test_helper_server_response_write_failure_is_best_effort() -> None:
     assert _send_frame_best_effort(ClosedConnection(), response) is False  # type: ignore[arg-type]
 
 
+def test_helper_server_response_encode_failure_sends_safe_error() -> None:
+    class RecordingConnection:
+        def __init__(self) -> None:
+            self.frame = b""
+
+        def sendall(self, frame: bytes) -> None:
+            self.frame = frame
+
+    connection = RecordingConnection()
+    response = {
+        "schema_version": HELPER_IPC_SCHEMA_VERSION,
+        "request_id": "req",
+        "ok": True,
+        "data": {"oversized": "x" * (HELPER_IPC_MAX_BYTES + 1)},
+        "errors": [],
+        "warnings": [],
+    }
+
+    assert _send_frame_best_effort(connection, response) is True  # type: ignore[arg-type]
+    decoded = decode_frame(connection.frame)
+    assert decoded["ok"] is False
+    assert decoded["request_id"] == "unknown"
+    assert decoded["errors"][0]["code"] == "helper_ipc_server_error"
+    assert "could not be encoded" in decoded["errors"][0]["message"]
+
+
 def test_unix_socket_helper_client_round_trips_ping(tmp_path: Path) -> None:
     token = make_capability_token()
     socket_path = short_socket_path()

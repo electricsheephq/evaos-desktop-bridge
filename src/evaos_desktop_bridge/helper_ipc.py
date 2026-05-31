@@ -364,7 +364,20 @@ def run_helper_server(
 
 def _send_frame_best_effort(connection: socket.socket, response: dict[str, Any]) -> bool:
     try:
-        connection.sendall(encode_frame(response))
+        frame = encode_frame(response)
+    except (HelperIpcError, TypeError, ValueError, OverflowError):
+        try:
+            frame = encode_frame(
+                _error_response(
+                    request=None,
+                    code="helper_ipc_server_error",
+                    message="Helper IPC response could not be encoded.",
+                )
+            )
+        except (HelperIpcError, TypeError, ValueError, OverflowError):
+            return False
+    try:
+        connection.sendall(frame)
         return True
     except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
         return False
