@@ -83,4 +83,5 @@ Until the above engines exist:
 - Session Center stays feature-flagged off by default.
 - Creative Studio stays feature-flagged off by default.
 - Shared Browser remains the single visible browser workspace.
-- Creative Studio can be enabled only as an honest ComfyUI Cloud gateway.
+- Creative Studio can be enabled only as an honest brokered hosted/customer
+  ComfyUI gateway.

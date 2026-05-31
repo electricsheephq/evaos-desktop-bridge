@@ -6,9 +6,9 @@ Issue: `#101`
 
 Creative Studio starts as a hosted ComfyUI route or customer-configured ComfyUI URL. The
 Workbench app opens a brokered `creative_studio` route when the customer is
-enabled, or falls back to the public ComfyUI Cloud entry while the brokered
-route is dark. The macOS app does not bundle ComfyUI, model weights, custom
-nodes, GPU workers, or workflow execution.
+enabled, and shows a clean unavailable state while the brokered route is dark.
+The macOS app does not bundle ComfyUI, model weights, custom nodes, GPU workers,
+or workflow execution.
 
 This keeps the first product slice honest: Creative Studio is the customer's
 creative workflow surface, not a hidden local GPU platform. Local or VM-hosted
@@ -19,11 +19,12 @@ governance, auth, cost, and support recovery have proven paths.
 
 1. A signed-in customer sees Creative Studio only when
    `creative_studio`/`VITE_EVAOS_CREATIVE_STUDIO` is enabled.
-2. Workbench opens the `creative_studio` runtime like the other gateway rows.
-   Enabled customers should receive a brokered hosted or customer-configured
-   ComfyUI URL.
-3. If the broker has no configured URL yet, Workbench uses the documented
-   external ComfyUI Cloud route so the lane is visible but not fake.
+2. Workbench opens the `creative_studio` runtime like the other brokered
+   gateway rows. Enabled customers should receive a brokered hosted or
+   customer-configured ComfyUI URL.
+3. If the broker has no configured URL yet, Workbench and dashboard show the
+   runtime as unavailable/not configured instead of silently jumping to an
+   unrelated public ComfyUI Cloud page.
 4. Comfy handles its own login, workflow canvas, queue state, account recovery,
    and hosted GPU state.
 5. Disabled or unconfigured customers see a clean unavailable/degraded state
@@ -62,8 +63,9 @@ Until then, VM-local ComfyUI is not a release blocker for Creative Studio.
 ## Verification
 
 - `RuntimeKey.creativeStudio` serializes as `creative_studio`.
+- `RuntimeDefinition.isBrokeredRuntime(.creativeStudio)` is true.
 - Creative Studio remains feature-flagged off by default.
-- Workbench copy says hosted ComfyUI/ComfyUI Cloud and does not claim local GPU
+- Workbench copy says brokered/customer ComfyUI and does not claim local GPU
   execution.
 - The macOS app does not embed ComfyUI, GPU workers, model storage, or workflow
   automation.

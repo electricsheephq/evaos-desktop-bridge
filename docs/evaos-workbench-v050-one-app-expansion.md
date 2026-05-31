@@ -12,7 +12,7 @@ The v0.5 expansion keeps the first screen operational: customers land in the gat
 | Signed in, normal customer | Gateway list; Providers under Settings when enabled; Session Center under Workspace when enabled | Runtime tabs load broker-issued launch URLs in isolated WebViews; Session Center reads broker/bridge evidence | Runtime errors stay on the affected card/tab and do not hide other gateways |
 | Signed in, admin/support customer switch | Same normal-customer layout plus customer-target switcher in the sidebar footer | Switching customer resets loaded runtime URLs and WebView identity to the selected customer | Wrong-customer cookies are discarded through per-customer non-persistent WebView stores |
 | Existing gateway fallback | OpenClaw, Hermes, Mission Control, OpenDesign, Shared Browser, and Terminal remain direct gateway entries | Existing launch/reconnect/reload/open behavior stays stable regardless of dark-launched surfaces | Feature rollback disables only the new surface; direct gateway launch remains available |
-| Creative Studio enabled | Creative Studio appears in Gateways | Opens the hosted ComfyUI Cloud route; the macOS app does not bundle ComfyUI, GPUs, or workflows | Disable the flag to remove the entry without affecting brokered runtimes |
+| Creative Studio enabled | Creative Studio appears in Gateways | Opens the brokered hosted/customer ComfyUI route; the macOS app does not bundle ComfyUI, GPUs, or workflows | Disable the flag to remove the entry without affecting brokered runtimes |
 
 Surface ownership:
 

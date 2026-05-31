@@ -4,6 +4,10 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Start the issue #102 Creative Studio implementation slice: Creative Studio is
+  now modeled as a brokered `creative_studio` gateway in Workbench instead of an
+  external Comfy Cloud link, while remaining feature-flagged and non-bundled.
+
 ## 0.6.21 - 2026-05-31
 
 - Add the issue #97/#100 Shared Browser and Session Center sprint slice:
