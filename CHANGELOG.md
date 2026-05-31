@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.20 - 2026-05-31
+
 - Extend the native operator warning sound from a short single beep into an
   explicit multi-second alert loop so live GUI canaries are harder to miss
   before Accessibility or mouse control begins.
