@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Correct the issue #102 Creative Studio product path back to the hosted Comfy
+  web surface: Workbench now loads `https://www.comfy.org/cloud` directly in the
+  Creative Studio runtime WebView and keeps VM-local ComfyUI as future
+  graduation scope instead of a release blocker.
+
 ## 0.6.22 - 2026-06-01
 
 - Add the Workbench-side issue #100 recent-launch restore slice: Session Center
@@ -11,8 +16,8 @@ All notable repo release changes should be recorded here before a release branch
   reopens brokered gateways by minting a fresh broker URL instead of storing or
   replaying stale launch URLs.
 - Start the issue #102 Creative Studio implementation slice: Creative Studio is
-  now modeled as a brokered `creative_studio` gateway in Workbench instead of an
-  external Comfy Cloud link, while remaining feature-flagged and non-bundled.
+  wired behind the feature flag and remains non-bundled while the final hosted
+  product path is validated.
 - Polish the Codex visible-GUI fallback lane: `codex thread-map` now reports
   Codex frontmost state and live-send readiness warnings so agents can
   distinguish a valid read-only map from a GUI send precondition failure.

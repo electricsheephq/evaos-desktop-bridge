@@ -4,9 +4,9 @@ Issue: `#101`
 
 ## ADR: Hosted/configured ComfyUI first
 
-Creative Studio starts as a hosted ComfyUI route or customer-configured ComfyUI URL. The
-Workbench app opens a brokered `creative_studio` route when the customer is
-enabled, and shows a clean unavailable state while the brokered route is dark.
+Creative Studio starts as the hosted Comfy web surface. The Workbench app opens
+`https://www.comfy.org/cloud` inside its runtime WebView, and the dashboard
+Creative Studio page embeds the same hosted site for signed-in users.
 The macOS app does not bundle ComfyUI, model weights, custom nodes, GPU workers,
 or workflow execution.
 
@@ -19,16 +19,14 @@ governance, auth, cost, and support recovery have proven paths.
 
 1. A signed-in customer sees Creative Studio only when
    `creative_studio`/`VITE_EVAOS_CREATIVE_STUDIO` is enabled.
-2. Workbench opens the `creative_studio` runtime like the other brokered
-   gateway rows. Enabled customers should receive a brokered hosted or
-   customer-configured ComfyUI URL.
-3. If the broker has no configured URL yet, Workbench and dashboard show the
-   runtime as unavailable/not configured instead of silently jumping to an
-   unrelated public ComfyUI Cloud page.
+2. Workbench opens the hosted Comfy Cloud page directly inside the Creative
+   Studio runtime view.
+3. The dashboard `/dashboard/creative-studio` route embeds the same hosted page
+   and provides a new-tab escape hatch for browser policies or login flows.
 4. Comfy handles its own login, workflow canvas, queue state, account recovery,
    and hosted GPU state.
-5. Disabled or unconfigured customers see a clean unavailable/degraded state
-   and can recover by configuring a customer ComfyUI URL or disabling the flag.
+5. Disabled customers can hide the feature flag without affecting brokered
+   evaOS runtimes.
 
 ## API Lane
 
@@ -63,11 +61,12 @@ Until then, VM-local ComfyUI is not a release blocker for Creative Studio.
 ## Verification
 
 - `RuntimeKey.creativeStudio` serializes as `creative_studio`.
-- `RuntimeDefinition.isBrokeredRuntime(.creativeStudio)` is true.
+- `RuntimeDefinition.isBrokeredRuntime(.creativeStudio)` is false.
+- `RuntimeDefinition.externalURL(for: .creativeStudio)` is
+  `https://www.comfy.org/cloud`.
 - Creative Studio remains feature-flagged off by default.
-- Workbench copy says brokered/customer ComfyUI and does not claim local GPU
-  execution.
+- Workbench copy says hosted Comfy and does not claim local GPU execution.
 - The macOS app does not embed ComfyUI, GPU workers, model storage, or workflow
   automation.
-- Issue `#102` remains the implementation epic for the real broker/proxy
-  runtime and live ComfyUI canary.
+- Issue `#102` remains the implementation epic for the hosted Creative Studio
+  product surface; VM-local/proxy canaries are future graduation criteria.
