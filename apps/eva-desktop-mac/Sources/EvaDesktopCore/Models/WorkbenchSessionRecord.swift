@@ -55,6 +55,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
     public let lastActor: String
     public let updatedAt: String?
     public let nextAction: String
+    public let details: [String]
     public let resumeRoute: WorkbenchSessionResumeRoute
     public let sourcePointer: String
     public let auditId: String?
@@ -71,6 +72,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         lastActor: String,
         updatedAt: String? = nil,
         nextAction: String,
+        details: [String] = [],
         resumeRoute: WorkbenchSessionResumeRoute,
         sourcePointer: String,
         auditId: String? = nil
@@ -86,6 +88,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         self.lastActor = lastActor
         self.updatedAt = updatedAt
         self.nextAction = nextAction
+        self.details = details
         self.resumeRoute = resumeRoute
         self.sourcePointer = sourcePointer
         self.auditId = auditId
@@ -105,6 +108,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         self.lastActor = try container.decode(String.self, forKey: .lastActor)
         self.updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
         self.nextAction = try container.decodeIfPresent(String.self, forKey: .nextAction) ?? "Review \(title)."
+        self.details = try container.decodeIfPresent([String].self, forKey: .details) ?? []
         self.resumeRoute = try container.decode(WorkbenchSessionResumeRoute.self, forKey: .resumeRoute)
         self.sourcePointer = try container.decode(String.self, forKey: .sourcePointer)
         self.auditId = try container.decodeIfPresent(String.self, forKey: .auditId)
@@ -122,6 +126,7 @@ public struct WorkbenchSessionRecord: Identifiable, Codable, Equatable, Sendable
         case lastActor = "last_actor"
         case updatedAt = "updated_at"
         case nextAction = "next_action"
+        case details
         case resumeRoute = "resume_route"
         case sourcePointer = "source_pointer"
         case auditId = "audit_id"
@@ -148,6 +153,7 @@ public enum WorkbenchSessionContract {
             lastActor: actor(for: surface),
             updatedAt: card.lastUpdate,
             nextAction: card.nextAction,
+            details: card.details,
             resumeRoute: resumeRoute,
             sourcePointer: card.sourcePointer,
             auditId: card.auditId

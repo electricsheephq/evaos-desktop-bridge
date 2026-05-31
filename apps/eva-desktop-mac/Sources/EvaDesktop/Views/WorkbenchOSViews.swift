@@ -823,6 +823,16 @@ private struct SessionRecordCard: View {
                 .font(.callout)
                 .foregroundStyle(Color.electricSheepSecondaryText)
                 .lineLimit(2)
+            if !record.details.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(record.details.prefix(4), id: \.self) { detail in
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(Color.electricSheepSecondaryText)
+                            .lineLimit(1)
+                    }
+                }
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(record.resumeRoute.kind.rawValue)
                 Text(record.sourcePointer)

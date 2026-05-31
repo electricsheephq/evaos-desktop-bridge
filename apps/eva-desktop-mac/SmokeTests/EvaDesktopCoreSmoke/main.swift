@@ -880,6 +880,12 @@ precondition(sidebarSource.contains("Switch customer?"))
 let runtimeDetailSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/RuntimeDetailView.swift", encoding: .utf8)
 precondition(!runtimeDetailSource.contains("CustomerTargetMenu"))
 precondition(runtimeDetailSource.contains("RuntimeWebViewDeck("))
+precondition(runtimeDetailSource.contains("RuntimeStatusStrip"))
+precondition(runtimeDetailSource.contains("model.refreshSelectedRuntimeStatus()"))
+precondition(runtimeDetailSource.contains("model.closeSelectedRuntimeView()"))
+precondition(runtimeDetailSource.contains("Shared Browser status"))
+precondition(runtimeDetailSource.contains("!RuntimeDefinition.isBrokeredRuntime(definition.key)"))
+precondition(runtimeDetailSource.contains("definition.key == .liveBrowser && model.isRefreshingSharedBrowserStatus"))
 let runtimeWebViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/RuntimeWebView.swift", encoding: .utf8)
 precondition(runtimeWebViewSource.contains("private var attached: [RuntimeKey: WKWebView] = [:]"))
 precondition(runtimeWebViewSource.contains("attached[entry.runtime] = webView"))
@@ -908,6 +914,12 @@ precondition(issueCompletionMatrix.contains("`#101` Creative Studio hosted/confi
 precondition(issueCompletionMatrix.contains("docs/creative-studio-hosted-comfyui-design-gate.md"))
 let workbenchModelSource = try String(contentsOfFile: "Sources/EvaDesktop/Services/WorkbenchModel.swift", encoding: .utf8)
 precondition(workbenchModelSource.contains("sessionMissionCards = nextCards"))
+precondition(workbenchModelSource.contains("func refreshSelectedRuntimeStatus() async"))
+precondition(workbenchModelSource.contains("func closeSelectedRuntimeView()"))
+precondition(workbenchModelSource.contains("updateSessionRecord(for: runtime"))
+precondition(workbenchModelSource.contains("let customerSnapshot = sanitizedCustomerId"))
+precondition(workbenchModelSource.contains("guard sanitizedCustomerId == customerSnapshot else { return }"))
+precondition(workbenchModelSource.contains("runtimeErrors = mergedRuntimeErrors"))
 precondition(!workbenchModelSource.contains("NSWorkspace.shared.open(response.connectURL)"))
 precondition(workbenchModelSource.contains("openProviderAuthHandoff(response.connectURL)"))
 precondition(workbenchModelSource.contains("broker.openSharedBrowserURL("))
@@ -1212,13 +1224,13 @@ precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: true, ma
 precondition(WorkbenchSetupCheckSummary.agentAccessText(connectorReady: false, macReady: true, iPhoneReady: false) == "Blocked. Turn on Mac Access and approve Accessibility and Screen Recording.")
 
 let runtimeStatusResponse = """
-{"runtime_key":"browser","display_label":"Shared Browser","status":"enabled","health_summary":"Ready","last_checked_at":"2026-05-23T10:00:00Z","room_id":"room-1","current_url":"https://example.com/path","owner":"golden","auth_needed":false,"captcha_needed":false,"last_activity_at":"2026-05-23T10:01:00Z"}
+{"runtime_key":"browser","display_label":"Shared Browser","status":"enabled","health_summary":"Ready","last_checked_at":"2026-05-23T10:00:00Z","room_id":"room-1","current_url":"https://example.com/path?token=secret#fragment","owner":"golden","auth_needed":false,"captcha_needed":false,"last_activity_at":"2026-05-23T10:01:00Z"}
 """.data(using: .utf8)!
 let decodedRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: runtimeStatusResponse)
 precondition(decodedRuntimeStatus.runtimeKey == .liveBrowser)
 precondition(decodedRuntimeStatus.displayLabel == "Shared Browser")
 precondition(decodedRuntimeStatus.roomId == "room-1")
-precondition(decodedRuntimeStatus.currentUrl == "https://example.com/path")
+precondition(decodedRuntimeStatus.currentUrl == "https://example.com/path?token=secret#fragment")
 let runtimeMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
     definition: RuntimeDefinition.definition(for: .liveBrowser),
     status: decodedRuntimeStatus,
@@ -1227,6 +1239,10 @@ let runtimeMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
 precondition(runtimeMissionCard.id == "runtime-browser")
 precondition(runtimeMissionCard.attentionState == .active)
 precondition(runtimeMissionCard.sourcePointer == "broker:runtime_status:browser")
+precondition(runtimeMissionCard.details.contains("Room: room-1"))
+precondition(runtimeMissionCard.details.contains("Owner: golden"))
+precondition(runtimeMissionCard.details.contains("Current URL: example.com/path"))
+precondition(!runtimeMissionCard.details.joined(separator: " ").contains("token=secret"))
 let runtimeSessionRecord = WorkbenchSessionContract.record(from: runtimeMissionCard, customerId: "david-poku")
 precondition(runtimeSessionRecord.schemaVersion == "evaos.session_center.v1")
 precondition(runtimeSessionRecord.surface == .broker)
@@ -1235,6 +1251,7 @@ precondition(runtimeSessionRecord.customerId == "david-poku")
 precondition(runtimeSessionRecord.attentionState == .active)
 precondition(runtimeSessionRecord.lastActor == "broker")
 precondition(runtimeSessionRecord.nextAction == runtimeMissionCard.nextAction)
+precondition(runtimeSessionRecord.details == runtimeMissionCard.details)
 precondition(runtimeSessionRecord.resumeRoute.kind == .brokerRuntime)
 precondition(runtimeSessionRecord.resumeRoute.runtime == .liveBrowser)
 precondition(runtimeSessionRecord.resumeRoute.targetId == "browser")
@@ -1244,8 +1261,15 @@ sessionRecordEncoder.outputFormatting = [.sortedKeys]
 let encodedRuntimeSessionRecord = try sessionRecordEncoder.encode(runtimeSessionRecord)
 let encodedRuntimeSessionRecordText = String(data: encodedRuntimeSessionRecord, encoding: .utf8)!
 precondition(encodedRuntimeSessionRecordText.contains("\"next_action\""))
+precondition(encodedRuntimeSessionRecordText.contains("\"details\""))
 let decodedRuntimeSessionRecord = try JSONDecoder().decode(WorkbenchSessionRecord.self, from: encodedRuntimeSessionRecord)
 precondition(decodedRuntimeSessionRecord == runtimeSessionRecord)
+let legacyMissionCardJSON = """
+{"id":"runtime-browser","surface":"broker","runtime":"browser","title":"Shared Browser","status":"Loaded","attention_state":"active","last_update":"2026-05-29T16:00:00Z","next_action":"Ready","source_pointer":"broker:runtime_status:browser","audit_id":null}
+""".data(using: .utf8)!
+let legacyMissionCard = try JSONDecoder().decode(WorkbenchMissionCard.self, from: legacyMissionCardJSON)
+precondition(legacyMissionCard.details.isEmpty)
+precondition(legacyMissionCard.sourcePointer == "broker:runtime_status:browser")
 let legacySessionRecordJSON = """
 {"schema_version":"evaos.session_center.v1","id":"runtime-browser","surface":"broker","runtime":"browser","customer_id":"david-poku","title":"Shared Browser","status":"Loaded","attention_state":"active","last_actor":"broker","updated_at":"2026-05-29T16:00:00Z","resume_route":{"kind":"broker_runtime","runtime":"browser","target_id":"browser","source_pointer":"broker:runtime_status:browser"},"source_pointer":"broker:runtime_status:browser","audit_id":null}
 """.data(using: .utf8)!
@@ -1421,6 +1445,10 @@ let sessionContractSource = try String(contentsOfFile: "Sources/EvaDesktopCore/M
 precondition(sessionContractSource.contains("evaos.session_center.v1"))
 precondition(sessionContractSource.contains("brokerRuntime = \"broker_runtime\""))
 precondition(sessionContractSource.contains("nextAction = \"next_action\""))
+precondition(sessionContractSource.contains("details"))
+let sessionContractDocSource = try String(contentsOfFile: "../../docs/session-center-agent-workspace-contract.md", encoding: .utf8)
+precondition(sessionContractDocSource.contains("\"details\""))
+precondition(sessionContractDocSource.contains("must not treat it as an authorization source"))
 precondition(!sessionContractSource.contains("shell"))
 precondition(!sessionContractSource.contains("app-server rpc"))
 precondition(workbenchModelSource.contains("@Published var sessionRecords: [WorkbenchSessionRecord]"))
