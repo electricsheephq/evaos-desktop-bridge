@@ -984,7 +984,7 @@ precondition(releaseScriptSource.contains("""
 precondition(releaseScriptSource.contains("package_release()"))
 precondition(releaseScriptSource.contains("notarize_release()"))
 precondition(releaseScriptSource.contains("Developer ID signed, notarized, and stapled"))
-precondition(releaseScriptSource.contains("Shows per-agent LLM token and dollar usage cards in Providers"))
+precondition(releaseScriptSource.contains("persistent computer-use helper foundation"))
 
 let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.6.15/evaOS-Workbench-0.6.15.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.1.3", build: "1", downloadURL: trustedDownload)

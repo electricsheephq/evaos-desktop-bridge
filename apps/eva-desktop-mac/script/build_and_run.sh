@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Shows per-agent LLM token and dollar usage cards in Providers from broker-proxied usage evidence.</li>
-  <li>Compares active agents against Capability Manifest budget caps and highlights paused or near-cap states.</li>
-  <li>Plans local budget-paused notifications and renders broker budget-pause approval rows with Increase cap and Stop agent actions.</li>
+  <li>Adds the persistent computer-use helper foundation with a local authenticated Unix-socket helper server and client.</li>
+  <li>Uses short macOS-safe helper socket paths, rotates private helper tokens on start, and atomically validates helper token files.</li>
+  <li>Keeps helper actuation narrow and audited: mouse actions require bridge audit provenance, stalled clients time out, and response failures cannot take down the resident helper.</li>
 </ul>
 EOF
 
