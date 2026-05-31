@@ -12,6 +12,7 @@ from typing import Any, Iterable, Sequence
 DEFAULT_CANONICAL_PATH = "/Applications/evaOS.app"
 DEFAULT_BUNDLE_ID = "com.electricsheephq.EvaDesktop"
 DEFAULT_TEAM_ID = "TC6MS3T6NN"
+COMPUTER_USE_CLIENT_SUFFIX = "SkyComputerUseClient mcp"
 
 
 @dataclass(frozen=True)
@@ -335,11 +336,17 @@ def _process_inventory() -> tuple[ProcessInfo, ...]:
             continue
         if "EvaDesktop.app/Contents/MacOS/EvaDesktop" in command or "/evaOS.app/Contents/MacOS/EvaDesktop" in command:
             processes.append(ProcessInfo(pid=pid, command=command, path=_workbench_app_path_from_command(command), kind="workbench"))
-        elif "SkyComputerUseClient" in command and " mcp" in command:
+        elif _is_computer_use_mcp_helper(command):
             processes.append(ProcessInfo(pid=pid, command=command, kind="computer_use_helper"))
         elif "evaos_desktop_bridge.cli serve" in command or "evaos-desktop-bridge serve" in command:
             processes.append(ProcessInfo(pid=pid, command=command, kind="desktop_bridge"))
     return tuple(processes)
+
+
+def _is_computer_use_mcp_helper(command: str) -> bool:
+    # Avoid false positives from shell commands that mention SkyComputerUseClient
+    # while cleaning up or inspecting helpers. Real helpers end with this argv.
+    return command.rstrip().endswith(COMPUTER_USE_CLIENT_SUFFIX)
 
 
 def _workbench_app_path_from_command(command: str) -> str | None:

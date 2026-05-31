@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from evaos_desktop_bridge.pre_canary import AppBundle, ProcessInfo, WorkbenchInventory, evaluate_inventory
+from evaos_desktop_bridge.pre_canary import AppBundle, ProcessInfo, WorkbenchInventory, _is_computer_use_mcp_helper, evaluate_inventory
 
 
 def test_clean_canonical_workbench_inventory_passes() -> None:
@@ -136,3 +136,9 @@ def test_stale_computer_use_helper_herd_fails_with_pids() -> None:
     assert report.ok is False
     failed = {check.code: check for check in report.checks if check.status == "fail"}
     assert failed["stale_computer_use_helpers"].evidence == "3 helpers running: 101, 102, 103"
+
+
+def test_computer_use_helper_detection_ignores_shell_cleanup_commands() -> None:
+    assert _is_computer_use_mcp_helper("./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient mcp")
+    assert not _is_computer_use_mcp_helper("/bin/zsh -c pkill -TERM -f 'SkyComputerUseClient.* mcp' || true")
+    assert not _is_computer_use_mcp_helper("rg SkyComputerUseClient mcp /Users/lume/.codex/log")

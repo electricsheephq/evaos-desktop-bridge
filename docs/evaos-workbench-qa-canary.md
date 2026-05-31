@@ -42,6 +42,13 @@ The guard fails closed when:
 If the guard fails, quarantine or quit the duplicate app/process first. Do not
 collect signed-in canary screenshots from a contaminated environment.
 
+Do not blindly `pkill` `SkyComputerUseClient mcp` helpers from the same Codex
+thread that will run the GUI canary. Those helpers can be the live Computer Use
+transport for the current agent, and killing them can leave subsequent
+`mcp__computer_use` calls with `Transport closed`. If the helper herd check
+fails, prefer a fresh Codex turn/tool-host restart, then re-run a read-only
+Computer Use health check such as `list_apps` before any visible action.
+
 Each run writes:
 
 - `qa-report.json`
