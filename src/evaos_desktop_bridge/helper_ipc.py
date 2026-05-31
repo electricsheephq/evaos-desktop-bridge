@@ -170,7 +170,7 @@ class QuartzMouseActionExecutor:
     @staticmethod
     def _process_name_for_pid(pid: int) -> str | None:
         try:
-            completed = subprocess.run(["ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
+            completed = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
         except Exception:
             return None
         if completed.returncode != 0:
@@ -322,7 +322,7 @@ class AxActionExecutor:
     @staticmethod
     def _process_name_for_pid(pid: int) -> str | None:
         try:
-            completed = subprocess.run(["ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
+            completed = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
         except Exception:
             return None
         if completed.returncode != 0:

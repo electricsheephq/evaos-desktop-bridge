@@ -87,7 +87,7 @@ def frontmost_process_outputs(app_name: str = "Finder", pid: int = 4242, process
     return {
         ("osascript", "-e", FRONTMOST_SCRIPT): RunnerResult(returncode=0, stdout=f"{app_name}\n", stderr=""),
         ("pgrep", "-x", app_name): RunnerResult(returncode=0, stdout=f"{pid}\n", stderr=""),
-        ("ps", "-p", str(pid), "-o", "comm="): RunnerResult(returncode=0, stdout=f"/System/Applications/{process_name}.app/Contents/MacOS/{process_name}\n", stderr=""),
+        ("/bin/ps", "-p", str(pid), "-o", "comm="): RunnerResult(returncode=0, stdout=f"/System/Applications/{process_name}.app/Contents/MacOS/{process_name}\n", stderr=""),
     }
 
 
@@ -1482,7 +1482,7 @@ def test_iphone_live_swipe_uses_internal_gesture_not_generic_coordinates(monkeyp
                 'tell application "System Events" to tell process "iPhone Mirroring" to get {position, size} of front window',
             ): RunnerResult(returncode=0, stdout="100, 200, 300, 700\n", stderr=""),
             ("open", "-a", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="", stderr=""),
-            ("ps", "-p", "123", "-o", "comm="): RunnerResult(returncode=0, stdout="/System/Applications/iPhone Mirroring.app/Contents/MacOS/iPhone Mirroring\n", stderr=""),
+            ("/bin/ps", "-p", "123", "-o", "comm="): RunnerResult(returncode=0, stdout="/System/Applications/iPhone Mirroring.app/Contents/MacOS/iPhone Mirroring\n", stderr=""),
             (sys.executable, "-c"): RunnerResult(returncode=0, stdout=json.dumps({"ok": True, "action": "drag"}), stderr=""),
         }
     )

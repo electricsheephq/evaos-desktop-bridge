@@ -1991,7 +1991,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
     def _process_name_for_pid(self, pid: int | None) -> str | None:
         if type(pid) is not int or pid <= 0:
             return None
-        result = self.runner(["ps", "-p", str(pid), "-o", "comm="], 1.0)
+        result = self.runner(["/bin/ps", "-p", str(pid), "-o", "comm="], 1.0)
         if result.returncode != 0 or not result.stdout.strip():
             return None
         return Path(result.stdout.strip().splitlines()[0]).name
