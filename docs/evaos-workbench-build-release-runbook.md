@@ -16,6 +16,60 @@ For release execution, use the shorter gate checklist in
 `docs/evaos-workbench-customer-install-update.md`. For known broken builds, use
 `docs/evaos-workbench-broken-release-recovery.md`.
 
+## Sprint Cadence
+
+Do not treat every small issue as a full Workbench release. For ordinary
+non-customer-blocking increments, batch two to four related issues into one
+sprint release so code, review, CI, notarization, appcast, dashboard publish,
+live smoke, screenshots, and issue closeout happen once for the batch.
+
+Cut a single-issue release only when the change is customer-blocking,
+safety-critical, security-sensitive, or needed to unblock the next validated
+slice. When in doubt, record the reason in the session notes before starting
+release packaging.
+
+Keep the lanes separate while planning a sprint:
+
+- Codex app-server/process-attachment blockers.
+- Codex visible GUI control.
+- Mac/iPhone foreground control and tuning.
+- OpenClaw plugin policy.
+- Workbench packaging and dashboard publication.
+- OAuth, provider, and customer-account paperwork.
+
+Only combine lanes in one release when a direct dependency requires it.
+
+## Validation Tiers
+
+Use the cheapest validation tier that honestly matches the risk.
+
+- Per PR: focused unit tests, `git diff --check`, and the smallest relevant
+  local smoke. Prefer GitHub Actions for broad or memory-heavy validation.
+- Per sprint release: full Swift/Python/plugin validation, notarization or the
+  documented beta exception, public release metadata, dashboard publish, and
+  live app smoke.
+- Manual GUI canary: only when the change touches GUI actuation, TCC/helper
+  identity, Keychain/session state, or Workbench UI.
+
+Swift CodeQL is a release/security/main/nightly gate, not a loop to repeat for
+every docs or nits push. PRs should keep the fast Swift build/smoke gate; Swift
+CodeQL should run on main, tags/releases, scheduled scans, manual dispatch, or
+Swift-touching security-sensitive changes.
+
+## GUI Canary Window
+
+macOS GUI canaries are sensitive to the live operator environment. Before
+running a GUI actuation or Workbench live smoke:
+
+1. Announce that the bridge will control the mouse/keyboard.
+2. Close, hide, or move noisy apps such as Slack when they can cover the target.
+3. Enable Focus or Do Not Disturb when practical.
+4. Run one scenario, capture screenshots/audit ids, then stop.
+
+If a notification, user interruption, TCC prompt, Keychain prompt, or frontmost
+app change covers the target, classify it as environment noise first. Rerun in
+a clean canary window before treating it as a product regression.
+
 ## Current Customer Release Target
 
 The exact GA-candidate version/build is tracked in the release checklist,
