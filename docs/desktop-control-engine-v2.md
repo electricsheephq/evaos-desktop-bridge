@@ -36,9 +36,10 @@ brew install steipete/tap/peekaboo
 ```
 
 The bridge detects Peekaboo through `customer-mac control status --json` and
-falls back to built-in macOS Accessibility, Quartz, and System Events for core
-actions. Fallback remains intentional, but audit evidence must say whether an
-action ran through `peekaboo`, `quartz`, `system_events`, or `ax_fallback`.
+falls back to built-in macOS Accessibility, the per-process PostToPid helper,
+and System Events for core actions. Fallback remains intentional, but audit
+evidence must say whether an action ran through `peekaboo`,
+`helper_post_to_pid`, `system_events`, or `ax_fallback`.
 
 For `0.4.10`, release parity means the app bundle contains Peekaboo `3.2.2` and
 uses the native command surface first: snapshot element clicks, global

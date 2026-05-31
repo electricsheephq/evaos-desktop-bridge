@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Retire the Tier-2 global HID event fallback for issue #124. Mouse
+  click/scroll/drag helper actuation now requires an audited target process and
+  dispatches through `CGEventPostToPid`, with browser web content treated as
+  inert/escalated rather than falsely successful.
+
 ## 0.6.18 - 2026-05-31
 
 - Add issue #123 Tier-1 AX actuation for fresh desktop snapshot elements:

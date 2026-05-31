@@ -6,11 +6,14 @@ Parents: `#121`, `#129`, `#134`
 This is the local helper seam for moving narrow, high-frequency visible Mac
 actions out of per-action Python subprocesses and into a resident process. It
 starts with the authenticated IPC contract from `#163` and adds the first `#121`
-live route: helper-owned Quartz mouse actions for the existing
+live route: helper-owned per-process mouse actions for the existing
 `customer_mac.desktop_click`/scroll/drag fallback path when explicitly enabled.
 Issue `#123` adds the first semantic Accessibility action lane for native Mac
 controls already present in a fresh desktop snapshot. AX routing is still
 fixed-name only; it is not raw Accessibility passthrough.
+Issue `#124` retires the previous global event-tap fallback: `mouse_action`
+now requires an audited target process identity and posts mouse/scroll events
+with `CGEventPostToPid`.
 Issue `#122` adds the Workbench-owned launch/preflight contract so the beta path
 does not ask customers or test agents to approve a raw Python or terminal TCC
 identity. The helper accepts the Workbench identity only when the claimed
@@ -86,10 +89,12 @@ Example response:
 
 Responses must not echo the capability token.
 
-Mouse action requests are deliberately structured. The bridge sends only the
-action-specific coordinates, scroll direction/amount, or drag endpoints needed
-by the existing Mac fallback primitives. The helper rejects missing audit ids,
-unknown actions, and malformed numeric payloads before touching Quartz.
+Mouse action requests are deliberately structured. The bridge sends only an
+audited target `pid`/`process_name` plus the action-specific coordinates,
+scroll direction/amount, or drag endpoints needed by the existing Mac fallback
+primitives. The helper rejects missing audit ids, missing or stale target
+process identity, browser web-content targets, unknown actions, and malformed
+numeric payloads before posting per-process events.
 
 AX action requests are also deliberately structured. The bridge sends a target
 `pid` plus a semantic role/name/identifier/index path from the latest AX
@@ -142,7 +147,7 @@ If enforced preflight is enabled and macOS reports missing or unknown
 Accessibility/Screen Recording grants, `mouse_action` returns
 `permission_missing` with System Settings deep-links. If the helper was not
 launched by Workbench's signed app identity, it returns
-`helper_identity_unverified`. In both cases no Quartz event is posted.
+`helper_identity_unverified`. In both cases no process event is posted.
 
 ## Safety Boundary
 
@@ -198,11 +203,13 @@ certification.
   for `mouse_action`, and helper-routed desktop click/scroll/drag behavior
   with no per-action Python fallback;
 - helper permission preflight identity/grant reporting, fail-closed
-  `permission_missing`, fail-closed `helper_identity_unverified`, and no Quartz
-  execution when enforced preflight fails.
+  `permission_missing`, fail-closed `helper_identity_unverified`, and no
+  process-event execution when enforced preflight fails.
 - bridge-side helper actuation audit records for both authorized dispatch and
   completion/failure, with the dispatch audit id sent through the helper IPC
   envelope.
 - semantic AX dispatch that requires an audit id, avoids token echo, blocks raw
   AX/web/secure-field bypasses, and routes desktop click/set-value through the
   helper without Python fallback.
+- per-process mouse dispatch that requires target pid/process identity,
+  rejects browser web-content targets as inert, and avoids global event taps.

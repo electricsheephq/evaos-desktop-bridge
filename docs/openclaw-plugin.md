@@ -71,8 +71,8 @@ connector so the agent does not act on an old screen.
 Every live control result includes engine evidence. For `0.4.10`, a healthy
 install should show `engine=peekaboo` for snapshot element clicks, coordinate
 clicks, drags/swipes, menu paths, window actions, and URL opens unless the
-bridge explicitly reports a fallback engine such as `quartz`, `system_events`,
-or `ax_fallback`.
+bridge explicitly reports a fallback engine such as `helper_post_to_pid`,
+`system_events`, or `ax_fallback`.
 
 No plugin tool exposes arbitrary Codex app-server RPCs, hidden shell, session
 database reads, Screen Sharing enablement, public VNC/SSH/CDP, or arbitrary

@@ -53,18 +53,34 @@ class QuartzMouseActionExecutor:
         action = payload.get("action")
         if action not in {"click", "scroll", "drag"}:
             raise HelperIpcError("helper_ipc_bad_payload", "mouse_action requires action click, scroll, or drag.")
+        target = self._target_from_payload(payload)
+        web_content = self._target_path_contains_role(target, "AXWebArea")
+        if web_content:
+            return {
+                "ok": False,
+                "data": {"performed": False, "action": action, "target": self._target_summary(target), "engine": "helper_post_to_pid"},
+                "warnings": [],
+                "errors": [
+                    {
+                        "code": "helper_post_to_pid_web_content_inert",
+                        "message": "CGEventPostToPid events against browser web content are treated as inert and are not reported as success.",
+                        "guidance": "Route browser web content through the browser/Playwright strategy instead of Tier-2 process events.",
+                    }
+                ],
+            }
         try:
             quartz = self._load_quartz()
             source = quartz.CGEventSourceCreate(quartz.kCGEventSourceStateCombinedSessionState)
+            pid = int(target["pid"])
             if action == "click":
                 x = _required_int(payload, "x")
                 y = _required_int(payload, "y")
-                self._post_mouse(quartz, source, quartz.kCGEventMouseMoved, x, y)
-                self._post_mouse(quartz, source, quartz.kCGEventLeftMouseDown, x, y)
-                self._post_mouse(quartz, source, quartz.kCGEventLeftMouseUp, x, y)
+                self._post_mouse(quartz, pid, source, quartz.kCGEventMouseMoved, x, y)
+                self._post_mouse(quartz, pid, source, quartz.kCGEventLeftMouseDown, x, y)
+                self._post_mouse(quartz, pid, source, quartz.kCGEventLeftMouseUp, x, y)
                 return {
                     "ok": True,
-                    "data": {"performed": True, "clicked": True, "action": action, "point": {"x": x, "y": y}, "engine": "helper_quartz"},
+                    "data": {"performed": True, "clicked": True, "action": action, "point": {"x": x, "y": y}, "target": self._target_summary(target), "engine": "helper_post_to_pid"},
                     "warnings": [],
                     "errors": [],
                 }
@@ -80,10 +96,10 @@ class QuartzMouseActionExecutor:
                 else:
                     dy = 0
                 event = quartz.CGEventCreateScrollWheelEvent(source, quartz.kCGScrollEventUnitPixel, 2, dy, dx)
-                quartz.CGEventPost(quartz.kCGHIDEventTap, event)
+                quartz.CGEventPostToPid(pid, event)
                 return {
                     "ok": True,
-                    "data": {"performed": True, "scrolled": True, "action": action, "direction": direction, "amount": amount, "engine": "helper_quartz"},
+                    "data": {"performed": True, "scrolled": True, "action": action, "direction": direction, "amount": amount, "target": self._target_summary(target), "engine": "helper_post_to_pid"},
                     "warnings": [],
                     "errors": [],
                 }
@@ -91,10 +107,10 @@ class QuartzMouseActionExecutor:
             from_y = _required_int(payload, "from_y")
             to_x = _required_int(payload, "to_x")
             to_y = _required_int(payload, "to_y")
-            self._post_mouse(quartz, source, quartz.kCGEventMouseMoved, from_x, from_y)
-            self._post_mouse(quartz, source, quartz.kCGEventLeftMouseDown, from_x, from_y)
-            self._post_mouse(quartz, source, quartz.kCGEventLeftMouseDragged, to_x, to_y)
-            self._post_mouse(quartz, source, quartz.kCGEventLeftMouseUp, to_x, to_y)
+            self._post_mouse(quartz, pid, source, quartz.kCGEventMouseMoved, from_x, from_y)
+            self._post_mouse(quartz, pid, source, quartz.kCGEventLeftMouseDown, from_x, from_y)
+            self._post_mouse(quartz, pid, source, quartz.kCGEventLeftMouseDragged, to_x, to_y)
+            self._post_mouse(quartz, pid, source, quartz.kCGEventLeftMouseUp, to_x, to_y)
             return {
                 "ok": True,
                 "data": {
@@ -103,7 +119,8 @@ class QuartzMouseActionExecutor:
                     "action": action,
                     "from": {"x": from_x, "y": from_y},
                     "to": {"x": to_x, "y": to_y},
-                    "engine": "helper_quartz",
+                    "target": self._target_summary(target),
+                    "engine": "helper_post_to_pid",
                 },
                 "warnings": [],
                 "errors": [],
@@ -131,10 +148,53 @@ class QuartzMouseActionExecutor:
             self._quartz = Quartz
         return self._quartz
 
+    def _target_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        target = payload.get("target")
+        if not isinstance(target, dict):
+            raise HelperIpcError("helper_ipc_bad_payload", "mouse_action requires a target with pid and process_name for per-process posting.")
+        pid = target.get("pid")
+        if type(pid) is not int or pid <= 0:
+            raise HelperIpcError("helper_ipc_bad_payload", "mouse_action target pid must be a positive integer.")
+        process_name = target.get("process_name")
+        if not isinstance(process_name, str) or not process_name.strip():
+            raise HelperIpcError("helper_ipc_bad_payload", "mouse_action target process_name is required.")
+        actual = self._process_name_for_pid(pid)
+        if not actual:
+            raise HelperIpcError("helper_post_to_pid_target_unavailable", "mouse_action target process is not currently running.")
+        expected_base = Path(process_name.strip()).name
+        actual_base = Path(actual).name
+        if actual != process_name.strip() and actual_base != expected_base:
+            raise HelperIpcError("helper_post_to_pid_process_mismatch", "mouse_action target process no longer matches the audited snapshot.")
+        return target
+
     @staticmethod
-    def _post_mouse(quartz: Any, source: Any, kind: int, x: int, y: int) -> None:
+    def _process_name_for_pid(pid: int) -> str | None:
+        try:
+            completed = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
+        except Exception:
+            return None
+        if completed.returncode != 0:
+            return None
+        value = completed.stdout.strip()
+        return value or None
+
+    @staticmethod
+    def _target_path_contains_role(target: dict[str, Any], role: str) -> bool:
+        path = target.get("path")
+        return isinstance(path, list) and any(isinstance(segment, dict) and segment.get("role") == role for segment in path)
+
+    @staticmethod
+    def _target_summary(target: dict[str, Any]) -> dict[str, Any]:
+        path = target.get("path")
+        path_hash = None
+        if isinstance(path, list):
+            path_hash = hashlib.sha256(json.dumps(path, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        return {"pid": target.get("pid"), "path_hash": path_hash}
+
+    @staticmethod
+    def _post_mouse(quartz: Any, pid: int, source: Any, kind: int, x: int, y: int) -> None:
         event = quartz.CGEventCreateMouseEvent(source, kind, (x, y), quartz.kCGMouseButtonLeft)
-        quartz.CGEventPost(quartz.kCGHIDEventTap, event)
+        quartz.CGEventPostToPid(pid, event)
 
 
 class AxActionExecutor:
@@ -262,7 +322,7 @@ class AxActionExecutor:
     @staticmethod
     def _process_name_for_pid(pid: int) -> str | None:
         try:
-            completed = subprocess.run(["ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
+            completed = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=1.0)
         except Exception:
             return None
         if completed.returncode != 0:
