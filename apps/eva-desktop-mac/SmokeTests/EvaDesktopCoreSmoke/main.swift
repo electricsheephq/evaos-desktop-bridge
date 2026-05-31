@@ -1005,10 +1005,9 @@ precondition(releaseScriptSource.contains("""
 precondition(releaseScriptSource.contains("package_release()"))
 precondition(releaseScriptSource.contains("notarize_release()"))
 precondition(releaseScriptSource.contains("Developer ID signed, notarized, and stapled"))
-precondition(releaseScriptSource.contains("multi-second alert loop"))
-precondition(releaseScriptSource.contains("takeover warning audit/session metadata"))
-precondition(releaseScriptSource.contains("stale app launches"))
-precondition(releaseScriptSource.contains("old EvaDesktop.app artifact contamination"))
+precondition(releaseScriptSource.contains("broker-backed Shared Browser status"))
+precondition(releaseScriptSource.contains("without exposing query strings or fragments"))
+precondition(releaseScriptSource.contains("Session Center records synchronized"))
 
 let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.6.21/evaOS-Workbench-0.6.21.zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.6.20", build: "60", downloadURL: trustedDownload)
