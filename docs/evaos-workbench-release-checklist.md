@@ -149,7 +149,16 @@ evaos-workbench-pre-canary \
 The guard must pass before OAuth, provider, Shared Browser, Session Center,
 Creative Studio, or Codex visible GUI evidence is trusted. It catches duplicate
 same-bundle-id Workbench apps, translocated old betas, version/build mismatch,
-and stale Computer Use helper herds.
+old `EvaDesktop.app` artifact bundles under known Lexar canary paths, and stale
+Computer Use helper herds.
+
+For Workbench canaries, never launch or focus by `EvaDesktop` or
+`open -a EvaDesktop`. Use the canonical app path `/Applications/evaOS.app`.
+The running binary is still named `EvaDesktop`, so app-name lookup can otherwise
+select deprecated beta artifacts instead of the installed Workbench.
+Use `EVAOS_CANARY_ARTIFACT_ROOTS` or repeated `--canary-artifact-root PATH` if
+the release machine keeps old Workbench app artifacts outside the default Lexar
+canary roots.
 
 If the stale-helper check fails during an agent-driven canary, do not clean it
 up with a same-thread `pkill` unless you are prepared to restart the Codex tool

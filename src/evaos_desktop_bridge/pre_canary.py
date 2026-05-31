@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -13,6 +14,13 @@ DEFAULT_CANONICAL_PATH = "/Applications/evaOS.app"
 DEFAULT_BUNDLE_ID = "com.electricsheephq.EvaDesktop"
 DEFAULT_TEAM_ID = "TC6MS3T6NN"
 COMPUTER_USE_CLIENT_SUFFIX = "SkyComputerUseClient mcp"
+# Optional developer/canary artifact locations. Missing roots are ignored, and
+# callers can override them with --canary-artifact-root or
+# EVAOS_CANARY_ARTIFACT_ROOTS.
+DEFAULT_ARTIFACT_ROOTS = (
+    "/Volumes/LEXAR/Codex/artifacts",
+    "/Volumes/LEXAR/Codex/evaos-provider-auth-96-canary",
+)
 
 
 @dataclass(frozen=True)
@@ -108,6 +116,15 @@ def evaluate_inventory(
     checks: list[PreCanaryCheck] = []
     canonical = _bundle_by_path(inventory.app_bundles, canonical_path)
     registered_duplicates = tuple(path for path in inventory.registered_paths if path != canonical_path)
+    stale_artifact_bundles = tuple(
+        bundle
+        for bundle in inventory.app_bundles
+        if bundle.path != canonical_path
+        and (
+            bundle.bundle_id == bundle_id
+            or Path(bundle.path).name == "EvaDesktop.app"
+        )
+    )
     running_workbench = tuple(process for process in inventory.processes if process.kind == "workbench")
     running_duplicates = tuple(process for process in running_workbench if process.path != canonical_path)
     translocated = tuple(process for process in running_workbench if "AppTranslocation" in process.command or (process.path and "AppTranslocation" in process.path))
@@ -147,6 +164,15 @@ def evaluate_inventory(
         )
     else:
         checks.append(_pass("registered_workbench_unique", "Only the canonical Workbench app is registered.", canonical_path))
+
+    if stale_artifact_bundles:
+        checks.append(
+            _fail(
+                "stale_workbench_app_bundle_present",
+                "Stale Workbench app bundles can be selected by macOS app-name lookup.",
+                "\n".join(_bundle_evidence(bundle) for bundle in stale_artifact_bundles),
+            )
+        )
 
     canonical_running = tuple(process for process in running_workbench if process.path == canonical_path)
     if not canonical_running:
@@ -199,9 +225,15 @@ def evaluate_inventory(
     return PreCanaryReport(ok=ok, checks=tuple(checks), summary=summary, inventory=inventory)
 
 
-def gather_inventory(*, canonical_path: str = DEFAULT_CANONICAL_PATH, bundle_id: str = DEFAULT_BUNDLE_ID) -> WorkbenchInventory:
+def gather_inventory(
+    *,
+    canonical_path: str = DEFAULT_CANONICAL_PATH,
+    bundle_id: str = DEFAULT_BUNDLE_ID,
+    artifact_roots: Sequence[str] | None = None,
+) -> WorkbenchInventory:
     registered_paths = tuple(_mdfind_bundle_paths(bundle_id))
-    bundle_paths = _unique_paths((*registered_paths, canonical_path))
+    artifact_paths = tuple(_artifact_workbench_bundle_paths(artifact_roots=artifact_roots))
+    bundle_paths = _unique_paths((*registered_paths, *artifact_paths, canonical_path))
     app_bundles = tuple(_read_app_bundle(path) for path in bundle_paths if Path(path).exists())
     processes = tuple(_process_inventory())
     return WorkbenchInventory(registered_paths=registered_paths, app_bundles=app_bundles, processes=processes)
@@ -216,9 +248,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--expected-build")
     parser.add_argument("--expected-team-id", default=DEFAULT_TEAM_ID)
     parser.add_argument("--max-computer-use-helpers", type=int, default=2)
+    parser.add_argument(
+        "--canary-artifact-root",
+        action="append",
+        dest="artifact_roots",
+        help="Optional root to scan for stale EvaDesktop.app canary artifacts. Repeatable; overrides EVAOS_CANARY_ARTIFACT_ROOTS/default roots.",
+    )
     args = parser.parse_args(argv)
 
-    inventory = gather_inventory(canonical_path=args.canonical_path, bundle_id=args.bundle_id)
+    inventory = gather_inventory(canonical_path=args.canonical_path, bundle_id=args.bundle_id, artifact_roots=args.artifact_roots)
     report = evaluate_inventory(
         inventory,
         canonical_path=args.canonical_path,
@@ -294,6 +332,24 @@ def _run(command: Sequence[str]) -> str:
 def _mdfind_bundle_paths(bundle_id: str) -> tuple[str, ...]:
     output = _run(["mdfind", f"kMDItemCFBundleIdentifier == \"{bundle_id}\""])
     return tuple(line.strip() for line in output.splitlines() if line.strip())
+
+
+def _artifact_workbench_bundle_paths(*, artifact_roots: Sequence[str] | None = None) -> tuple[str, ...]:
+    paths: list[str] = []
+    roots = tuple(artifact_roots) if artifact_roots is not None else _artifact_roots_from_environment()
+    for root in roots:
+        if not Path(root).exists():
+            continue
+        output = _run(["find", root, "-maxdepth", "4", "-type", "d", "-name", "EvaDesktop.app", "-prune", "-print"])
+        paths.extend(line.strip() for line in output.splitlines() if line.strip())
+    return tuple(paths)
+
+
+def _artifact_roots_from_environment() -> tuple[str, ...]:
+    raw = os.environ.get("EVAOS_CANARY_ARTIFACT_ROOTS")
+    if not raw:
+        return DEFAULT_ARTIFACT_ROOTS
+    return tuple(part.strip() for part in raw.split(os.pathsep) if part.strip())
 
 
 def _plist_value(app_path: str, key: str) -> str | None:

@@ -1082,6 +1082,77 @@ def test_desktop_focus_app_blocks_sensitive_app_name_before_peekaboo_or_open(mon
     assert not any(command[:2] == ("open", "-a") for command in observer.runner.commands)
 
 
+def test_desktop_focus_workbench_alias_uses_canonical_path_not_app_lookup(monkeypatch, tmp_path: Path) -> None:
+    app = tmp_path / "evaOS.app"
+    app.mkdir()
+    monkeypatch.setattr(customer_mac, "WORKBENCH_CANONICAL_APP_PATH", app)
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/test/peekaboo" if name == "peekaboo" else None)
+    runner = FakeRunner(
+        {
+            ("/test/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            ("open", str(app)): RunnerResult(returncode=0, stdout="", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ): RunnerResult(returncode=0, stdout="EvaDesktop\n", stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
+    observer.control_start(mode="full-access", agent_label="Aurelius")
+
+    result = observer.desktop_focus_app(app_name="EvaDesktop", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["frontmost"] is True
+    assert result.data["engine"] == "macos_open_path"
+    assert result.data["app_path"] == str(app)
+    assert ("open", str(app)) in runner.commands
+    assert not any(command[:3] == ("/test/peekaboo", "app", "switch") for command in runner.commands)
+    assert not any(command[:2] == ("open", "-a") for command in runner.commands)
+
+    dry_run = observer.desktop_focus_app(app_name="EvaDesktop.app", dry_run=True)
+    assert dry_run.ok is True
+    assert dry_run.data["app_path"] == str(app)
+
+
+def test_app_focus_workbench_alias_verifies_process_name_without_stale_lookup(monkeypatch, tmp_path: Path) -> None:
+    app = tmp_path / "evaOS.app"
+    app.mkdir()
+    monkeypatch.setattr(customer_mac, "WORKBENCH_CANONICAL_APP_PATH", app)
+    runner = FakeRunner(
+        {
+            ("open", str(app)): RunnerResult(returncode=0, stdout="", stderr=""),
+            (
+                "osascript",
+                "-e",
+                'tell application "System Events" to get name of first application process whose frontmost is true',
+            ): RunnerResult(returncode=0, stdout="EvaDesktop\n", stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
+
+    result = observer.app_focus(app_name="evaOS Workbench", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["frontmost"] is True
+    assert result.data["engine"] == "macos_open_path"
+    assert ("open", str(app)) in runner.commands
+    assert not any(command[:2] == ("open", "-a") for command in runner.commands)
+
+
+def test_workbench_alias_missing_canonical_app_fails_without_open_a(monkeypatch, tmp_path: Path) -> None:
+    missing_app = tmp_path / "missing-evaOS.app"
+    monkeypatch.setattr(customer_mac, "WORKBENCH_CANONICAL_APP_PATH", missing_app)
+    observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
+
+    result = observer.app_focus(app_name="EvaDesktop", dry_run=False)
+
+    assert result.ok is False
+    assert result.errors[0]["code"] == "workbench_canonical_app_missing"
+    assert not any(command[:2] == ("open", "-a") for command in observer.runner.commands)
+
+
 def test_desktop_type_prefers_peekaboo_paste_for_exact_text(monkeypatch, tmp_path: Path) -> None:
     peekaboo = tmp_path / "peekaboo"
     peekaboo.write_text("#!/bin/sh\n", encoding="utf-8")
