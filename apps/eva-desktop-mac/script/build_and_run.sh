@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds Tier-1 semantic Accessibility actions for fresh desktop snapshot elements through the resident helper.</li>
-  <li>Routes native press, editable-field value setting, selected-text replacement, and menu traversal through fixed audited verbs.</li>
-  <li>Preserves the helper as authenticated dumb hands: no raw AX primitive passthrough, generic shell, AppleScript, session database, or Codex mutation surface.</li>
+  <li>Extends the native operator warning from a short single beep into a multi-second alert loop before live GUI control begins.</li>
+  <li>Records notification, beep-loop, and sound playback availability in the takeover warning audit/session metadata.</li>
+  <li>Hardens Workbench pre-canaries against stale app launches, stale helper-process readings, and old EvaDesktop.app artifact contamination.</li>
 </ul>
 EOF
 
