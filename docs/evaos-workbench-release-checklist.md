@@ -127,6 +127,30 @@ only the Workbench `com.electricsheephq.EvaDesktop.session` and
 `com.electricsheephq.EvaDesktop.capabilities` generic-password items before
 signing in again.
 
+Before signed-in GUI acceptance, run the pre-canary guard from a checkout or
+installed package:
+
+```bash
+PYTHONPATH=src python3 -m evaos_desktop_bridge.pre_canary \
+  --json \
+  --expected-version X.Y.Z \
+  --expected-build N
+```
+
+Installed environments can use:
+
+```bash
+evaos-workbench-pre-canary \
+  --json \
+  --expected-version X.Y.Z \
+  --expected-build N
+```
+
+The guard must pass before OAuth, provider, Shared Browser, Session Center,
+Creative Studio, or Codex visible GUI evidence is trusted. It catches duplicate
+same-bundle-id Workbench apps, translocated old betas, version/build mismatch,
+and stale Computer Use helper herds.
+
 ## Dashboard Artifact And Lovable
 
 Use a clean dashboard worktree:

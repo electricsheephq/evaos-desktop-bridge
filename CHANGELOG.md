@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add an `evaos-workbench-pre-canary` guard for signed-in Workbench acceptance:
+  it verifies the canonical `/Applications/evaOS.app` version/build, detects
+  duplicate same-bundle-id app registrations, flags translocated stale
+  `EvaDesktop.app` processes, and catches stale Computer Use helper herds before
+  OAuth or GUI canary evidence is trusted.
 - Fix Provider/Auth Hub summary priority so a real broker/provider error is
   reported as `Blocked` even when other catalog providers are merely planned or
   unavailable.

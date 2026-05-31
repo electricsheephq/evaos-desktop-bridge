@@ -11,6 +11,37 @@ Run artifacts live under:
 /Volumes/LEXAR/Codex/evaos-workbench-qa-runs/<run-id>/
 ```
 
+## Pre-Canary Guard
+
+Before any signed-in Workbench GUI canary, verify the local Mac will not open a
+stale Workbench build. This is intentionally lightweight and should run before
+manual OAuth, Shared Browser, Session Center, Creative Studio, or Codex visible
+GUI acceptance:
+
+```bash
+PYTHONPATH=src python3 -m evaos_desktop_bridge.pre_canary \
+  --json \
+  --expected-version "<version>" \
+  --expected-build "<build>"
+```
+
+Installed environments can use:
+
+```bash
+evaos-workbench-pre-canary --json --expected-version "<version>" --expected-build "<build>"
+```
+
+The guard fails closed when:
+
+- the canonical `/Applications/evaOS.app` is missing or the wrong version/build;
+- Spotlight registers another app with bundle id
+  `com.electricsheephq.EvaDesktop`;
+- a non-canonical or translocated `EvaDesktop.app` is running;
+- too many `SkyComputerUseClient mcp` helper processes are present.
+
+If the guard fails, quarantine or quit the duplicate app/process first. Do not
+collect signed-in canary screenshots from a contaminated environment.
+
 Each run writes:
 
 - `qa-report.json`
