@@ -4,6 +4,9 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Extend the native operator warning sound from a short single beep into an
+  explicit multi-second alert loop so live GUI canaries are harder to miss
+  before Accessibility or mouse control begins.
 - Extend the Workbench pre-canary stale `EvaDesktop.app` scan to legacy Lexar
   worktree roots after an old `0.1.0` `EvaDesktop.app` was found running beside
   the canonical `/Applications/evaOS.app`.

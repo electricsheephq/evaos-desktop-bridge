@@ -25,6 +25,7 @@ from evaos_desktop_bridge.adapters.codex_app_server import (
 )
 from evaos_desktop_bridge.adapters import codex_app_server as codex_app_server_module
 from evaos_desktop_bridge.adapters.codex_macos import MacOSCodexObserver, RunnerResult
+from evaos_desktop_bridge.adapters.customer_mac import CustomerMacObserver
 from evaos_desktop_bridge.policy import PolicyError, command_metadata, ensure_allowed
 from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
@@ -176,6 +177,34 @@ def test_visible_thread_candidates_filter_controls_and_extract_status_project(tm
     assert threads[0]["center"] == {"x": 140, "y": 138}
     assert threads[1]["updated_label"] == "55m"
     assert all("Archive chat" not in thread["raw_title"] for thread in threads)
+
+
+def test_customer_mac_takeover_warning_uses_multi_second_beep_loop(tmp_path: Path) -> None:
+    calls: list[tuple[list[str], float]] = []
+
+    def runner(command: list[str], timeout: float) -> RunnerResult:
+        calls.append((command, timeout))
+        return RunnerResult(returncode=0, stdout="", stderr="")
+
+    observer = CustomerMacObserver(
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        runner=runner,
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+        helper_client=None,
+    )
+
+    session = {"takeover_warning": {"active": True, "seconds": 10}}
+    observer._emit_takeover_warning(session)
+
+    osascript_calls = [command for command, _timeout in calls if command[:2] == ["osascript", "-e"]]
+    assert any("display notification" in command[2] for command in osascript_calls)
+    audible = next(command[2] for command in osascript_calls if "repeat 6 times" in command[2])
+    assert "delay 0.35" in audible
+    signal_status = session["takeover_alert_signal_status"]
+    assert signal_status["notification"]["available"] is True
+    assert signal_status["beep_loop"]["available"] is True
 
 
 def test_visible_thread_candidates_fallback_to_selection_only_rows_when_titles_hidden(tmp_path: Path) -> None:

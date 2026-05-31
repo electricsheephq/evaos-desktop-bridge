@@ -17,8 +17,8 @@ No public VNC, SSH, CDP, or raw Mac port is exposed.
 
 After `desktop_control_start`, live actuation waits through a 10-second
 operator takeover warning. Workbench displays `Taking over screen in Ns`; the
-bridge also emits a local macOS notification and alert beeps when the session
-starts. The bridge rejects live Accessibility, mouse, keyboard, browser, and
+bridge also emits a local macOS notification and a multi-second alert beep loop
+when the session starts. The bridge rejects live Accessibility, mouse, keyboard, browser, and
 iPhone actions with `control_takeover_warning_active` until the warning expires.
 Status, observation, stop, and kill-switch commands still work during the
 countdown.

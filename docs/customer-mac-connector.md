@@ -35,11 +35,11 @@ must fail before Peekaboo or fallback capture can observe them.
 
 Every new control session starts with a 10-second operator takeover warning.
 Workbench shows `Taking over screen in Ns`; the bridge also emits a local macOS
-notification and alert beeps when the session starts. Bridge/connector
-live-control commands return `control_takeover_warning_active` until the warning
-expires. This gives the operator time to stop typing, dismiss notifications, or
-hit the kill switch before Accessibility, mouse, keyboard, or iPhone actions
-begin. Read-only observation, status, stop, and kill-switch commands remain
+notification and a multi-second alert beep loop when the session starts.
+Bridge/connector live-control commands return `control_takeover_warning_active`
+until the warning expires. This gives the operator time to stop typing, dismiss
+notifications, or hit the kill switch before Accessibility, mouse, keyboard, or
+iPhone actions begin. Read-only observation, status, stop, and kill-switch commands remain
 available during the countdown.
 
 ## Local Connector Server

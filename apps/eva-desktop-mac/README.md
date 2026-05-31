@@ -20,7 +20,8 @@ mutation.
 
 Starting Agent Control triggers a 10-second takeover warning before live
 mouse/keyboard/iPhone actions can run. Workbench shows `Taking over screen in
-Ns`, and the bridge emits a local macOS notification plus alert beeps so an
+Ns`, and the bridge emits a local macOS notification plus a multi-second alert
+beep loop so an
 operator can yield the screen or hit the kill switch before control begins.
 Live actions attempted during this countdown fail closed with
 `control_takeover_warning_active`.
