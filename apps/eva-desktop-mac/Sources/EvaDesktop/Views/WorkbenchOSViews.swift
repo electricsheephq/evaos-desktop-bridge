@@ -442,7 +442,13 @@ struct SessionCenterView: View {
             openApprovals()
         case .browserLoginNeeded:
             jumpToRuntime(.liveBrowser)
-        case .recentWork, .agentRunning, .agentDone, .agentBlocked:
+        case .recentWork:
+            if let runtime = item.resumeRoute.runtime, RuntimeDefinition.isBrokeredRuntime(runtime) {
+                jumpToRuntime(runtime)
+            } else if item.resumeRoute.kind == .evidenceOnly {
+                openConnectedApps()
+            }
+        case .agentRunning, .agentDone, .agentBlocked:
             if let runtime = item.resumeRoute.runtime, RuntimeDefinition.isBrokeredRuntime(runtime) {
                 jumpToRuntime(runtime)
             }
@@ -635,6 +641,11 @@ private struct TodayItemCard: View {
         switch item.kind {
         case .systemAttention:
             return false
+        case .recentWork:
+            if let runtime = item.resumeRoute.runtime {
+                return RuntimeDefinition.isBrokeredRuntime(runtime)
+            }
+            return item.resumeRoute.kind == .evidenceOnly
         default:
             return true
         }
@@ -649,6 +660,9 @@ private struct TodayItemCard: View {
         case .browserLoginNeeded:
             return "Open Browser"
         case .recentWork:
+            if item.resumeRoute.kind == .evidenceOnly {
+                return "Open Apps"
+            }
             return "Resume"
         case .agentRunning, .agentDone, .agentBlocked:
             return "Open Agent"

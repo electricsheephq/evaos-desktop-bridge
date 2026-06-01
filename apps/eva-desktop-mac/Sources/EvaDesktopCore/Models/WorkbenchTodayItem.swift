@@ -239,7 +239,7 @@ public enum WorkbenchTodayItemDeriver {
             return baseItem(
                 record: record,
                 kind: .browserLoginNeeded,
-                title: "Sign in in Business Browser",
+                title: "Sign in to Business Browser",
                 status: .needsInput,
                 nextAction: record.nextAction
             )
