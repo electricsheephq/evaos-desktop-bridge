@@ -9,6 +9,10 @@ All notable repo release changes should be recorded here before a release branch
   browser can take up to a minute to wake after idle, and Session Center points
   inactive browser evidence back to the same start-or-reattach action instead
   of making the state look like an unexplained proxy failure.
+- Clear Shared Browser and Session Center evidence on customer switch so an
+  admin changing customers cannot briefly see the previous customer's room,
+  current URL, runtime status, or session records before the next scoped
+  refresh.
 
 ## 0.6.23 - 2026-06-01
 
