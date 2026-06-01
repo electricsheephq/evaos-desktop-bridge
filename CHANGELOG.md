@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #244 AionUi reference spike: Workbench now includes a native
+  Agent Workspace Preview on Home that demonstrates AionUi-inspired
+  agent/team cards, task launcher cards, assistant source labels, app/tool
+  readiness, and permission badges while explicitly rejecting Electron shell
+  replacement, YOLO defaults, local secret storage, renderer-visible provider
+  keys, and bundled subprocess trust.
 - Add the issue #243 Home/Today V1 slice: Workbench now derives
   `evaos.today_item.v1` cards from connected-app, approval, Business Browser,
   assigned-agent, Company Brain, and recent-work evidence, renders business
