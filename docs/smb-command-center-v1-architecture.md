@@ -374,11 +374,11 @@ store, or trust policy.
 
 Screenshot evidence for the native spike is stored with the sprint artifacts:
 
-- `/Volumes/LEXAR/Codex/evaos-aionui-reference-244/home-agent-workspace-preview.png`
-- `/Volumes/LEXAR/Codex/evaos-aionui-reference-244/home-agent-workspace-preview-cards.png`
+- `docs/screenshots/issue-244/home-agent-workspace-preview.png`
+- `docs/screenshots/issue-244/home-agent-workspace-preview-cards.png`
 
-These screenshots use the prompt-free Agent QA bundle path, not a release
-package or the installed `/Applications/evaOS.app`.
+These screenshots were captured using the prompt-free Agent QA bundle path, not
+a release package or the installed `/Applications/evaOS.app`.
 
 ## ClickClack Reference Boundary
 
