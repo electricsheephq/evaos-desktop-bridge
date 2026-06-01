@@ -498,15 +498,18 @@ def provider_active_profile_payload():
 
 
 def shared_browser_guidance_payload():
+    status = read_json_env("EVAOS_SHARED_BROWSER_STATUS_JSON")
     return scrub_secrets({
         "ok": True,
         "data": {
+            "schema_version": "evaos.browser_status.v1",
             "customer_id": os.environ.get("EVAOS_CUSTOMER_ID"),
+            "business_browser_preferred_for_cloud_web_tasks": True,
             "shared_browser_preferred_for_cloud_web_tasks": True,
-            "instructions": "Use Shared Browser for cloud web tasks that need a persistent VM browser, user auth/CAPTCHA handoff, or human-visible browsing state. Use local Mac browser tools only when the task explicitly needs the customer's Mac browser.",
-            "status": read_json_env("EVAOS_SHARED_BROWSER_STATUS_JSON"),
+            "instructions": "Use Business Browser for cloud web tasks that need a persistent VM browser, user auth/CAPTCHA handoff, or human-visible browsing state. Use local Mac browser tools only when the task explicitly needs the customer's Mac browser.",
+            "status": status,
         },
-        "warnings": [] if os.environ.get("EVAOS_SHARED_BROWSER_STATUS_JSON") else ["Shared Browser live status is not configured in this VM environment yet."],
+        "warnings": [] if status else ["Business Browser live status is not configured in this VM environment yet."],
     })
 
 

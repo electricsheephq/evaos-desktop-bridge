@@ -101,7 +101,8 @@ The VM environment may provide:
 - `EVAOS_PROVIDER_PROFILES_JSON`
 - `EVAOS_PROVIDER_GRANTS_JSON`
 - `EVAOS_ACTIVE_PROVIDER_KEY`
-- `EVAOS_SHARED_BROWSER_STATUS_JSON`
+- `EVAOS_SHARED_BROWSER_STATUS_JSON` using the `evaos.browser_status.v1`
+  Business Browser contract when available
 - `EVAOS_CUSTOMER_ID`
 
 These commands intentionally return `raw_secrets_available: false`. Agents should use `evaosSharedBrowserGuidance` to prefer Business Browser for cloud web tasks that need persistent VM browser state, auth/CAPTCHA handoff, or human-visible browser collaboration.

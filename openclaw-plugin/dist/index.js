@@ -164,10 +164,10 @@ function readOnlyTools() {
                 server_secret_ref: { type: "string", minLength: 16, maxLength: 240 },
             },
         }),
-        tool("evaos_shared_browser_guidance", "Read Shared Browser status/guidance so cloud agents default to the VM browser for web tasks.", "evaosSharedBrowserGuidance"),
+        tool("evaos_shared_browser_guidance", "Read Business Browser status/guidance so cloud agents default to the brokered VM browser for web tasks.", "evaosSharedBrowserGuidance"),
         tool("customer_mac_status", "Read paired customer Mac connector, iPhone Mirroring, and Screen Sharing readiness.", "customerMacStatus"),
         tool("desktop_control_status", "Read the customer-granted Full Access / Ask Permission control session state.", "customerMacControlStatus"),
-        tool("desktop_control_start", "Start a customer-granted agent control session. Full Access allows continuous desktop and iPhone actions without per-action prompts.", "customerMacControlStart", {
+        tool("desktop_control_start", "Start a customer-granted agent control session. Live actions wait for the 10-second operator takeover warning; Full Access then allows continuous desktop and iPhone actions without per-action prompts.", "customerMacControlStart", {
             type: "object",
             additionalProperties: false,
             properties: {

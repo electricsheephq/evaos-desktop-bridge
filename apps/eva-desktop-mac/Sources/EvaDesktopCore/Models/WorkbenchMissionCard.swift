@@ -387,10 +387,11 @@ public enum WorkbenchMissionCardDeriver {
 
     private static func runtimeDetails(status: RuntimeStatusResponse?, fallback: String) -> [String] {
         guard let status else { return [fallback] }
+        let urlSummary = status.currentURLSummary?.displayText ?? safeURLSummary(status.currentUrl)
         return [
             status.roomId.map { "Room: \(capped($0, limit: 80))" },
             status.owner.map { "Owner: \(capped($0, limit: 80))" },
-            safeURLSummary(status.currentUrl).map { "Current URL: \($0)" },
+            urlSummary.map { "Current URL: \($0)" },
             (status.lastActivityAt ?? status.lastCheckedAt).flatMap { isoString($0) }.map { "Last activity: \($0)" },
         ].compactMap { $0 }
     }
