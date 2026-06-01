@@ -912,6 +912,7 @@ let decodedCapabilityFetchWithSummary = try EvaDesktopISO8601.decoder().decode(W
 precondition(decodedCapabilityFetchWithSummary.validatedCacheToken() == manifestJWT)
 precondition(decodedCapabilityFetchWithSummary.brokerSafeSummary?.tools(for: .requiresApproval) == ["gmail.send"])
 precondition(decodedCapabilityFetchWithSummary.brokerSafeSummary?.totalGrantCount == 3)
+precondition(decodedCapabilityFetchWithSummary.agentAssignments == nil)
 
 let assignmentJSON = """
 {
@@ -961,6 +962,24 @@ precondition(decodedAssignment.allowsSurface("business_browser"))
 precondition(!decodedAssignment.allowsSurface("terminal"))
 precondition(decodedAssignment.canUseProviderGrant("grant_google_workspace_sales"))
 precondition(!decodedAssignment.canUseProviderGrant("grant_unassigned_slack"))
+let assignmentAllowedProvider = WorkbenchProviderProfileState(
+    key: .googleWorkspace,
+    title: "Google Workspace",
+    subtitle: "Gmail, Calendar, and Drive",
+    status: .connected,
+    capabilities: ["Gmail"],
+    grantID: "grant_google_workspace_sales"
+)
+let assignmentDeniedProvider = WorkbenchProviderProfileState(
+    key: .slack,
+    title: "Slack",
+    subtitle: "Workspace chat",
+    status: .connected,
+    capabilities: ["Slack"],
+    grantID: "grant_unassigned_slack"
+)
+precondition(decodedAssignment.canUseProviderProfile(assignmentAllowedProvider))
+precondition(!decodedAssignment.canUseProviderProfile(assignmentDeniedProvider))
 precondition(decodedAssignment.canPause(role: .owner))
 precondition(decodedAssignment.canRevoke(role: .admin))
 precondition(!decodedAssignment.canPause(role: .agentOnly))
@@ -973,6 +992,10 @@ precondition(!agentOnlySurfaces.contains("technical_dashboards"))
 precondition(!agentOnlySurfaces.contains("billing"))
 precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessTechnicalDashboards(role: .agentOnly) == false)
 precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessTechnicalDashboards(role: .technicalAdmin) == true)
+precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.liveBrowser, role: .agentOnly, assignment: decodedAssignment))
+precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.creativeStudio, role: .agentOnly, assignment: decodedAssignment))
+precondition(!WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.openclaw, role: .agentOnly, assignment: decodedAssignment))
+precondition(!WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.terminal, role: .agentOnly, assignment: decodedAssignment))
 
 let assignmentFromCapability = WorkbenchAgentAssignment.fromCapabilitySummary(
     verifiedManifest.safeSummary,
@@ -985,6 +1008,7 @@ precondition(assignmentFromCapability.agentID == "email-sorter-2026-05")
 precondition(assignmentFromCapability.agentDisplayName == "Email Sorter")
 precondition(assignmentFromCapability.allowedProviderGrants == ["gmail.read", "gmail.send"])
 precondition(!assignmentFromCapability.canUseProviderGrant("drive.write"))
+precondition(assignmentFromCapability.canUseProviderProfile(assignmentAllowedProvider))
 precondition(assignmentFromCapability.sourcePointer.hasPrefix("dashboard:agent_assignment:assign-"))
 let assignedAgentCards = WorkbenchMissionCardDeriver.assignedAgentCards(from: [decodedAssignment, assignmentFromCapability])
 precondition(assignedAgentCards.count == 2)
@@ -1011,6 +1035,54 @@ let doneAssignmentJSON = String(data: assignmentJSON, encoding: .utf8)!
 let doneAssignment = try EvaDesktopISO8601.decoder().decode(WorkbenchAgentAssignment.self, from: doneAssignmentJSON)
 precondition(doneAssignment.statusText == "Done")
 precondition(doneAssignment.attentionState == .done)
+
+let capabilityFetchWithAssignmentJSON = """
+{
+  "ok": true,
+  "agent_id": "openclaw",
+  "owner_id": "andrew-main",
+  "manifest_jwt": "\(manifestJWT)",
+  "expires_at": "2026-05-30T18:00:00Z",
+  "approval_channel": "evaos://approvals/openclaw",
+  "grant_count": 3,
+  "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 },
+  "safe_summary": {
+    "agent_id": "openclaw",
+    "owner_id": "andrew-main",
+    "expires_at": "2026-05-30T18:00:00Z",
+    "approval_channel": "evaos://approvals/openclaw",
+    "budget": { "tokens_per_day": 200000, "dollars_per_day": 5.0 },
+    "grants": {
+      "allowed": ["gmail.read"],
+      "requires_approval": ["gmail.send"],
+      "denied": ["drive.write"]
+    }
+  },
+  "agent_assignments": [
+    {
+      "schema_version": "evaos.agent_assignment.v1",
+      "assignment_id": "assign-live-1",
+      "customer_account_id": "acct-1",
+      "assigned_user_id": "usr-employee-1",
+      "agent_id": "agent_sales_followup",
+      "agent_display_name": "Sales Follow-up",
+      "runtime": "openclaw",
+      "allowed_provider_grants": ["grant_google_workspace_sales"],
+      "allowed_surfaces": ["today", "business_browser", "creative_studio"],
+      "approval_policy": {"default": "ask", "allow_always_fingerprints": []},
+      "budget": {"daily_usd": 5, "daily_tokens": 200000},
+      "schedule": {"enabled": false},
+      "kill_switch": {"enabled": true, "state": "blocked"},
+      "source_pointer": "dashboard:agent_assignment:assign-live-1",
+      "audit_id": "audit-assignment-live-1"
+    }
+  ]
+}
+""".data(using: .utf8)!
+let decodedCapabilityFetchWithAssignment = try EvaDesktopISO8601.decoder().decode(WorkbenchCapabilityManifestFetchResponse.self, from: capabilityFetchWithAssignmentJSON)
+precondition(decodedCapabilityFetchWithAssignment.validatedCacheToken() == manifestJWT)
+precondition(decodedCapabilityFetchWithAssignment.agentAssignments?.first?.assignmentID == "assign-live-1")
+precondition(decodedCapabilityFetchWithAssignment.agentAssignments?.first?.killSwitch.state == .blocked)
 
 let invalidCapabilityFetchJSON = """
 {
@@ -1160,6 +1232,8 @@ precondition(osViewsSource.contains("Allow Eva"))
 precondition(osViewsSource.contains("WorkbenchSurface(title: \"Home\""))
 precondition(osViewsSource.contains("AgentQuickActionGrid"))
 precondition(osViewsSource.contains("Assigned Agents"))
+precondition(osViewsSource.contains("canOpenConnectedApps: model.canOpenSurface(\"connected_apps\")"))
+precondition(osViewsSource.contains("if record.surface == .assignedAgent"))
 precondition(osViewsSource.contains("Technical activity"))
 precondition(osViewsSource.contains("struct UsageDashboardView"))
 precondition(osViewsSource.contains("model.usageDashboardCards"))
@@ -1172,6 +1246,8 @@ precondition(!sidebarSource.contains("Preview"))
 precondition(!sidebarSource.contains("Shared Browser 2.0"))
 precondition(!sidebarSource.contains("Providers & Auth Hub"))
 precondition(sidebarSource.contains("FeatureSidebarRow(title: \"Connected Apps\""))
+precondition(sidebarSource.contains("model.canOpenSurface(\"connected_apps\")"))
+precondition(sidebarSource.contains("model.canOpenSurface(\"approvals\")"))
 let homeSection = sidebarSource.range(of: "Section(\"Home\")")!
 let workspaceSection = sidebarSource.range(of: "Section(AppBrand.runtimeSectionTitle)")!
 let settingsSection = sidebarSource.range(of: "Section(AppBrand.bridgeSectionTitle)")!
@@ -1226,8 +1302,13 @@ precondition(issueCompletionMatrix.contains("docs/creative-studio-hosted-comfyui
 let workbenchModelSource = try String(contentsOfFile: "Sources/EvaDesktop/Services/WorkbenchModel.swift", encoding: .utf8)
 precondition(workbenchModelSource.contains("sessionMissionCards = nextCards"))
 precondition(workbenchModelSource.contains("@Published var agentAssignments: [WorkbenchAgentAssignment] = []"))
+precondition(workbenchModelSource.contains("var currentAccountRole: WorkbenchAccountRole"))
+precondition(workbenchModelSource.contains("func canOpenSurface(_ surface: String) -> Bool"))
 precondition(workbenchModelSource.contains("WorkbenchAgentAssignment.fromCapabilitySummary"))
+precondition(workbenchModelSource.contains("response.agentAssignments"))
 precondition(workbenchModelSource.contains("WorkbenchMissionCardDeriver.assignedAgentCards"))
+precondition(workbenchModelSource.contains("WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime"))
+precondition(workbenchModelSource.contains("func canUseProvider(_ providerKey: WorkbenchProviderKey) -> Bool"))
 precondition(workbenchModelSource.contains("func refreshSelectedRuntimeStatus() async"))
 precondition(workbenchModelSource.contains("func closeSelectedRuntimeView()"))
 precondition(workbenchModelSource.contains("updateSessionRecord(for: runtime"))

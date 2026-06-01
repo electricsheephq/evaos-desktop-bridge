@@ -191,6 +191,7 @@ public struct WorkbenchCapabilityManifestFetchResponse: Codable, Equatable, Send
     public let grantCount: Int?
     public let budget: WorkbenchCapabilityBudget
     public let safeSummary: WorkbenchCapabilityManifestWireSummary?
+    public let agentAssignments: [WorkbenchAgentAssignment]?
 
     public var brokerSafeSummary: WorkbenchCapabilityManifestSummary? {
         safeSummary?.safeSummary
@@ -221,6 +222,7 @@ public struct WorkbenchCapabilityManifestFetchResponse: Codable, Equatable, Send
         case grantCount = "grant_count"
         case budget
         case safeSummary = "safe_summary"
+        case agentAssignments = "agent_assignments"
     }
 
     private static func isBlank(_ value: String) -> Bool {

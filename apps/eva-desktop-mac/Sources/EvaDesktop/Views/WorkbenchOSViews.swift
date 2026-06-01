@@ -383,6 +383,10 @@ struct SessionCenterView: View {
             }
 
             AgentQuickActionGrid(
+                canOpenConnectedApps: model.canOpenSurface("connected_apps"),
+                canOpenApprovals: model.canOpenSurface("approvals"),
+                canOpenBusinessBrowser: model.canOpenSurface("business_browser"),
+                canOpenCreativeStudio: model.canOpenSurface("creative_studio"),
                 openConnectedApps: openConnectedApps,
                 openApprovals: openApprovals,
                 openBusinessBrowser: {
@@ -567,6 +571,10 @@ struct SessionCenterView: View {
 }
 
 private struct AgentQuickActionGrid: View {
+    let canOpenConnectedApps: Bool
+    let canOpenApprovals: Bool
+    let canOpenBusinessBrowser: Bool
+    let canOpenCreativeStudio: Bool
     let openConnectedApps: () -> Void
     let openApprovals: () -> Void
     let openBusinessBrowser: () -> Void
@@ -574,34 +582,42 @@ private struct AgentQuickActionGrid: View {
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], spacing: 12) {
-            AgentQuickActionCard(
-                title: "Connect work apps",
-                detail: "Set up Gmail, Calendar, Drive, and other business tools Eva can use.",
-                systemImage: "person.badge.key",
-                actionTitle: "Open Apps",
-                action: openConnectedApps
-            )
-            AgentQuickActionCard(
-                title: "Review approvals",
-                detail: "See decisions waiting for you before Eva sends, spends, writes, or controls anything sensitive.",
-                systemImage: "checkmark.shield",
-                actionTitle: "Open Approvals",
-                action: openApprovals
-            )
-            AgentQuickActionCard(
-                title: "Open business browser",
-                detail: "Use the shared browser for sign-ins, CAPTCHA, and web tasks Eva can help with.",
-                systemImage: "globe",
-                actionTitle: "Open Browser",
-                action: openBusinessBrowser
-            )
-            AgentQuickActionCard(
-                title: "Create visuals",
-                detail: "Launch hosted Comfy Cloud for images and video workflows without installing ComfyUI locally.",
-                systemImage: "paintbrush.pointed",
-                actionTitle: "Creative Studio",
-                action: openCreativeStudio
-            )
+            if canOpenConnectedApps {
+                AgentQuickActionCard(
+                    title: "Connect work apps",
+                    detail: "Set up Gmail, Calendar, Drive, and other business tools Eva can use.",
+                    systemImage: "person.badge.key",
+                    actionTitle: "Open Apps",
+                    action: openConnectedApps
+                )
+            }
+            if canOpenApprovals {
+                AgentQuickActionCard(
+                    title: "Review approvals",
+                    detail: "See decisions waiting for you before Eva sends, spends, writes, or controls anything sensitive.",
+                    systemImage: "checkmark.shield",
+                    actionTitle: "Open Approvals",
+                    action: openApprovals
+                )
+            }
+            if canOpenBusinessBrowser {
+                AgentQuickActionCard(
+                    title: "Open business browser",
+                    detail: "Use the shared browser for sign-ins, CAPTCHA, and web tasks Eva can help with.",
+                    systemImage: "globe",
+                    actionTitle: "Open Browser",
+                    action: openBusinessBrowser
+                )
+            }
+            if canOpenCreativeStudio {
+                AgentQuickActionCard(
+                    title: "Create visuals",
+                    detail: "Launch hosted Comfy Cloud for images and video workflows without installing ComfyUI locally.",
+                    systemImage: "paintbrush.pointed",
+                    actionTitle: "Creative Studio",
+                    action: openCreativeStudio
+                )
+            }
         }
     }
 }
@@ -1189,12 +1205,18 @@ private struct SessionRecordCard: View {
     private var displayStatus: String {
         switch record.attentionState {
         case .active:
+            if record.surface == .assignedAgent {
+                return record.status
+            }
             return record.status.lowercased() == "loaded" ? "Loaded" : "Ready"
         case .done:
             return "Done"
         case .idle:
             return record.status.lowercased() == "restorable" ? "Saved" : "Idle"
         case .needsAttention:
+            if record.surface == .assignedAgent {
+                return record.status
+            }
             return "Needs attention"
         case .unknown:
             return "Unknown"

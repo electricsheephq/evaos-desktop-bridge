@@ -178,6 +178,21 @@ public struct WorkbenchAgentAssignment: Identifiable, Codable, Equatable, Sendab
         allowedProviderGrants.contains(Self.normalize(grant))
     }
 
+    public func canUseProviderProfile(_ profile: WorkbenchProviderProfileState) -> Bool {
+        let directIdentifiers = [
+            profile.grantID,
+            profile.grantHandle,
+            profile.sourcePointer,
+            profile.key.rawValue,
+        ].compactMap { $0 }.map(Self.normalize)
+        if directIdentifiers.contains(where: allowedProviderGrants.contains) {
+            return true
+        }
+        return allowedProviderGrants.contains { grant in
+            providerGrantPrefixMatches(profile.key, grant: grant)
+        }
+    }
+
     public func canPause(role: WorkbenchAccountRole) -> Bool {
         WorkbenchAgentAssignmentAccessPolicy.canAdministerAssignments(role: role)
     }
@@ -242,6 +257,35 @@ public struct WorkbenchAgentAssignment: Identifiable, Codable, Equatable, Sendab
 
     private static func normalize(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func providerGrantPrefixMatches(_ key: WorkbenchProviderKey, grant: String) -> Bool {
+        let normalizedGrant = grant.lowercased()
+        switch key {
+        case .googleWorkspace:
+            return normalizedGrant.hasPrefix("gmail.")
+                || normalizedGrant.hasPrefix("calendar.")
+                || normalizedGrant.hasPrefix("drive.")
+                || normalizedGrant.hasPrefix("google_workspace")
+        case .pipedream:
+            return normalizedGrant.hasPrefix("pipedream")
+        case .slack:
+            return normalizedGrant.hasPrefix("slack.")
+        case .notion:
+            return normalizedGrant.hasPrefix("notion.")
+        case .linear:
+            return normalizedGrant.hasPrefix("linear.")
+        case .github:
+            return normalizedGrant.hasPrefix("github.")
+        case .openAICodex:
+            return normalizedGrant.hasPrefix("codex.")
+                || normalizedGrant.hasPrefix("openai_codex")
+        case .openClaw:
+            return normalizedGrant.hasPrefix("openclaw.")
+                || normalizedGrant.hasPrefix("open_claw")
+        case .hermes:
+            return normalizedGrant.hasPrefix("hermes.")
+        }
     }
 
     private static func slug(_ value: String) -> String {
@@ -311,6 +355,29 @@ public enum WorkbenchAgentAssignmentAccessPolicy {
         case .owner, .admin, .technicalAdmin, .support:
             return true
         case .billingAdmin, .manager, .member, .agentOnly:
+            return false
+        }
+    }
+
+    public static func canAccessRuntime(
+        _ runtime: RuntimeKey,
+        role: WorkbenchAccountRole,
+        assignment: WorkbenchAgentAssignment?
+    ) -> Bool {
+        guard role == .agentOnly else {
+            return true
+        }
+        guard let assignment else {
+            return false
+        }
+        switch runtime {
+        case .liveBrowser:
+            return assignment.allowsSurface("business_browser")
+        case .creativeStudio:
+            return assignment.allowsSurface("creative_studio")
+        case .openDesign:
+            return assignment.allowsSurface("open_design")
+        case .openclaw, .hermes, .missionControl, .terminal:
             return false
         }
     }

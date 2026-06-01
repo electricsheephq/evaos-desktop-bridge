@@ -27,7 +27,7 @@ struct SidebarView: View {
                 Label(AppBrand.macAndIPhoneTitle, systemImage: "macbook.and.iphone")
                     .tag(SidebarSelection.bridge)
 
-                if model.featureFlags.isEnabled(.providersHub) {
+                if model.featureFlags.isEnabled(.providersHub), model.canOpenSurface("connected_apps") {
                     FeatureSidebarRow(title: "Connected Apps", systemImage: "person.badge.key")
                         .tag(SidebarSelection.providersHub)
                 }
@@ -122,7 +122,7 @@ struct SidebarView: View {
                 .tag(SidebarSelection.sessionCenter)
         }
 
-        if model.featureFlags.isEnabled(.approvalCenter) {
+        if model.featureFlags.isEnabled(.approvalCenter), model.canOpenSurface("approvals") {
             FeatureSidebarRow(title: "Approvals", systemImage: "checkmark.shield")
                 .tag(SidebarSelection.approvalCenter)
         }
