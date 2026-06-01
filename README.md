@@ -40,6 +40,7 @@ cd apps/eva-desktop-mac
 Architecture and sprint docs:
 
 - [ADR: Eva Desktop Workbench Lives In evaos-desktop-bridge](docs/eva-desktop-workbench-adr.md)
+- [ADR: SMB Command Center V1](docs/smb-command-center-v1-architecture.md)
 - [Eva Desktop Workbench MVP Sprint](docs/eva-desktop-workbench-sprint.md)
 - [Eva Desktop Packaging And Notarization](docs/eva-desktop-packaging.md)
 - [evaOS Workbench Beta Release](docs/evaos-workbench-beta-release.md)
@@ -47,6 +48,7 @@ Architecture and sprint docs:
 - [Desktop Control Engine V2](docs/desktop-control-engine-v2.md)
 - [OpenDesign Workbench Gateway](docs/opendesign-gateway.md)
 - [evaOS Capability Manifest Contract](docs/capability-manifest.md)
+- [Session Center And Agent Workspace Contract](docs/session-center-agent-workspace-contract.md)
 - [evaOS Approval Center Contract](docs/approval-center-contract.md)
 - [Support VM Mac/iPhone/Codex Canary Runbook](docs/support-vm-mac-iphone-codex-canary.md)
 

@@ -4,7 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
-- None yet.
+- Add the SMB Command Center V1 architecture sprint contract: source-of-truth
+  boundaries across Workbench, Dashboard/Supabase, Broker/Cortex, OpenClaw,
+  AionUi, and ClickClack; versioned account-policy, agent-assignment,
+  provider-grant, browser-status, and Today-item contracts; and the issue map
+  for the account-policy / first-agent-loop milestone.
 
 ## 0.6.25 - 2026-06-01
 
