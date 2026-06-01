@@ -364,6 +364,7 @@ struct SessionCenterView: View {
     @ObservedObject var model: WorkbenchModel
     let openConnectedApps: () -> Void
     let openApprovals: () -> Void
+    let openCompanyBrain: () -> Void
     let jumpToRuntime: (RuntimeKey) -> Void
 
     var body: some View {
@@ -405,54 +406,15 @@ struct SessionCenterView: View {
                 lastEvidenceText: latestEvidenceText
             )
 
-            if recordsNeedingAttention.isEmpty {
+            if model.todayItems.isEmpty {
                 WorkbenchInfoPanel(
                     title: "Everything Looks Clear",
                     systemImage: "checkmark.seal",
                     detail: sessionAttentionSummary
                 )
             } else {
-                recordSection(
-                    title: "Needs attention",
-                    subtitle: "Items that need a sign-in, approval, retry, or human review.",
-                    records: recordsNeedingAttention
-                )
-            }
-
-            if !assignedAgentRecords.isEmpty {
-                recordSection(
-                    title: "Assigned Agents",
-                    subtitle: "Agents assigned to this account with their allowed apps, budget, and current state.",
-                    records: assignedAgentRecords
-                )
-            }
-
-            if !gatewayRecords.isEmpty {
-                recordSection(
-                    title: "Workspaces",
-                    subtitle: "Open or resume Eva workspaces for this customer.",
-                    records: gatewayRecords
-                )
-            }
-
-            if !model.recentSessionRecords.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    SessionWorkspaceSectionHeader(
-                        title: "Recent launches",
-                        subtitle: "Shortcuts back to recently opened workspaces.",
-                        status: "Saved",
-                        systemImage: "clock.arrow.circlepath",
-                        tint: Color.electricSheepMutedText
-                    )
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-                        ForEach(model.recentSessionRecords) { record in
-                            SessionRecordCard(record: record, systemImage: systemImage(for: record)) {
-                                Task {
-                                    await model.reopenRecentSession(record)
-                                }
-                            }
-                        }
-                    }
+                TodayItemSection(items: model.todayItems) { item in
+                    openTodayItem(item)
                 }
             }
 
@@ -469,6 +431,31 @@ struct SessionCenterView: View {
                         .font(.headline)
                 }
             }
+        }
+    }
+
+    private func openTodayItem(_ item: WorkbenchTodayItem) {
+        switch item.kind {
+        case .connectedAppNeeded:
+            openConnectedApps()
+        case .approvalNeeded:
+            openApprovals()
+        case .browserLoginNeeded:
+            jumpToRuntime(.liveBrowser)
+        case .recentWork:
+            if let runtime = item.resumeRoute.runtime, RuntimeDefinition.isBrokeredRuntime(runtime) {
+                jumpToRuntime(runtime)
+            } else if item.resumeRoute.kind == .evidenceOnly {
+                openConnectedApps()
+            }
+        case .agentRunning, .agentDone, .agentBlocked:
+            if let runtime = item.resumeRoute.runtime, RuntimeDefinition.isBrokeredRuntime(runtime) {
+                jumpToRuntime(runtime)
+            }
+        case .companyBrainSourceNeeded:
+            openCompanyBrain()
+        case .systemAttention:
+            break
         }
     }
 
@@ -535,7 +522,7 @@ struct SessionCenterView: View {
     }
 
     private var evidenceRecords: [WorkbenchSessionRecord] {
-        model.sessionRecords.filter { ![.broker, .assignedAgent].contains($0.surface) && $0.attentionState != .needsAttention }
+        model.sessionRecords.filter { ![.broker, .assignedAgent, .connectedApps].contains($0.surface) && $0.attentionState != .needsAttention }
     }
 
     private var activeRecordCount: Int {
@@ -567,6 +554,189 @@ struct SessionCenterView: View {
             return "\(attentionCount) sessions need review."
         }
         return "No app, approval, or work item is asking for help right now."
+    }
+}
+
+private struct TodayItemSection: View {
+    let items: [WorkbenchTodayItem]
+    let openItem: (WorkbenchTodayItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SessionWorkspaceSectionHeader(
+                title: "Today",
+                subtitle: "The next useful things Eva needs or has ready for you.",
+                status: "\(items.count)",
+                systemImage: "checklist",
+                tint: Color.electricSheepSuccess
+            )
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
+                ForEach(items) { item in
+                    TodayItemCard(item: item) {
+                        openItem(item)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct TodayItemCard: View {
+    let item: WorkbenchTodayItem
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                    .frame(width: 32, height: 32)
+                    .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title)
+                        .font(.headline)
+                    Text(item.nextAction)
+                        .font(.callout)
+                        .foregroundStyle(Color.electricSheepSecondaryText)
+                        .lineLimit(3)
+                }
+                Spacer()
+                StatusPill(title: statusLabel, systemImage: statusImage, tint: tint)
+            }
+            HStack {
+                Button(action: action) {
+                    Label(actionTitle, systemImage: "arrow.right.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!hasAction)
+                Spacer()
+            }
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(item.technicalDetails, id: \.self) { detail in
+                        Text(detail)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Color.electricSheepMutedText)
+                            .lineLimit(2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+            } label: {
+                Text("Technical details")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.electricSheepMutedText)
+            }
+        }
+        .padding(16)
+        .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tint.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    private var hasAction: Bool {
+        switch item.kind {
+        case .systemAttention:
+            return false
+        case .recentWork:
+            if let runtime = item.resumeRoute.runtime {
+                return RuntimeDefinition.isBrokeredRuntime(runtime)
+            }
+            return item.resumeRoute.kind == .evidenceOnly
+        default:
+            return true
+        }
+    }
+
+    private var actionTitle: String {
+        switch item.kind {
+        case .connectedAppNeeded:
+            return "Open Apps"
+        case .approvalNeeded:
+            return "Review"
+        case .browserLoginNeeded:
+            return "Open Browser"
+        case .recentWork:
+            if item.resumeRoute.kind == .evidenceOnly {
+                return "Open Apps"
+            }
+            return "Resume"
+        case .agentRunning, .agentDone, .agentBlocked:
+            return "Open Agent"
+        case .companyBrainSourceNeeded:
+            return "Open Company Brain"
+        case .systemAttention:
+            return "View Details"
+        }
+    }
+
+    private var systemImage: String {
+        switch item.kind {
+        case .connectedAppNeeded:
+            return "person.badge.key"
+        case .approvalNeeded:
+            return "checkmark.shield"
+        case .browserLoginNeeded:
+            return "globe"
+        case .agentRunning:
+            return "person.crop.circle.badge.checkmark"
+        case .agentDone:
+            return "checkmark.seal"
+        case .agentBlocked:
+            return "exclamationmark.triangle"
+        case .companyBrainSourceNeeded:
+            return "brain"
+        case .recentWork:
+            return "clock.arrow.circlepath"
+        case .systemAttention:
+            return "bell.badge"
+        }
+    }
+
+    private var statusLabel: String {
+        switch item.status {
+        case .needsInput:
+            return "Needs input"
+        case .active:
+            return "Active"
+        case .done:
+            return "Done"
+        case .blocked:
+            return "Blocked"
+        case .idle:
+            return "Saved"
+        case .unavailable:
+            return "Unavailable"
+        }
+    }
+
+    private var statusImage: String {
+        switch item.status {
+        case .needsInput, .blocked, .unavailable:
+            return "exclamationmark.triangle"
+        case .active:
+            return "waveform"
+        case .done:
+            return "checkmark.seal"
+        case .idle:
+            return "clock"
+        }
+    }
+
+    private var tint: Color {
+        switch item.status {
+        case .needsInput, .blocked:
+            return .electricSheepDanger
+        case .active, .done:
+            return .electricSheepSuccess
+        case .idle:
+            return .electricSheepMutedText
+        case .unavailable:
+            return .electricSheepGoldSoft
+        }
     }
 }
 

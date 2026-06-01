@@ -1023,6 +1023,164 @@ precondition(assignedAgentRecord.surface == .assignedAgent)
 precondition(assignedAgentRecord.resumeRoute.kind == .assignedAgent)
 precondition(assignedAgentRecord.lastActor == "agent_assignment")
 precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: assignedAgentRecord) == nil)
+let todayItemJSON = """
+{
+  "schema_version": "evaos.today_item.v1",
+  "id": "today_123",
+  "kind": "connected_app_needed",
+  "title": "Connect Google Workspace",
+  "status": "needs_input",
+  "next_action": "Open Connected Apps and approve Google Workspace access.",
+  "assigned_agent_id": "agent_sales_followup",
+  "assigned_user_id": "usr_123",
+  "source_pointer": "broker:provider_grant:google_workspace",
+  "audit_id": "audit_123",
+  "updated_at": "2026-06-01T00:00:00Z"
+}
+""".data(using: .utf8)!
+let decodedTodayItem = try EvaDesktopISO8601.decoder().decode(WorkbenchTodayItem.self, from: todayItemJSON)
+precondition(decodedTodayItem.schemaVersion == "evaos.today_item.v1")
+precondition(decodedTodayItem.kind == .connectedAppNeeded)
+precondition(decodedTodayItem.status == .needsInput)
+precondition(decodedTodayItem.title == "Connect Google Workspace")
+precondition(decodedTodayItem.technicalDetails.contains("Source: broker:provider_grant:google_workspace"))
+let invalidTodayItemJSON = String(data: todayItemJSON, encoding: .utf8)!
+    .replacingOccurrences(of: "\"schema_version\": \"evaos.today_item.v1\"", with: "\"schema_version\": \"legacy.today_item\"")
+    .data(using: .utf8)!
+do {
+    _ = try EvaDesktopISO8601.decoder().decode(WorkbenchTodayItem.self, from: invalidTodayItemJSON)
+    preconditionFailure("WorkbenchTodayItem must reject unsupported schema versions")
+} catch DecodingError.dataCorrupted {
+    // Expected.
+}
+let providerTodayRecord = WorkbenchSessionContract.record(
+    from: WorkbenchMissionCard(
+        id: "provider-google_workspace",
+        surface: "connected_apps",
+        title: "Google Workspace",
+        status: "Needs login",
+        attentionState: .needsAttention,
+        lastUpdate: "2026-06-01T00:00:00Z",
+        nextAction: "Open Connected Apps and sign in to Google Workspace in the Business Browser.",
+        details: ["Account: sales@example.com"],
+        sourcePointer: "broker:provider_grant:google_workspace",
+        auditId: "audit-provider-1"
+    ),
+    customerId: "acct-1"
+)
+let browserLoginRecord = WorkbenchSessionContract.record(
+    from: WorkbenchMissionCard(
+        id: "runtime-browser",
+        surface: "broker",
+        runtime: .liveBrowser,
+        title: "Business Browser",
+        status: "Needs login",
+        attentionState: .needsAttention,
+        lastUpdate: "2026-06-01T00:05:00Z",
+        nextAction: "Business Browser needs sign-in.",
+        details: ["Current URL: accounts.google.com"],
+        sourcePointer: "broker:runtime_status:browser"
+    ),
+    customerId: "acct-1"
+)
+let assignedAgentTodayItems = WorkbenchTodayItemDeriver.items(
+    from: [providerTodayRecord, browserLoginRecord, assignedAgentRecord],
+    recentRecords: [],
+    limit: 10
+)
+precondition(assignedAgentTodayItems.map(\.kind) == [.connectedAppNeeded, .browserLoginNeeded, .agentRunning])
+precondition(assignedAgentTodayItems[0].title == "Connect Google Workspace")
+precondition(assignedAgentTodayItems[0].status == .needsInput)
+precondition(!assignedAgentTodayItems[0].title.lowercased().contains("provider"))
+precondition(!assignedAgentTodayItems[0].title.lowercased().contains("grant"))
+precondition(assignedAgentTodayItems[1].title == "Sign in to Business Browser")
+precondition(assignedAgentTodayItems[2].title == "Sales Follow-up is running")
+precondition(assignedAgentTodayItems[2].assignedAgentID == "agent_sales_followup")
+precondition(assignedAgentTodayItems[2].assignedUserID == "usr-employee-1")
+precondition(assignedAgentTodayItems[2].resumeRoute.kind == .assignedAgent)
+precondition(assignedAgentTodayItems[2].resumeRoute.runtime == .openclaw)
+let approvalTodayRecord = WorkbenchSessionContract.record(
+    from: WorkbenchMissionCard(
+        id: "queue-approval-1",
+        surface: "queue",
+        title: "Approve Gmail send",
+        status: "approval_needed",
+        attentionState: .needsAttention,
+        lastUpdate: "2026-06-01T00:10:00Z",
+        nextAction: "Review the message before Eva sends it.",
+        details: ["Destination: Gmail to customer@example.com"],
+        sourcePointer: "queue:queue-approval-1",
+        auditId: "audit-approval-1"
+    ),
+    customerId: "acct-1"
+)
+let companyBrainTodayRecord = WorkbenchSessionContract.record(
+    from: WorkbenchMissionCard(
+        id: "company-brain-source-1",
+        surface: "bridge",
+        title: "Company Brain source",
+        status: "needs_source",
+        attentionState: .needsAttention,
+        lastUpdate: "2026-06-01T00:15:00Z",
+        nextAction: "Choose a source before Eva can answer from company memory.",
+        details: ["Source health: missing"],
+        sourcePointer: "broker:company_brain:source:missing",
+        auditId: "audit-company-brain-1"
+    ),
+    customerId: "acct-1"
+)
+let recentBrowserRecord = WorkbenchSessionContract.record(
+    from: WorkbenchMissionCard(
+        id: "recent-business-browser",
+        surface: "broker",
+        runtime: .liveBrowser,
+        title: "Business Browser",
+        status: "Restorable",
+        attentionState: .idle,
+        lastUpdate: "2026-06-01T00:20:00Z",
+        nextAction: "Reopen with a fresh broker session.",
+        details: ["Runtime metadata only"],
+        sourcePointer: "broker:runtime_status:browser"
+    ),
+    customerId: "acct-1"
+)
+let broadTodayItems = WorkbenchTodayItemDeriver.items(
+    from: [approvalTodayRecord, companyBrainTodayRecord],
+    recentRecords: [recentBrowserRecord],
+    limit: 10
+)
+precondition(broadTodayItems.map(\.kind) == [.approvalNeeded, .companyBrainSourceNeeded, .recentWork])
+precondition(broadTodayItems[0].title == "Review an approval request")
+precondition(broadTodayItems[0].status == .needsInput)
+precondition(broadTodayItems[0].resumeRoute.kind == .queueEvent)
+precondition(broadTodayItems[0].technicalDetails.contains("Audit: audit-approval-1"))
+precondition(broadTodayItems[1].title == "Check Company Brain sources")
+precondition(!broadTodayItems[1].title.lowercased().contains("cortex"))
+precondition(broadTodayItems[2].title == "Resume Business Browser")
+precondition(!broadTodayItems[2].nextAction.lowercased().contains("broker"))
+precondition(broadTodayItems[2].resumeRoute.kind == .brokerRuntime)
+precondition(broadTodayItems[2].resumeRoute.runtime == .liveBrowser)
+let connectedAppReadyRecord = WorkbenchSessionContract.record(
+    from: WorkbenchMissionCard(
+        id: "provider-google-ready",
+        surface: "connected_apps",
+        title: "Google Workspace",
+        status: "Connected",
+        attentionState: .active,
+        lastUpdate: "2026-06-01T00:25:00Z",
+        nextAction: "Google Workspace is connected and Eva has an auditable access handle.",
+        details: ["Eva access handle: ready"],
+        sourcePointer: "broker:provider_grant:google_workspace",
+        auditId: "audit-provider-ready-1"
+    ),
+    customerId: "acct-1"
+)
+let connectedAppReadyItems = WorkbenchTodayItemDeriver.items(from: [connectedAppReadyRecord], recentRecords: [])
+precondition(connectedAppReadyItems.count == 1)
+precondition(connectedAppReadyItems[0].title == "Google Workspace is connected")
+precondition(connectedAppReadyItems[0].resumeRoute.kind == .evidenceOnly)
+precondition(!connectedAppReadyItems[0].nextAction.lowercased().contains("auditable"))
+precondition(!connectedAppReadyItems[0].nextAction.lowercased().contains("access handle"))
 let blockedAssignmentJSON = String(data: assignmentJSON, encoding: .utf8)!
     .replacingOccurrences(of: "\"state\": \"running\"", with: "\"state\": \"blocked\"")
     .data(using: .utf8)!
@@ -1203,6 +1361,7 @@ precondition(contentViewSource.contains("@State private var sidebarSelection: Si
 precondition(contentViewSource.contains("bootstrap(loadInitialRuntime: shouldLoadInitialRuntime)"))
 precondition(contentViewSource.contains("sidebarSelection = .runtime(request.runtime)"))
 precondition(contentViewSource.contains("case .approvalCenter"))
+precondition(contentViewSource.contains("openCompanyBrain"))
 precondition(contentViewSource.contains("model.setApprovalCenterVisible"))
 precondition(contentViewSource.contains("model.startApprovalCenterPolling()"))
 let osViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
@@ -1231,9 +1390,12 @@ precondition(!osViewsSource.contains("OpenClaw Grant"))
 precondition(osViewsSource.contains("Allow Eva"))
 precondition(osViewsSource.contains("WorkbenchSurface(title: \"Home\""))
 precondition(osViewsSource.contains("AgentQuickActionGrid"))
-precondition(osViewsSource.contains("Assigned Agents"))
+precondition(osViewsSource.contains("TodayItemSection(items: model.todayItems)"))
+precondition(osViewsSource.contains("struct TodayItemCard"))
+precondition(osViewsSource.contains("item.resumeRoute.kind == .evidenceOnly"))
+precondition(osViewsSource.contains("return \"Open Apps\""))
+precondition(osViewsSource.contains("Technical details"))
 precondition(osViewsSource.contains("canOpenConnectedApps: model.canOpenSurface(\"connected_apps\")"))
-precondition(osViewsSource.contains("if record.surface == .assignedAgent"))
 precondition(osViewsSource.contains("Technical activity"))
 precondition(osViewsSource.contains("struct UsageDashboardView"))
 precondition(osViewsSource.contains("model.usageDashboardCards"))
@@ -1303,6 +1465,10 @@ let workbenchModelSource = try String(contentsOfFile: "Sources/EvaDesktop/Servic
 precondition(workbenchModelSource.contains("sessionMissionCards = nextCards"))
 precondition(workbenchModelSource.contains("@Published var agentAssignments: [WorkbenchAgentAssignment] = []"))
 precondition(workbenchModelSource.contains("var currentAccountRole: WorkbenchAccountRole"))
+precondition(workbenchModelSource.contains("var todayItems: [WorkbenchTodayItem]"))
+precondition(workbenchModelSource.contains("func openCompanyBrainDashboard()"))
+precondition(workbenchModelSource.contains("companyBrainDashboardURL()"))
+precondition(workbenchModelSource.contains("\"dashboard/company-brain\""))
 precondition(workbenchModelSource.contains("func canOpenSurface(_ surface: String) -> Bool"))
 precondition(workbenchModelSource.contains("WorkbenchAgentAssignment.fromCapabilitySummary"))
 precondition(workbenchModelSource.contains("response.agentAssignments"))
@@ -1992,12 +2158,12 @@ precondition(customerObserverSource.contains("resetSessionCenterState(statusText
 let workbenchOSViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
 precondition(workbenchOSViewsSource.contains("WorkbenchSurface(title: \"Home\""))
 precondition(workbenchOSViewsSource.contains("recordsNeedingAttention"))
-precondition(workbenchOSViewsSource.contains("Recent launches"))
+precondition(workbenchOSViewsSource.contains("TodayItemSection(items: model.todayItems)"))
 precondition(workbenchOSViewsSource.contains("Technical activity"))
 precondition(!workbenchOSViewsSource.contains("Metadata only"))
 precondition(workbenchOSViewsSource.contains("Needs Your Okay"))
-precondition(workbenchOSViewsSource.contains("ForEach(model.recentSessionRecords)"))
-precondition(workbenchOSViewsSource.contains("model.reopenRecentSession"))
+precondition(workbenchOSViewsSource.contains("struct TodayItemCard"))
+precondition(workbenchOSViewsSource.contains("Technical details"))
 precondition(workbenchOSViewsSource.contains("WorkbenchSessionContract.brokerRuntimeToOpen"))
 let sessionContractDoc = try String(contentsOfFile: "../../docs/session-center-agent-workspace-contract.md", encoding: .utf8)
 precondition(sessionContractDoc.contains("Canonical Session Record"))

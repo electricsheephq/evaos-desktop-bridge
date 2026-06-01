@@ -42,7 +42,8 @@ Fields:
 
 - `schema_version`: stable contract version for Workbench/dashboard parsing.
 - `id`: deterministic per evidence source. It should be stable enough for UI diffing, not a secret.
-- `surface`: one of `broker`, `queue`, `audit`, `codex`, `bridge`, or `unknown`.
+- `surface`: one of `broker`, `queue`, `audit`, `codex`, `bridge`,
+  `connected_apps`, `assigned_agent`, or `unknown`.
 - `runtime`: brokered runtime key when the record maps to an existing Workbench runtime.
 - `customer_id`: sanitized customer/target id when known by the surface.
 - `title`: concise display label.
@@ -56,7 +57,14 @@ Fields:
 - `source_pointer`: provenance pointer that a support agent can use to fetch the source evidence.
 - `audit_id`: bridge audit id when one exists.
 
-Surface and actor names are related but not interchangeable. `surface` names the record family; `last_actor` names the producing component. In v1, `queue` means Desktop Bridge announcement queue evidence and maps to `last_actor = bridge_queue`; `bridge` means bridge-service failure or fallback evidence and maps to `last_actor = desktop_bridge`; `audit` maps to `desktop_bridge`; `broker` maps to `broker`; `codex` maps to `codex_app_server`.
+Surface and actor names are related but not interchangeable. `surface` names
+the record family; `last_actor` names the producing component. In v1, `queue`
+means Desktop Bridge announcement queue evidence and maps to
+`last_actor = bridge_queue`; `bridge` means bridge-service failure or fallback
+evidence and maps to `last_actor = desktop_bridge`; `audit` maps to
+`desktop_bridge`; `broker` maps to `broker`; `codex` maps to
+`codex_app_server`; `connected_apps` maps to `connected_apps`; and
+`assigned_agent` maps to `agent_assignment`.
 
 Resume route kinds are exhaustive for `evaos.session_center.v1`:
 
