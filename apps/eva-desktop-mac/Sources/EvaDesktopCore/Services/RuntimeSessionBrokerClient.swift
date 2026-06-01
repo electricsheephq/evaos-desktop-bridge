@@ -113,6 +113,18 @@ public struct RuntimeSessionBrokerClient: Sendable {
         )
     }
 
+    @discardableResult
+    public func stopSharedBrowser(
+        customerId: String,
+        desktopSession: DesktopSession?
+    ) async throws -> SharedBrowserStopResponse {
+        try await post(
+            SharedBrowserStopRequest(customerId: customerId),
+            desktopSession: desktopSession,
+            decoder: JSONDecoder()
+        )
+    }
+
     public func switchProvider(
         _ providerKey: WorkbenchProviderKey,
         customerId: String,

@@ -56,6 +56,7 @@ final class WorkbenchModel: ObservableObject {
             sharedBrowserCurrentURLText = "Unavailable"
             sharedBrowserLastActivityText = "Not checked"
             isRefreshingSharedBrowserStatus = false
+            isStoppingSharedBrowser = false
             loadRecentSessionRecords()
             resetSessionCenterState(statusText: "Unchecked")
             resetCapabilityManifestState(statusText: "Unchecked", clearCache: true)
@@ -123,6 +124,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var sharedBrowserCurrentURLText = "Unavailable"
     @Published var sharedBrowserLastActivityText = "Not checked"
     @Published var isRefreshingSharedBrowserStatus = false
+    @Published var isStoppingSharedBrowser = false
     @Published var runtimeStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
     @Published var sessionMissionCards: [WorkbenchMissionCard] = []
     @Published var sessionRecords: [WorkbenchSessionRecord] = []
@@ -305,6 +307,45 @@ final class WorkbenchModel: ObservableObject {
         }
         updateSessionRecord(for: runtime, status: runtimeStatuses[runtime], error: runtimeErrors[runtime])
         webViewRefreshToken = UUID()
+    }
+
+    func stopSharedBrowserSession() async {
+        let runtime = RuntimeKey.liveBrowser
+        let customerSnapshot = sanitizedCustomerId
+        guard isSignedIn else {
+            sharedBrowserStatusText = "Sign in first"
+            return
+        }
+        guard !isStoppingSharedBrowser else { return }
+        isStoppingSharedBrowser = true
+        defer { isStoppingSharedBrowser = false }
+        do {
+            _ = try await broker.stopSharedBrowser(
+                customerId: customerSnapshot,
+                desktopSession: session
+            )
+            guard sanitizedCustomerId == customerSnapshot else { return }
+            resetRuntime(runtime)
+            webViews.reset(runtime: runtime, customerId: customerSnapshot)
+            runtimeStatuses[runtime] = nil
+            runtimeErrors[runtime] = nil
+            sharedBrowserStatusText = "Stopped"
+            sharedBrowserRoomText = "Stopped at broker"
+            sharedBrowserCurrentURLText = "Unavailable"
+            sharedBrowserLastActivityText = "Refresh status before reopening"
+            updateSessionRecord(for: runtime, status: nil, error: nil)
+            webViewRefreshToken = UUID()
+        } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
+            guard sanitizedCustomerId == customerSnapshot else { return }
+            clearLocalSessionState(allowKeychainInteraction: false)
+            sharedBrowserStatusText = "Session expired"
+        } catch {
+            guard sanitizedCustomerId == customerSnapshot else { return }
+            runtimeErrors[runtime] = error.localizedDescription
+            sharedBrowserStatusText = "Stop failed"
+            sharedBrowserLastActivityText = error.localizedDescription
+            updateSessionRecord(for: runtime, status: nil, error: error.localizedDescription)
+        }
     }
 
     func loadRuntime(_ runtime: RuntimeKey, force: Bool = false) async {
@@ -1708,6 +1749,7 @@ final class WorkbenchModel: ObservableObject {
         sharedBrowserCurrentURLText = "Unavailable"
         sharedBrowserLastActivityText = "Not checked"
         isRefreshingSharedBrowserStatus = false
+        isStoppingSharedBrowser = false
         pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
         deviceCodeInput = ""
         deviceCodeStatusText = "Press Sign In to open the ElectricSheep login page. Backup codes must come from the browser page."
@@ -1749,6 +1791,7 @@ final class WorkbenchModel: ObservableObject {
         sharedBrowserCurrentURLText = "Unavailable"
         sharedBrowserLastActivityText = "Not checked"
         isRefreshingSharedBrowserStatus = false
+        isStoppingSharedBrowser = false
         webViews.reset()
         loadingRuntimes.removeAll()
         loadingRuntimePages.removeAll()

@@ -124,6 +124,17 @@ private struct RuntimeToolbar: View {
             }
             .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key) || model.runtimeURLs[definition.key] == nil)
 
+            if definition.key == .liveBrowser {
+                Button {
+                    Task {
+                        await model.stopSharedBrowserSession()
+                    }
+                } label: {
+                    Label(model.isStoppingSharedBrowser ? "Stopping" : "Stop Browser", systemImage: "power")
+                }
+                .disabled(!model.isSignedIn || !model.isRuntimeAvailable(definition.key) || model.isStoppingSharedBrowser)
+            }
+
             Button {
                 model.closeSelectedRuntimeView()
             } label: {

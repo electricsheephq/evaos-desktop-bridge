@@ -269,6 +269,26 @@ public struct SharedBrowserOpenURLResponse: Decodable, Equatable, Sendable {
     public let status: String?
 }
 
+public struct SharedBrowserStopRequest: Encodable, Equatable, Sendable {
+    public let action: String
+    public let customerId: String
+
+    public init(customerId: String) {
+        self.action = "browser_stop"
+        self.customerId = customerId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case action
+        case customerId = "customer_id"
+    }
+}
+
+public struct SharedBrowserStopResponse: Decodable, Equatable, Sendable {
+    public let ok: Bool?
+    public let status: String?
+}
+
 public struct DesktopCustomerTargetsRequest: Codable, Equatable, Sendable {
     public let action: String
 

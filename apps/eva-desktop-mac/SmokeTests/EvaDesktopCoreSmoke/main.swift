@@ -883,6 +883,8 @@ precondition(runtimeDetailSource.contains("RuntimeWebViewDeck("))
 precondition(runtimeDetailSource.contains("RuntimeStatusStrip"))
 precondition(runtimeDetailSource.contains("model.refreshSelectedRuntimeStatus()"))
 precondition(runtimeDetailSource.contains("model.closeSelectedRuntimeView()"))
+precondition(runtimeDetailSource.contains("model.stopSharedBrowserSession()"))
+precondition(runtimeDetailSource.contains("Stop Browser"))
 precondition(runtimeDetailSource.contains("Shared Browser status"))
 precondition(runtimeDetailSource.contains("Start / Attach Shared Browser"))
 precondition(runtimeDetailSource.contains("Startup can take up to a minute"))
@@ -1047,6 +1049,8 @@ precondition(brokerSource.contains("pathComponents: [\"capabilities\", RuntimeSe
 precondition(brokerSource.contains("func pendingApprovals("))
 precondition(brokerSource.contains("pathComponents: [\"approvals\", \"pending\"]"))
 precondition(brokerSource.contains("pathComponents: [\"approvals\", approvalID, \"decide\"]"))
+precondition(brokerSource.contains("func stopSharedBrowser("))
+precondition(brokerSource.contains("SharedBrowserStopRequest(customerId: customerId)"))
 let manifestModelSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Models/WorkbenchCapabilityManifest.swift", encoding: .utf8)
 precondition(manifestModelSource.contains("safeSummary"))
 precondition(manifestModelSource.contains("manifestJWT"))
@@ -1074,6 +1078,12 @@ let encodedRuntimeStatus = try JSONEncoder().encode(RuntimeStatusRequest(custome
 let runtimeStatusJSON = String(data: encodedRuntimeStatus, encoding: .utf8) ?? ""
 precondition(runtimeStatusJSON.contains("\"action\":\"runtime_status\""))
 precondition(runtimeStatusJSON.contains("\"runtime\":\"browser\""))
+
+let encodedSharedBrowserStop = try JSONEncoder().encode(SharedBrowserStopRequest(customerId: "golden"))
+let sharedBrowserStopJSON = String(data: encodedSharedBrowserStop, encoding: .utf8) ?? ""
+precondition(sharedBrowserStopJSON.contains("\"action\":\"browser_stop\""))
+precondition(sharedBrowserStopJSON.contains("\"customer_id\":\"golden\""))
+precondition(!sharedBrowserStopJSON.contains("runtime"))
 
 let encodedProviderProfiles = try JSONEncoder().encode(WorkbenchProviderProfilesRequest(customerId: "golden"))
 let providerProfilesRequestJSON = String(data: encodedProviderProfiles, encoding: .utf8) ?? ""

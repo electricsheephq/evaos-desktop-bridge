@@ -84,7 +84,9 @@ Resume route kinds are exhaustive for `evaos.session_center.v1`:
 
 When reconnecting after app restart, Workbench must prefer broker/runtime state and source pointers over stale visible UI state. A runtime can be shown as recently loaded only after the broker or current Workbench WebView store confirms it for the current customer target.
 
-Refreshing a single gateway status is allowed to update the corresponding Session Center record immediately. The record must still keep `source_pointer = broker:runtime_status:<runtime>` and must not infer health from the local WebView alone. Closing a local Workbench runtime view may clear the local loaded state, but it is not a broker-side stop unless the broker exposes an explicit stop action.
+Refreshing a single gateway status is allowed to update the corresponding Session Center record immediately. The record must still keep `source_pointer = broker:runtime_status:<runtime>` and must not infer health from the local WebView alone. Closing a local Workbench runtime view may clear the local loaded state, but it is not a broker-side stop.
+
+Shared Browser is the first brokered runtime with an explicit stop action. Workbench and dashboard must use the named `browser_stop` broker action for customer-facing Stop Browser controls; they must not simulate stop by clearing a local WebView, killing local Mac processes, or calling arbitrary runtime URLs. The broker authorizes `browser_stop` with the same owner/admin/customer-service runtime authorization used by `runtime_status` and `browser_open_url`, then forwards only to the fixed Shared Browser controller stop endpoint.
 
 ## Recent Launch Metadata
 
