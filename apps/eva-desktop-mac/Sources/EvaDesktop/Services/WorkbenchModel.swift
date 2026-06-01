@@ -52,7 +52,12 @@ final class WorkbenchModel: ObservableObject {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
             providerHubStatusText = "Unchecked"
             sharedBrowserStatusText = "Unchecked"
+            sharedBrowserRoomText = "Not opened"
+            sharedBrowserCurrentURLText = "Unavailable"
+            sharedBrowserLastActivityText = "Not checked"
+            isRefreshingSharedBrowserStatus = false
             loadRecentSessionRecords()
+            resetSessionCenterState(statusText: "Unchecked")
             resetCapabilityManifestState(statusText: "Unchecked", clearCache: true)
             resetApprovalCenterState(statusText: "Unchecked")
             webViewRefreshToken = UUID()

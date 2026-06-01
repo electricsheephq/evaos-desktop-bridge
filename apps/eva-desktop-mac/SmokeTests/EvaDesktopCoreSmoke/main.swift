@@ -1509,6 +1509,14 @@ precondition(workbenchModelSource.contains("recordRecentLaunch(runtime: runtime"
 precondition(workbenchModelSource.contains("func reopenRecentSession"))
 precondition(workbenchModelSource.contains("loadRecentSessionRecords()"))
 precondition(workbenchModelSource.contains("sessionRecords.removeAll()"))
+let customerObserverStart = workbenchModelSource.range(of: "@Published var customerId")!
+let customerObserverEnd = workbenchModelSource.range(of: "@Published var updateManifestURLString")!
+let customerObserverSource = String(workbenchModelSource[customerObserverStart.lowerBound..<customerObserverEnd.lowerBound])
+precondition(customerObserverSource.contains("sharedBrowserRoomText = \"Not opened\""))
+precondition(customerObserverSource.contains("sharedBrowserCurrentURLText = \"Unavailable\""))
+precondition(customerObserverSource.contains("sharedBrowserLastActivityText = \"Not checked\""))
+precondition(customerObserverSource.contains("isRefreshingSharedBrowserStatus = false"))
+precondition(customerObserverSource.contains("resetSessionCenterState(statusText: \"Unchecked\")"))
 let workbenchOSViewsSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/WorkbenchOSViews.swift", encoding: .utf8)
 precondition(workbenchOSViewsSource.contains("ForEach(model.sessionRecords)"))
 precondition(workbenchOSViewsSource.contains("Recent launches"))
