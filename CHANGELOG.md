@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #241 Approval runtime resolution contract slice: Workbench now
+  attaches a normalized destination proof to approval decisions, keeps allow
+  actions fail-closed when proof is missing, preserves deny for malformed
+  requests, decodes broker runtime-result evidence after decisions, and carries
+  request source/audit provenance into the broker decision payload.
 - Add the issue #240 Business Browser controller contract slice: Workbench now
   normalizes broker browser status into `evaos.browser_status.v1`, preserves
   legacy `runtime_status` compatibility, redacts browser URL query/fragment

@@ -155,6 +155,9 @@ precondition(!emailApproval.destinationPreview.primary.contains("ceo@electricshe
 precondition(emailApproval.destinationPreview.secondary == "Wire instructions")
 precondition(emailApproval.destinationPreview.bodyExcerpt?.count == 220)
 precondition(emailApproval.isActionable)
+precondition(emailApproval.hasDestinationProof)
+precondition(emailApproval.destinationProof?.kind == .emailRecipient)
+precondition(emailApproval.destinationProof?.summary.contains("attacker@evil.example") == true)
 precondition(emailApproval.canAllowAlways)
 precondition(emailApproval.attentionState == .needsAttention)
 precondition(emailApproval.availableDecisions == [.allowOnce, .allowAlways, .deny])
@@ -171,6 +174,7 @@ let malformedApproval = WorkbenchApprovalRequest.pending(
 )
 precondition(malformedApproval.destinationPreview.kind == .missingDestination)
 precondition(!malformedApproval.isActionable)
+precondition(!malformedApproval.hasDestinationProof)
 precondition(malformedApproval.nextAction.contains("missing actual destination"))
 
 let ambiguousRecipientApproval = WorkbenchApprovalRequest.pending(
@@ -185,6 +189,7 @@ let ambiguousRecipientApproval = WorkbenchApprovalRequest.pending(
 )
 precondition(ambiguousRecipientApproval.destinationPreview.kind == .missingDestination)
 precondition(!ambiguousRecipientApproval.isActionable)
+precondition(!ambiguousRecipientApproval.hasDestinationProof)
 
 let displayOnlyNestedRecipientApprovalJSON = """
 {
@@ -206,6 +211,7 @@ let displayOnlyNestedRecipientApprovalJSON = """
 let displayOnlyNestedRecipientApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(displayOnlyNestedRecipientApprovalJSON.utf8))
 precondition(displayOnlyNestedRecipientApproval.destinationPreview.kind == .missingDestination)
 precondition(!displayOnlyNestedRecipientApproval.isActionable)
+precondition(!displayOnlyNestedRecipientApproval.hasDestinationProof)
 
 let urlApproval = WorkbenchApprovalRequest.pending(
     id: "approval-url-1",
@@ -223,6 +229,41 @@ let urlApproval = WorkbenchApprovalRequest.pending(
 precondition(urlApproval.destinationPreview.kind == .url)
 precondition(urlApproval.destinationPreview.primary == "https://evil.example/login?next=/oauth")
 precondition(urlApproval.destinationPreview.secondary == "evil.example")
+precondition(urlApproval.destinationProof?.kind == .url)
+precondition(urlApproval.destinationProof?.summary.contains("evil.example") == true)
+
+let mixedCaseURLApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-case-1",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.fetch",
+    riskClass: .info,
+    actionPayload: ["url": "HTTPS://EXAMPLE.COM/Path?Token=ABC"],
+    createdAt: "2026-05-29T21:22:01Z",
+    sourcePointer: "approval:approval-url-case-1"
+)
+let lowerPathURLApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-case-2",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.fetch",
+    riskClass: .info,
+    actionPayload: ["url": "https://example.com/path?Token=ABC"],
+    createdAt: "2026-05-29T21:22:02Z",
+    sourcePointer: "approval:approval-url-case-2"
+)
+let sameDestinationURLApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-url-case-3",
+    ownerID: "andrew-main",
+    agentID: "research-agent",
+    toolName: "browser.fetch",
+    riskClass: .info,
+    actionPayload: ["url": "https://example.com/Path?Token=ABC"],
+    createdAt: "2026-05-29T21:22:03Z",
+    sourcePointer: "approval:approval-url-case-3"
+)
+precondition(mixedCaseURLApproval.destinationProof?.fingerprint == sameDestinationURLApproval.destinationProof?.fingerprint)
+precondition(mixedCaseURLApproval.destinationProof?.fingerprint != lowerPathURLApproval.destinationProof?.fingerprint)
 
 let brokerHrefApproval = WorkbenchApprovalRequest.pending(
     id: "approval-url-href",
@@ -249,6 +290,7 @@ let brokerMessageApproval = WorkbenchApprovalRequest.pending(
 )
 precondition(brokerMessageApproval.destinationPreview.kind == .messageRecipient)
 precondition(brokerMessageApproval.destinationPreview.primary == "C12345")
+precondition(brokerMessageApproval.hasDestinationProof)
 
 let credentialURLApproval = WorkbenchApprovalRequest.pending(
     id: "approval-url-credentials",
@@ -263,6 +305,7 @@ let credentialURLApproval = WorkbenchApprovalRequest.pending(
 precondition(credentialURLApproval.destinationPreview.kind == .url)
 precondition(credentialURLApproval.destinationPreview.secondary == "evil.example")
 precondition(credentialURLApproval.destinationPreview.warning?.contains("embedded credentials") == true)
+precondition(credentialURLApproval.hasDestinationProof)
 precondition(!credentialURLApproval.canAllowAlways)
 
 let malformedURLApproval = WorkbenchApprovalRequest.pending(
@@ -277,6 +320,7 @@ let malformedURLApproval = WorkbenchApprovalRequest.pending(
 )
 precondition(malformedURLApproval.destinationPreview.kind == .missingDestination)
 precondition(!malformedURLApproval.isActionable)
+precondition(!malformedURLApproval.hasDestinationProof)
 
 let curlToolApproval = WorkbenchApprovalRequest.pending(
     id: "approval-curl-1",
@@ -290,6 +334,70 @@ let curlToolApproval = WorkbenchApprovalRequest.pending(
 )
 precondition(curlToolApproval.destinationPreview.kind == .missingDestination)
 
+let upperFileApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-file-case-1",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "file.delete",
+    riskClass: .critical,
+    actionPayload: ["file_path": "/Vault/API_KEY"],
+    createdAt: "2026-05-29T21:22:50Z",
+    sourcePointer: "approval:approval-file-case-1"
+)
+let lowerFileApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-file-case-2",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "file.delete",
+    riskClass: .critical,
+    actionPayload: ["file_path": "/Vault/api_key"],
+    createdAt: "2026-05-29T21:22:51Z",
+    sourcePointer: "approval:approval-file-case-2"
+)
+let upperSecretApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-secret-case-1",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "secret.read",
+    riskClass: .critical,
+    actionPayload: ["secret_name": "API_KEY"],
+    createdAt: "2026-05-29T21:22:52Z",
+    sourcePointer: "approval:approval-secret-case-1"
+)
+let lowerSecretApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-secret-case-2",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "secret.read",
+    riskClass: .critical,
+    actionPayload: ["secret_name": "api_key"],
+    createdAt: "2026-05-29T21:22:53Z",
+    sourcePointer: "approval:approval-secret-case-2"
+)
+let mixedPermissionApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-permission-case-1",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "permission.grant",
+    riskClass: .critical,
+    actionPayload: ["permission": "Drive.Read"],
+    createdAt: "2026-05-29T21:22:54Z",
+    sourcePointer: "approval:approval-permission-case-1"
+)
+let lowerPermissionApproval = WorkbenchApprovalRequest.pending(
+    id: "approval-permission-case-2",
+    ownerID: "andrew-main",
+    agentID: "diagnostics-agent",
+    toolName: "permission.grant",
+    riskClass: .critical,
+    actionPayload: ["permission": "drive.read"],
+    createdAt: "2026-05-29T21:22:55Z",
+    sourcePointer: "approval:approval-permission-case-2"
+)
+precondition(upperFileApproval.destinationProof?.fingerprint != lowerFileApproval.destinationProof?.fingerprint)
+precondition(upperSecretApproval.destinationProof?.fingerprint != lowerSecretApproval.destinationProof?.fingerprint)
+precondition(mixedPermissionApproval.destinationProof?.fingerprint != lowerPermissionApproval.destinationProof?.fingerprint)
+
 precondition(WorkbenchApprovalCenterSummary.statusText(for: [emailApproval, urlApproval]) == "2 pending approvals")
 precondition(WorkbenchApprovalCenterSummary.statusText(for: []) == "No pending approvals")
 precondition(WorkbenchApprovalDecision.allowOnce.rawValue == "allow-once")
@@ -298,6 +406,12 @@ let encodedApprovalDecision = try JSONEncoder().encode(WorkbenchApprovalDecision
 let approvalDecisionJSON = String(data: encodedApprovalDecision, encoding: .utf8) ?? ""
 precondition(approvalDecisionJSON.contains("\"decision\":\"allow-always\""))
 precondition(approvalDecisionJSON.contains("\"scope\":\"this-agent\""))
+precondition(!approvalDecisionJSON.contains("destination_proof"))
+let encodedApprovalDecisionWithProof = try JSONEncoder().encode(WorkbenchApprovalDecisionRequest(decision: .allowAlways, request: emailApproval))
+let approvalDecisionWithProofJSON = String(data: encodedApprovalDecisionWithProof, encoding: .utf8) ?? ""
+precondition(approvalDecisionWithProofJSON.contains("\"destination_proof\""))
+precondition(approvalDecisionWithProofJSON.contains("\"request_source_pointer\":\"approval:approval-email-1\""))
+precondition(!approvalDecisionWithProofJSON.contains("Confirm destination before sending"))
 
 let budgetPauseApproval = WorkbenchApprovalRequest.pending(
     id: "approval-budget-paused",
@@ -314,6 +428,7 @@ let budgetPauseApproval = WorkbenchApprovalRequest.pending(
     sourcePointer: "approval:approval-budget-paused"
 )
 precondition(budgetPauseApproval.destinationPreview.kind == .budget)
+precondition(budgetPauseApproval.hasDestinationProof)
 precondition(budgetPauseApproval.availableDecisions == [.allowOnce, .deny])
 precondition(budgetPauseApproval.actionTitle(for: .allowOnce) == "Increase cap to $10")
 precondition(budgetPauseApproval.actionTitle(for: .deny) == "Stop agent")
@@ -340,6 +455,29 @@ let brokerShapedApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.sel
 precondition(brokerShapedApproval.destinationPreview.kind == .emailRecipient)
 precondition(brokerShapedApproval.destinationPreview.primary == "outside@example.com")
 precondition(brokerShapedApproval.auditId == "audit-approval-broker-1")
+precondition(brokerShapedApproval.destinationProof?.kind == .emailRecipient)
+let conflictingSourceProof = WorkbenchApprovalDestinationProof(
+    kind: .emailRecipient,
+    fingerprint: brokerShapedApproval.destinationProof!.fingerprint,
+    summary: brokerShapedApproval.destinationProof!.summary,
+    source: "broker",
+    sourcePointer: "approval:wrong-source"
+)
+let conflictingSourceApproval = WorkbenchApprovalRequest(
+    id: "approval-conflicting-source-proof",
+    ownerID: "andrew-main",
+    agentID: "email-sorter-2026-05",
+    toolName: "gmail.send",
+    riskClass: .warning,
+    actionPayload: [:],
+    destinationPreview: brokerShapedApproval.destinationPreview,
+    destinationProof: conflictingSourceProof,
+    createdAt: "2026-05-29T21:23:30Z",
+    sourcePointer: "approval:approval-conflicting-source-proof"
+)
+precondition(conflictingSourceApproval.destinationProof?.fingerprint == brokerShapedApproval.destinationProof?.fingerprint)
+precondition(conflictingSourceApproval.destinationProof?.sourcePointer == "approval:approval-conflicting-source-proof")
+precondition(conflictingSourceApproval.destinationProof?.source == "workbench_preview")
 
 let brokerPendingResponseJSON = """
 {
@@ -374,12 +512,15 @@ precondition(brokerNestedApproval.destinationPreview.kind == .emailRecipient)
 precondition(brokerNestedApproval.destinationPreview.primary == "attacker@example.net")
 precondition(brokerNestedApproval.destinationPreview.secondary == "Wire instructions")
 precondition(brokerNestedApproval.actionPayload["recipient_email"] == "attacker@example.net")
+precondition(brokerNestedApproval.destinationProof?.kind == .emailRecipient)
+precondition(brokerNestedApproval.destinationProof?.sourcePointer == "approval:00000000-0000-4000-8000-000000000001")
 precondition(brokerNestedApproval.sourcePointer == "approval:00000000-0000-4000-8000-000000000001")
 precondition(brokerNestedApproval.expiresAt == "2026-05-30T03:15:00Z")
 precondition(brokerNestedApproval.expirationText(now: isoDate("2026-05-30T03:10:00Z")) == "Expires in 5 min")
 let displayOnlyBrokerNestedApproval = brokerNestedApproval.displayOnly()
 precondition(displayOnlyBrokerNestedApproval.actionPayload.isEmpty)
 precondition(displayOnlyBrokerNestedApproval.destinationPreview.primary == "attacker@example.net")
+precondition(displayOnlyBrokerNestedApproval.destinationProof == brokerNestedApproval.destinationProof)
 precondition(displayOnlyBrokerNestedApproval.expiresAt == "2026-05-30T03:15:00Z")
 
 let nestedURLOnlyApprovalJSON = """
@@ -399,6 +540,7 @@ let nestedURLOnlyApprovalJSON = """
 """
 let nestedURLOnlyApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(nestedURLOnlyApprovalJSON.utf8))
 precondition(nestedURLOnlyApproval.destinationPreview.kind == .missingDestination)
+precondition(!nestedURLOnlyApproval.hasDestinationProof)
 precondition(nestedURLOnlyApproval.actionPayload["metadata_url"] == "https://evil.example/hidden")
 
 let approvalHTTPConfig = URLSessionConfiguration.ephemeral
@@ -448,7 +590,24 @@ SmokeURLProtocol.handler = { request in
     let proxyBody = proxyPayload["body"] as! [String: Any]
     precondition(proxyBody["decision"] as? String == "allow-once")
     precondition(proxyBody["scope"] as? String == "this-call")
-    return (response, Data(approvalRowJSON.utf8))
+    let destinationProof = proxyBody["destination_proof"] as! [String: Any]
+    precondition(destinationProof["kind"] as? String == "email_recipient")
+    precondition((destinationProof["summary"] as? String)?.contains("attacker@example.net") == true)
+    precondition(proxyBody["request_source_pointer"] as? String == "approval:00000000-0000-4000-8000-000000000001")
+    let body = """
+    {
+      "ok": true,
+      "request": \(approvalRowJSON),
+      "runtime_result": {
+        "status": "allowed",
+        "runtime": "openclaw",
+        "message": "OpenClaw resumed the approved action.",
+        "source_pointer": "approval-result:00000000-0000-4000-8000-000000000001",
+        "audit_id": "audit-decision-result"
+      }
+    }
+    """
+    return (response, Data(body.utf8))
 }
 let pendingApprovalHTTPResponse = try await approvalHTTPClient.pendingApprovals(
     desktopSession: approvalHTTPSession,
@@ -459,9 +618,13 @@ precondition(pendingApprovalHTTPResponse.requests.first?.canAllowAlways == true)
 let decidedApprovalHTTPResponse = try await approvalHTTPClient.decideApproval(
     approvalID: "00000000-0000-4000-8000-000000000001",
     decision: .allowOnce,
+    request: pendingApprovalHTTPResponse.requests[0],
     desktopSession: approvalHTTPSession
 )
-precondition(decidedApprovalHTTPResponse.id == "00000000-0000-4000-8000-000000000001")
+precondition(decidedApprovalHTTPResponse.request?.id == "00000000-0000-4000-8000-000000000001")
+precondition(decidedApprovalHTTPResponse.runtimeResult?.displayText == "OpenClaw resumed the approved action.")
+let legacyDecisionResponse = try JSONDecoder().decode(WorkbenchApprovalDecisionResponse.self, from: Data(approvalRowJSON.utf8))
+precondition(legacyDecisionResponse.request?.id == "00000000-0000-4000-8000-000000000001")
 precondition(SmokeURLProtocol.seenRequests.map(\.httpMethod) == ["POST", "POST"])
 SmokeURLProtocol.handler = nil
 
@@ -489,6 +652,33 @@ let spoofedPreviewApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.s
 precondition(spoofedPreviewApproval.destinationPreview.kind == .emailRecipient)
 precondition(spoofedPreviewApproval.destinationPreview.primary == "outside@example.com")
 precondition(spoofedPreviewApproval.destinationPreview.secondary == "Broker-shaped request")
+precondition(spoofedPreviewApproval.destinationProof?.summary.contains("outside@example.com") == true)
+
+let mismatchedProofJSON = """
+{
+  "id": "approval-mismatched-proof",
+  "owner_id": "andrew-main",
+  "agent_id": "email-sorter-2026-05",
+  "tool_name": "gmail.send",
+  "risk_class": "warning",
+  "action_payload": {
+    "recipient_email": "outside@example.com",
+    "subject": "Broker-shaped request"
+  },
+  "destination_proof": {
+    "kind": "email_recipient",
+    "fingerprint": "dest-for-someone-else",
+    "summary": "email_recipient: someone-else@example.com",
+    "source": "broker"
+  },
+  "created_at": "2026-05-29T21:24:30Z",
+  "source_pointer": "approval:approval-mismatched-proof"
+}
+"""
+let mismatchedProofApproval = try JSONDecoder().decode(WorkbenchApprovalRequest.self, from: Data(mismatchedProofJSON.utf8))
+precondition(mismatchedProofApproval.destinationPreview.primary == "outside@example.com")
+precondition(mismatchedProofApproval.destinationProof?.fingerprint != "dest-for-someone-else")
+precondition(mismatchedProofApproval.destinationProof?.summary.contains("outside@example.com") == true)
 
 let awayNotificationPlan = WorkbenchApprovalNotificationPlanner.plan(
     requests: [brokerNestedApproval],
@@ -965,6 +1155,9 @@ precondition(workbenchModelSource.contains("business browser"))
 precondition(workbenchModelSource.contains("opened inside Workbench"))
 precondition(workbenchModelSource.contains("let currentRequest = approvalRequests.first { $0.id == request.id }"))
 precondition(workbenchModelSource.contains("requestForDecision.canAllowAlways"))
+precondition(workbenchModelSource.contains("requestForDecision.hasDestinationProof"))
+precondition(workbenchModelSource.contains("request: requestForDecision"))
+precondition(workbenchModelSource.contains("runtimeResult.displayText"))
 precondition(workbenchModelSource.contains("decision == .deny || !requestForDecision.isExpired()"))
 precondition(workbenchModelSource.contains("session = try? keychain.load(allowUserInteraction: false)"))
 precondition(workbenchModelSource.contains("try? keychain.clear(allowUserInteraction: false)"))
@@ -1071,6 +1264,7 @@ precondition(brokerSource.contains("pathComponents: [\"capabilities\", RuntimeSe
 precondition(brokerSource.contains("func pendingApprovals("))
 precondition(brokerSource.contains("pathComponents: [\"approvals\", \"pending\"]"))
 precondition(brokerSource.contains("pathComponents: [\"approvals\", approvalID, \"decide\"]"))
+precondition(brokerSource.contains("WorkbenchApprovalDecisionRequest(decision: decision, scope: scope, request: request)"))
 precondition(brokerSource.contains("func stopSharedBrowser("))
 precondition(brokerSource.contains("SharedBrowserStopRequest(customerId: customerId)"))
 let manifestModelSource = try String(contentsOfFile: "Sources/EvaDesktopCore/Models/WorkbenchCapabilityManifest.swift", encoding: .utf8)
