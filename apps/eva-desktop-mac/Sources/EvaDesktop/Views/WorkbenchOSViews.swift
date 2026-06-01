@@ -5,7 +5,7 @@ struct ProvidersHubView: View {
     @ObservedObject var model: WorkbenchModel
 
     var body: some View {
-        WorkbenchSurface(title: "Providers", subtitle: "Connect provider accounts in the Shared Browser on your evaOS server so agents can reuse the VM browser session.") {
+        WorkbenchSurface(title: "Connected Apps", subtitle: "Connect the business apps Eva can use for email, files, projects, code, and research.") {
             HStack(spacing: 10) {
                 StatusPill(title: model.providerHubStatusText, systemImage: "key", tint: providerStatusTint)
                 Spacer()
@@ -21,7 +21,7 @@ struct ProvidersHubView: View {
             }
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], alignment: .leading, spacing: 14) {
-                ForEach(model.providerProfiles) { profile in
+                ForEach(customerFacingProfiles) { profile in
                     ProviderProfileCard(
                         profile: profile,
                         isSignedIn: model.isSignedIn,
@@ -32,6 +32,10 @@ struct ProvidersHubView: View {
                         revoke: { model.revokeProvider(profile.key) }
                     )
                 }
+            }
+
+            if !plannedBusinessProfiles.isEmpty {
+                MoreConnectedAppsPanel(profiles: plannedBusinessProfiles)
             }
 
             CapabilityManifestPanel(
@@ -48,11 +52,49 @@ struct ProvidersHubView: View {
                 .disabled(!model.isSignedIn || model.isRefreshingUsageDashboard)
 
             WorkbenchInfoPanel(
-                title: "Credential Boundary",
+                title: "Credentials Stay Private",
                 systemImage: "key.slash",
-                detail: "Workbench stores metadata and readiness only. Provider sign-in happens in the shared VM browser; raw provider tokens stay out of the Mac app model."
+                detail: "Workbench shows connection status only. Sign-in happens in the business browser, and raw app tokens stay out of the Mac app."
             )
+
+            if !technicalProfiles.isEmpty {
+                DisclosureGroup {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], alignment: .leading, spacing: 14) {
+                        ForEach(technicalProfiles) { profile in
+                            ProviderProfileCard(
+                                profile: profile,
+                                isSignedIn: model.isSignedIn,
+                                isBusy: model.providerActionInFlight == profile.key,
+                                connect: { model.connectProvider(profile.key) },
+                                makeActive: { model.switchProvider(profile.key) },
+                                mintGrant: { model.mintOpenClawProviderGrant(profile.key) },
+                                revoke: { model.revokeProvider(profile.key) }
+                            )
+                        }
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Label("Technical AI connections", systemImage: "wrench.and.screwdriver")
+                        .font(.headline)
+                }
+            }
         }
+    }
+
+    private var customerFacingProfiles: [WorkbenchProviderProfileState] {
+        model.providerProfiles.filter { profile in
+            profile.key != .openAICodex && profile.status != .planned
+        }
+    }
+
+    private var plannedBusinessProfiles: [WorkbenchProviderProfileState] {
+        model.providerProfiles.filter { profile in
+            profile.key != .openAICodex && profile.status == .planned
+        }
+    }
+
+    private var technicalProfiles: [WorkbenchProviderProfileState] {
+        model.providerProfiles.filter { $0.key == .openAICodex }
     }
 
     private var providerStatusTint: Color {
@@ -76,7 +118,7 @@ private struct CapabilityManifestPanel: View {
             HStack(spacing: 10) {
                 RuntimeIconBadge(systemImage: "checklist.checked", tint: tint)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Capability Manifest")
+                    Text("What Eva Can Access")
                         .font(.headline)
                         .foregroundStyle(Color.electricSheepPrimaryText)
                     Text(statusText)
@@ -93,17 +135,14 @@ private struct CapabilityManifestPanel: View {
             }
 
             if let summary {
-                Text("\(summary.agentID) -> \(summary.ownerID)")
-                    .font(.caption)
-                    .foregroundStyle(Color.electricSheepSecondaryText)
-                Text("Expires \(summary.expiresAt.formatted(date: .abbreviated, time: .shortened))")
+                Text("Permission summary expires \(summary.expiresAt.formatted(date: .abbreviated, time: .shortened)).")
                     .font(.caption)
                     .foregroundStyle(Color.electricSheepMutedText)
-                grantLine("Allowed", tools: summary.tools(for: .allowed))
-                grantLine("Approval", tools: summary.tools(for: .requiresApproval))
-                grantLine("Denied", tools: summary.tools(for: .denied))
+                grantLine("Can use", tools: summary.tools(for: .allowed))
+                grantLine("Asks first", tools: summary.tools(for: .requiresApproval))
+                grantLine("Off", tools: summary.tools(for: .denied))
             } else {
-                Text("Signed manifests are fetched from the broker and cached locally. Workbench renders only safe grant metadata; raw JWTs and provider secrets stay hidden.")
+                Text("Eva's app permissions appear here after a connection is checked. Workbench shows safe summaries only; raw credentials stay hidden.")
                     .font(.caption)
                     .foregroundStyle(Color.electricSheepMutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -140,6 +179,18 @@ private struct CapabilityManifestPanel: View {
     }
 }
 
+private struct MoreConnectedAppsPanel: View {
+    let profiles: [WorkbenchProviderProfileState]
+
+    var body: some View {
+        WorkbenchInfoPanel(
+            title: "More Apps Coming Soon",
+            systemImage: "plus.app",
+            detail: "Next up: \(profiles.map(\.title).joined(separator: ", ")). These stay out of the main setup path until their sign-in flow is ready."
+        )
+    }
+}
+
 struct UsageDashboardView: View {
     @ObservedObject var model: WorkbenchModel
 
@@ -148,7 +199,7 @@ struct UsageDashboardView: View {
             HStack(spacing: 10) {
                 RuntimeIconBadge(systemImage: "gauge.with.dots.needle.bottom.50percent", tint: tint)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Usage Budget")
+                    Text("Usage & Budget")
                         .font(.headline)
                         .foregroundStyle(Color.electricSheepPrimaryText)
                     Text(model.usageDashboardStatusText)
@@ -167,7 +218,7 @@ struct UsageDashboardView: View {
             }
 
             if model.usageDashboardCards.isEmpty {
-                Text("Per-agent usage appears after the broker reports LLM calls. Budget caps come from the signed Capability Manifest.")
+                Text("Usage appears after Eva reports work. Budget caps come from your approved workspace policy.")
                     .font(.caption)
                     .foregroundStyle(Color.electricSheepMutedText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -253,7 +304,7 @@ private struct UsageAgentCard: View {
                             .disabled(true)
                     }
                 }
-                .help("Budget actions are broker-mediated and require a signed Approval Center request.")
+                .help("Budget actions need a signed Needs Your Okay request.")
             }
         }
         .padding(.vertical, 4)
@@ -311,10 +362,12 @@ private struct UsageAgentCard: View {
 
 struct SessionCenterView: View {
     @ObservedObject var model: WorkbenchModel
+    let openConnectedApps: () -> Void
+    let openApprovals: () -> Void
     let jumpToRuntime: (RuntimeKey) -> Void
 
     var body: some View {
-        WorkbenchSurface(title: "Session Center", subtitle: "One place to see active gateways, attention states, Mac control readiness, and recent activity.") {
+        WorkbenchSurface(title: "Home", subtitle: "Your AI office in one place: connect apps, review approvals, open workspaces, and resume recent work.") {
             HStack(spacing: 10) {
                 StatusPill(title: model.sessionCenterStatusText, systemImage: "rectangle.3.group.bubble.left", tint: sessionCenterTint)
                 Spacer()
@@ -329,24 +382,56 @@ struct SessionCenterView: View {
                 .disabled(!model.isSignedIn || model.isRefreshingSessionCenter)
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-                ForEach(model.sessionRecords) { record in
-                    SessionRecordCard(record: record, systemImage: systemImage(for: record)) {
-                        if let runtime = WorkbenchSessionContract.brokerRuntimeToOpen(for: record) {
-                            jumpToRuntime(runtime)
-                        }
-                    }
+            AgentQuickActionGrid(
+                openConnectedApps: openConnectedApps,
+                openApprovals: openApprovals,
+                openBusinessBrowser: {
+                    jumpToRuntime(.liveBrowser)
+                },
+                openCreativeStudio: {
+                    jumpToRuntime(.creativeStudio)
                 }
+            )
+
+            AgentWorkspaceSummaryGrid(
+                attentionCount: recordsNeedingAttention.count,
+                activeCount: activeRecordCount,
+                gatewayCount: gatewayRecords.count,
+                recentCount: model.recentSessionRecords.count,
+                lastEvidenceText: latestEvidenceText
+            )
+
+            if recordsNeedingAttention.isEmpty {
+                WorkbenchInfoPanel(
+                    title: "Everything Looks Clear",
+                    systemImage: "checkmark.seal",
+                    detail: sessionAttentionSummary
+                )
+            } else {
+                recordSection(
+                    title: "Needs attention",
+                    subtitle: "Items that need a sign-in, approval, retry, or human review.",
+                    records: recordsNeedingAttention
+                )
+            }
+
+            if !gatewayRecords.isEmpty {
+                recordSection(
+                    title: "Workspaces",
+                    subtitle: "Open or resume Eva workspaces for this customer.",
+                    records: gatewayRecords
+                )
             }
 
             if !model.recentSessionRecords.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 10) {
-                        Text("Recent launches")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(Color.electricSheepPrimaryText)
-                        StatusPill(title: "Metadata only", systemImage: "lock.shield", tint: Color.electricSheepMutedText)
-                    }
+                    SessionWorkspaceSectionHeader(
+                        title: "Recent launches",
+                        subtitle: "Shortcuts back to recently opened workspaces.",
+                        status: "Saved",
+                        systemImage: "clock.arrow.circlepath",
+                        tint: Color.electricSheepMutedText
+                    )
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
                         ForEach(model.recentSessionRecords) { record in
                             SessionRecordCard(record: record, systemImage: systemImage(for: record)) {
@@ -359,11 +444,41 @@ struct SessionCenterView: View {
                 }
             }
 
-            WorkbenchInfoPanel(
-                title: "Needs Input",
-                systemImage: "bell.badge",
-                detail: sessionAttentionSummary
+            if !evidenceRecords.isEmpty {
+                DisclosureGroup {
+                    recordSection(
+                        title: "Technical activity",
+                        subtitle: "Read-only queue and audit signals for support review.",
+                        records: evidenceRecords
+                    )
+                    .padding(.top, 8)
+                } label: {
+                    Label("Technical activity", systemImage: "list.clipboard")
+                        .font(.headline)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func recordSection(title: String, subtitle: String, records: [WorkbenchSessionRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SessionWorkspaceSectionHeader(
+                title: title,
+                subtitle: subtitle,
+                status: "\(records.count)",
+                systemImage: "rectangle.stack",
+                tint: title == "Needs attention" ? Color.electricSheepDanger : Color.electricSheepGoldSoft
             )
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+                ForEach(records) { record in
+                    SessionRecordCard(record: record, systemImage: systemImage(for: record)) {
+                        if let runtime = WorkbenchSessionContract.brokerRuntimeToOpen(for: record) {
+                            jumpToRuntime(runtime)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -393,12 +508,38 @@ struct SessionCenterView: View {
         }
     }
 
+    private var recordsNeedingAttention: [WorkbenchSessionRecord] {
+        model.sessionRecords.filter { $0.attentionState == .needsAttention }
+    }
+
+    private var gatewayRecords: [WorkbenchSessionRecord] {
+        model.sessionRecords.filter { $0.surface == .broker && $0.attentionState != .needsAttention }
+    }
+
+    private var evidenceRecords: [WorkbenchSessionRecord] {
+        model.sessionRecords.filter { $0.surface != .broker && $0.attentionState != .needsAttention }
+    }
+
+    private var activeRecordCount: Int {
+        model.sessionRecords.filter { $0.attentionState == .active }.count
+    }
+
+    private var latestEvidenceText: String {
+        let candidates = (model.sessionRecords + model.recentSessionRecords)
+            .compactMap(\.updatedAt)
+            .sorted()
+        guard let latest = candidates.last else {
+            return "Not checked"
+        }
+        return String(latest.prefix(16)).replacingOccurrences(of: "T", with: " ")
+    }
+
     private var sessionAttentionSummary: String {
         if model.sessionRecords.isEmpty {
             if !model.recentSessionRecords.isEmpty {
-                return "Recent launch metadata is available. Refresh Session Center to read current gateway status."
+                return "Recent workspaces are saved below. Refresh Home to check current status."
             }
-            return "No broker session state has been loaded yet. Refresh Session Center to read gateway status."
+            return "Connect apps, open the business browser, or start from a workspace below."
         }
         let attentionCount = model.sessionRecords.filter { $0.attentionState == .needsAttention }.count
         if attentionCount == 1 {
@@ -407,7 +548,121 @@ struct SessionCenterView: View {
         if attentionCount > 1 {
             return "\(attentionCount) sessions need review."
         }
-        return "No gateway, queue, audit, or Codex attention states in the read-only evidence."
+        return "No app, approval, or work item is asking for help right now."
+    }
+}
+
+private struct AgentQuickActionGrid: View {
+    let openConnectedApps: () -> Void
+    let openApprovals: () -> Void
+    let openBusinessBrowser: () -> Void
+    let openCreativeStudio: () -> Void
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 12)], spacing: 12) {
+            AgentQuickActionCard(
+                title: "Connect work apps",
+                detail: "Set up Gmail, Calendar, Drive, and other business tools Eva can use.",
+                systemImage: "person.badge.key",
+                actionTitle: "Open Apps",
+                action: openConnectedApps
+            )
+            AgentQuickActionCard(
+                title: "Review approvals",
+                detail: "See decisions waiting for you before Eva sends, spends, writes, or controls anything sensitive.",
+                systemImage: "checkmark.shield",
+                actionTitle: "Open Approvals",
+                action: openApprovals
+            )
+            AgentQuickActionCard(
+                title: "Open business browser",
+                detail: "Use the shared browser for sign-ins, CAPTCHA, and web tasks Eva can help with.",
+                systemImage: "globe",
+                actionTitle: "Open Browser",
+                action: openBusinessBrowser
+            )
+            AgentQuickActionCard(
+                title: "Create visuals",
+                detail: "Launch hosted Comfy Cloud for images and video workflows without installing ComfyUI locally.",
+                systemImage: "paintbrush.pointed",
+                actionTitle: "Creative Studio",
+                action: openCreativeStudio
+            )
+        }
+    }
+}
+
+private struct AgentQuickActionCard: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let actionTitle: String
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            RuntimeIconBadge(systemImage: systemImage, tint: Color.electricSheepCyan)
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(Color.electricSheepPrimaryText)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(Color.electricSheepSecondaryText)
+                .lineLimit(3)
+            Button(actionTitle) {
+                action()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 190, alignment: .topLeading)
+        .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.electricSheepLineWarm, lineWidth: 1)
+        )
+    }
+}
+
+private struct AgentWorkspaceSummaryGrid: View {
+    let attentionCount: Int
+    let activeCount: Int
+    let gatewayCount: Int
+    let recentCount: Int
+    let lastEvidenceText: String
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+            MetricTile(title: "Needs attention", value: "\(attentionCount)", systemImage: "bell.badge")
+            MetricTile(title: "Ready now", value: "\(activeCount)", systemImage: "bolt.circle")
+            MetricTile(title: "Workspaces", value: "\(gatewayCount)", systemImage: "point.3.connected.trianglepath.dotted")
+            MetricTile(title: "Recent", value: "\(recentCount)", systemImage: "clock.arrow.circlepath")
+            MetricTile(title: "Last update", value: lastEvidenceText, systemImage: "calendar.badge.clock")
+        }
+    }
+}
+
+private struct SessionWorkspaceSectionHeader: View {
+    let title: String
+    let subtitle: String
+    let status: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.electricSheepPrimaryText)
+                Text(subtitle)
+                    .font(.callout)
+                    .foregroundStyle(Color.electricSheepSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            StatusPill(title: status, systemImage: systemImage, tint: tint)
+        }
     }
 }
 
@@ -415,7 +670,7 @@ struct ApprovalCenterView: View {
     @ObservedObject var model: WorkbenchModel
 
     var body: some View {
-        WorkbenchSurface(title: "Approval Center", subtitle: "Review risky agent actions with the actual destination, payload preview, and risk class before a runtime proceeds.") {
+        WorkbenchSurface(title: "Needs Your Okay", subtitle: "Approve or deny agent actions that need a human decision before they continue.") {
             HStack(spacing: 10) {
                 StatusPill(title: model.approvalCenterStatusText, systemImage: "checkmark.shield", tint: approvalTint)
                 Spacer()
@@ -432,9 +687,9 @@ struct ApprovalCenterView: View {
 
             if model.approvalRequests.isEmpty {
                 WorkbenchInfoPanel(
-                    title: "No Pending Approvals",
+                    title: "No Requests Waiting",
                     systemImage: "checkmark.seal",
-                    detail: "Workbench is polling the broker for pending approvals. Risky runtime actions will appear here when they need a human decision."
+                    detail: "When Eva needs permission to send, spend, write, use a sensitive tool, or control something on your behalf, the request appears here with the real destination and a safe preview."
                 )
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
@@ -453,9 +708,9 @@ struct ApprovalCenterView: View {
             }
 
             WorkbenchInfoPanel(
-                title: "Destination Preview",
+                title: "How Approvals Work",
                 systemImage: "eye",
-                detail: "Approval rows must show the real recipient, URL, file path, payment target, secret name, budget, or permission scope. Display names and summaries alone are not enough."
+                detail: "Allow only when the destination, payload preview, and risk class match what you expect. Denying keeps the work paused instead of guessing."
             )
         }
     }
@@ -583,14 +838,12 @@ private struct ApprovalRequestCard: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(request.sourcePointer)
-                Text(request.createdAt)
-                if let auditId = request.auditId {
-                    Text(auditId)
-                }
+                Label("Requested \(shortTimestamp(request.createdAt))", systemImage: "clock")
+                Label("Evidence saved in audit trail", systemImage: "lock.shield")
             }
-            .font(.caption2.monospaced())
+            .font(.caption2)
             .foregroundStyle(Color.electricSheepMutedText)
+            .help(approvalEvidenceHelp)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -628,7 +881,7 @@ private struct ApprovalRequestCard: View {
             return "Allow is disabled because this approval is missing actual destination evidence."
         }
         if decision != .deny && request.isExpired() {
-            return "Allow is disabled because this approval has expired. Refresh Approval Center before deciding."
+            return "Allow is disabled because this approval has expired. Refresh Needs Your Okay before deciding."
         }
         switch decision {
         case .allowOnce:
@@ -644,6 +897,15 @@ private struct ApprovalRequestCard: View {
             }
             return "Deny this pending tool call."
         }
+    }
+
+    private var approvalEvidenceHelp: String {
+        let audit = request.auditId.map { " Audit: \($0)." } ?? ""
+        return "Source: \(request.sourcePointer).\(audit)"
+    }
+
+    private func shortTimestamp(_ value: String) -> String {
+        String(value.prefix(16)).replacingOccurrences(of: "T", with: " ")
     }
 }
 
@@ -701,13 +963,14 @@ private struct ProviderProfileCard: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!isSignedIn || isBusy || profile.status == .planned || profile.active)
 
-                Button("OpenClaw Grant") {
+                Button("Allow Eva") {
                     mintGrant()
                 }
                 .buttonStyle(.bordered)
+                .help("Share this connected app with Eva through a brokered, auditable permission handle.")
                 .disabled(!isSignedIn || isBusy || profile.status != .connected)
 
-                Button("Revoke") {
+                Button("Disconnect") {
                     revoke()
                 }
                 .buttonStyle(.bordered)
@@ -731,7 +994,10 @@ private struct ProviderProfileCard: View {
             return "Sign in first"
         }
         if profile.status == .connected && !profile.hasConnectionProof {
-            return "Needs verification"
+            return "Check connection"
+        }
+        if profile.status == .planned {
+            return "Coming soon"
         }
         return profile.status.displayText
     }
@@ -741,7 +1007,10 @@ private struct ProviderProfileCard: View {
             return "Active"
         }
         if profile.status == .connected {
-            return profile.hasConnectionProof ? "Make Active" : "Verify"
+            return profile.hasConnectionProof ? "Use This App" : "Check Connection"
+        }
+        if profile.status == .planned {
+            return "Coming Soon"
         }
         return "Connect"
     }
@@ -820,16 +1089,8 @@ private struct SessionRecordCard: View {
     let action: () -> Void
 
     var body: some View {
-        if WorkbenchSessionContract.brokerRuntimeToOpen(for: record) == nil {
-            content
-                .help("Read-only evidence record; no runtime jump is available.")
-        } else {
-            Button(action: action) {
-                content
-            }
-            .buttonStyle(.plain)
-            .help("Open this gateway.")
-        }
+        content
+            .help(helpText)
     }
 
     private var content: some View {
@@ -837,18 +1098,18 @@ private struct SessionRecordCard: View {
             HStack {
                 RuntimeIconBadge(systemImage: systemImage, tint: tint)
                 Spacer()
-                StatusPill(title: record.status, systemImage: statusIcon, tint: tint)
+                StatusPill(title: displayStatus, systemImage: statusIcon, tint: tint)
             }
             Text(record.title)
                 .font(.headline)
                 .foregroundStyle(Color.electricSheepPrimaryText)
-            Text(record.nextAction)
+            Text(displayNextAction)
                 .font(.callout)
                 .foregroundStyle(Color.electricSheepSecondaryText)
                 .lineLimit(2)
-            if !record.details.isEmpty {
+            if !displayDetails.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
-                    ForEach(record.details.prefix(4), id: \.self) { detail in
+                    ForEach(displayDetails.prefix(3), id: \.self) { detail in
                         Text(detail)
                             .font(.caption)
                             .foregroundStyle(Color.electricSheepSecondaryText)
@@ -856,18 +1117,21 @@ private struct SessionRecordCard: View {
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(record.resumeRoute.kind.rawValue)
-                Text(record.sourcePointer)
-                if let auditId = record.auditId {
-                    Text(auditId)
+
+            HStack(spacing: 10) {
+                if WorkbenchSessionContract.brokerRuntimeToOpen(for: record) != nil {
+                    Button(actionTitle) {
+                        action()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                if let lastUpdate = record.updatedAt {
-                    Text(lastUpdate)
+                Spacer()
+                if let lastUpdate = shortLastUpdate {
+                    Label(lastUpdate, systemImage: "clock")
+                        .font(.caption2)
+                        .foregroundStyle(Color.electricSheepMutedText)
                 }
             }
-            .font(.caption2.monospaced())
-            .foregroundStyle(Color.electricSheepMutedText)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -876,6 +1140,61 @@ private struct SessionRecordCard: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.electricSheepLineWarm, lineWidth: 1)
         )
+    }
+
+    private var displayStatus: String {
+        switch record.attentionState {
+        case .active:
+            return record.status.lowercased() == "loaded" ? "Loaded" : "Ready"
+        case .done:
+            return "Done"
+        case .idle:
+            return record.status.lowercased() == "restorable" ? "Saved" : "Idle"
+        case .needsAttention:
+            return "Needs attention"
+        case .unknown:
+            return "Unknown"
+        }
+    }
+
+    private var displayDetails: [String] {
+        record.details.filter { detail in
+            let lowercased = detail.lowercased()
+            return !lowercased.contains("metadata only")
+                && !lowercased.contains("broker:")
+                && !lowercased.contains("queue:")
+                && !lowercased.contains("audit:")
+        }
+    }
+
+    private var displayNextAction: String {
+        let lowercased = record.nextAction.lowercased()
+        if record.id.hasPrefix("recent-") || lowercased.contains("fresh broker url") {
+            return "Open this workspace again."
+        }
+        if lowercased.contains("auth handoff") {
+            return record.nextAction.replacingOccurrences(of: "auth handoff", with: "sign-in")
+        }
+        return record.nextAction
+    }
+
+    private var actionTitle: String {
+        record.id.hasPrefix("recent-") ? "Reopen" : "Open"
+    }
+
+    private var shortLastUpdate: String? {
+        guard let value = record.updatedAt, !value.isEmpty else {
+            return nil
+        }
+        return String(value.prefix(16)).replacingOccurrences(of: "T", with: " ")
+    }
+
+    private var helpText: String {
+        if WorkbenchSessionContract.brokerRuntimeToOpen(for: record) != nil {
+            return "Open this workspace."
+        }
+        let audit = record.auditId.map { " Audit: \($0)." } ?? ""
+        return "Read-only evidence from \(record.sourcePointer).\(audit)"
     }
 
     private var tint: Color {

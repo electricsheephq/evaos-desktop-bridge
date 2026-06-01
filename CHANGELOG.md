@@ -9,6 +9,14 @@ All notable repo release changes should be recorded here before a release branch
   AionUi, and ClickClack; versioned account-policy, agent-assignment,
   provider-grant, browser-status, and Today-item contracts; and the issue map
   for the account-policy / first-agent-loop milestone.
+- Polish the Workbench issue #96/#97/#100/#102/#144 product surfaces after
+  signed-in 0.6.25 use: default the app into Home, rename key SMB-facing
+  surfaces to Workspaces, Connected Apps, Business Browser, and Needs Your
+  Okay, remove the duplicate per-workspace status strip, make Home cards
+  human-readable and action-oriented, show Creative Studio as the hosted Comfy
+  Cloud web page, clarify Approvals empty-state copy, and make app connection
+  warm up the embedded Connected Apps page before falling back from broker
+  502/503/504 errors.
 
 ## 0.6.25 - 2026-06-01
 

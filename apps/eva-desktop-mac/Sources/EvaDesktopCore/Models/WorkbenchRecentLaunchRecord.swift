@@ -25,10 +25,10 @@ public struct WorkbenchRecentLaunchRecord: Identifiable, Codable, Equatable, Sen
         self.title = definition.title
         self.status = "Restorable"
         self.openedAt = timestamp
-        self.nextAction = "Reopen with a fresh broker URL."
+        self.nextAction = "Open this workspace again."
         self.details = [
-            "Runtime metadata only",
-            "Last opened: \(timestamp)"
+            "Saved shortcut",
+            "Uses a fresh secure workspace session"
         ]
         self.sourcePointer = "broker:runtime_status:\(runtime.rawValue)"
     }

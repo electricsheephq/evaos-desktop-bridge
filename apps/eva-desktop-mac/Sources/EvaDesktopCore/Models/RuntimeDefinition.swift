@@ -48,14 +48,14 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
     public static let all: [RuntimeDefinition] = [
         RuntimeDefinition(
             key: .openclaw,
-            title: "evaOS (OpenClaw)",
-            subtitle: "Main Eva agent dashboard and chat runtime.",
+            title: "Eva Workspace",
+            subtitle: "Main Eva dashboard and chat workspace.",
             systemImage: "bubble.left.and.bubble.right"
         ),
         RuntimeDefinition(
             key: .hermes,
-            title: "evaOS (Hermes)",
-            subtitle: "Hermes agent workspace on the same evaOS VM.",
+            title: "Agent Workspace",
+            subtitle: "Second agent workspace on the same evaOS server.",
             systemImage: "sparkles"
         ),
         RuntimeDefinition(
@@ -66,21 +66,22 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
         ),
         RuntimeDefinition(
             key: .openDesign,
-            title: "OpenDesign",
+            title: "Design Workspace",
             subtitle: "Design workspace and visual product building.",
             systemImage: "paintpalette"
         ),
         RuntimeDefinition(
             key: .liveBrowser,
-            title: "Shared Browser",
-            subtitle: "Shared browser for working with Eva on your evaOS server.",
+            title: "Business Browser",
+            subtitle: "Shared browser for sign-ins, CAPTCHA, and web tasks Eva can help with.",
             systemImage: "globe"
         ),
         RuntimeDefinition(
             key: .terminal,
             title: "Terminal",
             subtitle: "Terminal access to your private evaOS server.",
-            systemImage: "terminal"
+            systemImage: "terminal",
+            requiresAdmin: true
         ),
         RuntimeDefinition(
             key: .creativeStudio,

@@ -226,7 +226,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
 
     public func nextAction(now: Date) -> String {
         if isExpired(now: now) {
-            return "Approval request has expired. Refresh Approval Center before deciding."
+            return "Request has expired. Refresh Needs Your Okay before deciding."
         }
         if isBudgetApproval {
             return "Budget paused. Choose \(actionTitle(for: .allowOnce)) or \(actionTitle(for: .deny).lowercased())."

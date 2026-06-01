@@ -8,6 +8,20 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
+            if model.featureFlags.isEnabled(.sessionCenter) || model.featureFlags.isEnabled(.approvalCenter) {
+                Section("Home") {
+                    if model.featureFlags.isEnabled(.sessionCenter) {
+                        FeatureSidebarRow(title: "Home", systemImage: "house")
+                            .tag(SidebarSelection.sessionCenter)
+                    }
+
+                    if model.featureFlags.isEnabled(.approvalCenter) {
+                        FeatureSidebarRow(title: "Approvals", systemImage: "checkmark.shield")
+                            .tag(SidebarSelection.approvalCenter)
+                    }
+                }
+            }
+
             Section(AppBrand.runtimeSectionTitle) {
                 ForEach(model.visibleRuntimes) { runtime in
                     RuntimeSidebarRow(runtime: runtime)
@@ -20,22 +34,8 @@ struct SidebarView: View {
                     .tag(SidebarSelection.bridge)
 
                 if model.featureFlags.isEnabled(.providersHub) {
-                    FeatureSidebarRow(title: "Providers", systemImage: "person.badge.key")
+                    FeatureSidebarRow(title: "Connected Apps", systemImage: "person.badge.key")
                         .tag(SidebarSelection.providersHub)
-                }
-            }
-
-            if model.featureFlags.isEnabled(.sessionCenter) || model.featureFlags.isEnabled(.approvalCenter) {
-                Section("Workspace") {
-                    if model.featureFlags.isEnabled(.sessionCenter) {
-                        FeatureSidebarRow(title: "Session Center", systemImage: "rectangle.3.group.bubble.left")
-                            .tag(SidebarSelection.sessionCenter)
-                    }
-
-                    if model.featureFlags.isEnabled(.approvalCenter) {
-                        FeatureSidebarRow(title: "Approval Center", systemImage: "checkmark.shield")
-                            .tag(SidebarSelection.approvalCenter)
-                    }
                 }
             }
         }
@@ -116,7 +116,7 @@ struct SidebarView: View {
             }
         } message: {
             if let target = pendingCustomerTarget {
-                Text("Loaded gateways for \(model.sanitizedCustomerId) will be replaced with \(target.customerId).")
+                Text("Open workspaces for \(model.sanitizedCustomerId) will be replaced with \(target.customerId).")
             }
         }
     }

@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = WorkbenchModel()
-    @State private var sidebarSelection: SidebarSelection? = .runtime(.openclaw)
+    @State private var sidebarSelection: SidebarSelection? = .sessionCenter
 
     var body: some View {
         NavigationSplitView {
@@ -17,16 +17,31 @@ struct ContentView: View {
             case .providersHub:
                 ProvidersHubView(model: model)
             case .sessionCenter:
-                SessionCenterView(model: model) { runtime in
-                    sidebarSelection = .runtime(runtime)
-                    model.selectedRuntime = runtime
-                    model.loadSelectedRuntime()
+                if model.featureFlags.isEnabled(.sessionCenter) {
+                    SessionCenterView(
+                        model: model,
+                        openConnectedApps: {
+                            sidebarSelection = .providersHub
+                        },
+                        openApprovals: {
+                            sidebarSelection = .approvalCenter
+                        }
+                    ) { runtime in
+                        sidebarSelection = .runtime(runtime)
+                        model.selectedRuntime = runtime
+                        model.loadSelectedRuntime()
+                    }
+                } else {
+                    RuntimeDetailView(model: model, runtime: model.selectedRuntime)
                 }
             case .approvalCenter:
-                ApprovalCenterView(model: model)
+                if model.featureFlags.isEnabled(.approvalCenter) {
+                    ApprovalCenterView(model: model)
+                } else {
+                    RuntimeDetailView(model: model, runtime: model.selectedRuntime)
+                }
             case .none:
-                Text("Choose a runtime")
-                    .foregroundStyle(.secondary)
+                RuntimeDetailView(model: model, runtime: model.selectedRuntime)
             }
         }
         .onChange(of: sidebarSelection) { _, newValue in
@@ -48,7 +63,13 @@ struct ContentView: View {
         }
         .task {
             model.setApprovalCenterVisible(sidebarSelection == .approvalCenter)
-            await model.bootstrap()
+            let shouldLoadInitialRuntime: Bool
+            if case .runtime = sidebarSelection {
+                shouldLoadInitialRuntime = true
+            } else {
+                shouldLoadInitialRuntime = !model.featureFlags.isEnabled(.sessionCenter)
+            }
+            await model.bootstrap(loadInitialRuntime: shouldLoadInitialRuntime)
             model.startApprovalCenterPolling()
         }
         .onOpenURL { url in

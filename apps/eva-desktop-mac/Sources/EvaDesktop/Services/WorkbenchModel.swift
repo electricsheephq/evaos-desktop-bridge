@@ -198,9 +198,6 @@ final class WorkbenchModel: ObservableObject {
     var visibleRuntimes: [RuntimeDefinition] {
         RuntimeDefinition
             .visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
-            .filter { definition in
-                definition.key != .creativeStudio || featureFlags.isEnabled(.creativeStudio)
-            }
     }
 
     var loadedRuntimeKeys: [RuntimeKey] {
@@ -243,11 +240,15 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
-    func bootstrap() async {
+    func bootstrap(loadInitialRuntime: Bool = true) async {
         await refreshConnectorServiceAfterAppUpdateIfNeeded()
         await refreshCustomerTargets()
         await refreshFlaggedOSShellState()
-        await loadRuntime(selectedRuntime)
+        if loadInitialRuntime {
+            await loadRuntime(selectedRuntime)
+        } else if featureFlags.isEnabled(.sessionCenter) {
+            await refreshSessionCenterState()
+        }
         await checkForUpdates(silent: true)
     }
 
@@ -366,7 +367,7 @@ final class WorkbenchModel: ObservableObject {
 
         guard canAccess(runtime) else {
             runtimeURLs[runtime] = nil
-            runtimeErrors[runtime] = "This gateway is available to ElectricSheep admins only."
+            runtimeErrors[runtime] = "This workspace is available to ElectricSheep admins only."
             return
         }
 
@@ -403,7 +404,7 @@ final class WorkbenchModel: ObservableObject {
             handleBrokerAuthorizationFailure(status, runtime: runtime)
         } catch {
             runtimeURLs[runtime] = nil
-            runtimeErrors[runtime] = "Session broker failed: \(error.localizedDescription)."
+            runtimeErrors[runtime] = "Workspace launch failed: \(error.localizedDescription)."
         }
 
         if let url = runtimeURLs[runtime] {
@@ -443,7 +444,7 @@ final class WorkbenchModel: ObservableObject {
 
         guard RuntimeDefinition.isBrokeredRuntime(runtime), isSignedIn else { return }
         guard canAccess(runtime) else {
-            runtimeErrors[runtime] = "This gateway is available to ElectricSheep admins only."
+            runtimeErrors[runtime] = "This workspace is available to ElectricSheep admins only."
             return
         }
         guard !loadingRuntimes.contains(runtime) else { return }
@@ -465,7 +466,7 @@ final class WorkbenchModel: ObservableObject {
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
                 handleBrokerAuthorizationFailure(status, runtime: runtime)
             } catch {
-                runtimeErrors[runtime] = "External runtime launch failed: \(error.localizedDescription)."
+                runtimeErrors[runtime] = "Workspace launch failed: \(error.localizedDescription)."
             }
         }
     }
@@ -603,7 +604,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func handleProviderOAuthComplete() {
-        providerHubStatusText = "Provider sign-in complete. Refreshing..."
+        providerHubStatusText = "App sign-in complete. Refreshing..."
         Task {
             await refreshProviderProfiles()
         }
@@ -680,7 +681,7 @@ final class WorkbenchModel: ObservableObject {
     func refreshProviderProfiles() async {
         guard isSignedIn else {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
-            providerHubStatusText = "Sign in to connect providers."
+            providerHubStatusText = "Sign in to connect apps."
             resetCapabilityManifestState(statusText: "Sign in first", clearCache: false)
             return
         }
@@ -706,15 +707,18 @@ final class WorkbenchModel: ObservableObject {
 
     func connectProvider(_ providerKey: WorkbenchProviderKey) {
         guard isSignedIn else {
-            providerHubStatusText = "Sign in before connecting provider access."
+            providerHubStatusText = "Sign in before connecting apps."
             return
         }
         guard providerActionInFlight == nil else { return }
         providerActionInFlight = providerKey
-        providerHubStatusText = "Opening Shared Browser for provider sign-in..."
+        providerHubStatusText = "Opening Business Browser for app sign-in..."
 
         Task { @MainActor in
             defer { providerActionInFlight = nil }
+            if let warmupURL = providerDashboardURL(providerKey: providerKey) {
+                _ = try? await openProviderAuthHandoff(warmupURL)
+            }
             do {
                 let response = try await broker.connectProvider(
                     providerKey,
@@ -724,28 +728,59 @@ final class WorkbenchModel: ObservableObject {
                 providerProfiles = visibleProviderProfiles(response.profiles)
                 await refreshCapabilityManifest(trigger: "provider_connect")
                 let runtime = try await openProviderAuthHandoff(response.connectURL)
+                var targetOpenWarning: String?
                 if let targetURL = response.targetURL {
-                    try await broker.openSharedBrowserURL(
-                        targetURL,
-                        customerId: sanitizedCustomerId,
-                        desktopSession: session
-                    )
+                    do {
+                        try await broker.openSharedBrowserURL(
+                            targetURL,
+                            customerId: sanitizedCustomerId,
+                            desktopSession: session
+                        )
+                    } catch {
+                        targetOpenWarning = "If the sign-in page is not already open, use the browser address bar to go to \(Self.safeURLSummary(targetURL.absoluteString))."
+                    }
                 }
                 let runtimeTitle = RuntimeDefinition.definition(for: runtime).title
-                let providerTitle = WorkbenchProviderCatalog.profile(for: providerKey)?.title ?? "this provider"
-                let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Sign in to \(providerTitle) in the shared VM browser so agents can reuse that browser session, then return to Providers and refresh."
-                providerHubStatusText = providerAuthInstruction(
+                let providerTitle = WorkbenchProviderCatalog.profile(for: providerKey)?.title ?? "this app"
+                let fallbackInstruction = "\(runtimeTitle) opened inside Workbench. Sign in to \(providerTitle) in the business browser so Eva can reuse that browser session, then return to Connected Apps and refresh."
+                let instruction = providerAuthInstruction(
                     response.instructions,
                     runtimeTitle: runtimeTitle,
                     fallback: fallbackInstruction
                 )
+                providerHubStatusText = [instruction, targetOpenWarning].compactMap { $0 }.joined(separator: " ")
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 clearLocalSessionState(allowKeychainInteraction: false)
                 providerHubStatusText = "Session expired. Sign in again."
+            } catch RuntimeSessionBrokerError.httpStatus(let status) where [502, 503, 504].contains(status) {
+                if let fallbackURL = providerDashboardURL(providerKey: providerKey) {
+                    _ = try? await openProviderAuthHandoff(fallbackURL)
+                    let providerTitle = WorkbenchProviderCatalog.profile(for: providerKey)?.title ?? "the app"
+                    providerHubStatusText = "\(providerTitle) setup opened in Business Browser. The connection service is warming up or temporarily unavailable; use the Connected Apps page there, then refresh Workbench."
+                } else {
+                    providerHubStatusText = "App setup is temporarily unavailable: HTTP \(status)."
+                }
             } catch {
-                providerHubStatusText = "Provider auth failed to start: \(error.localizedDescription)"
+                providerHubStatusText = "App sign-in failed to start: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func providerDashboardURL(providerKey: WorkbenchProviderKey) -> URL? {
+        guard var components = URLComponents(string: dashboardBaseURLString) else {
+            return nil
+        }
+        var path = components.path
+        if path.hasSuffix("/") {
+            path.removeLast()
+        }
+        components.path = path + "/dashboard/providers"
+        components.queryItems = [
+            URLQueryItem(name: "provider", value: providerKey.rawValue),
+            URLQueryItem(name: "customer_id", value: sanitizedCustomerId),
+            URLQueryItem(name: "surface", value: "workbench"),
+        ]
+        return components.url
     }
 
     private func openProviderAuthHandoff(_ url: URL) async throws -> RuntimeKey {
@@ -769,7 +804,7 @@ final class WorkbenchModel: ObservableObject {
         }
         copy = copy.replacingOccurrences(of: "OpenClaw will open.", with: "\(runtimeTitle) opened inside Workbench.")
         copy = copy.replacingOccurrences(of: "OpenClaw will open", with: "\(runtimeTitle) opened inside Workbench")
-        copy = copy.replacingOccurrences(of: "OpenClaw auth handoff started.", with: "\(runtimeTitle) auth handoff opened inside Workbench.")
+        copy = copy.replacingOccurrences(of: "OpenClaw auth handoff started.", with: "\(runtimeTitle) sign-in opened inside Workbench.")
         return copy
     }
 
@@ -786,7 +821,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func mintOpenClawProviderGrant(_ providerKey: WorkbenchProviderKey) {
-        runProviderAction(providerKey, statusPrefix: "Preparing OpenClaw grant") {
+        runProviderAction(providerKey, statusPrefix: "Preparing Eva access") {
             try await self.broker.mintProviderGrant(
                 providerKey,
                 agentRuntime: "openclaw",
@@ -802,7 +837,7 @@ final class WorkbenchModel: ObservableObject {
         action: @escaping () async throws -> WorkbenchProviderProfilesResponse
     ) {
         guard isSignedIn else {
-            providerHubStatusText = "Sign in before changing provider access."
+            providerHubStatusText = "Sign in before changing app access."
             return
         }
         guard providerActionInFlight == nil else { return }
@@ -824,7 +859,7 @@ final class WorkbenchModel: ObservableObject {
                 clearLocalSessionState(allowKeychainInteraction: false)
                 providerHubStatusText = "Session expired. Sign in again."
             } catch {
-                providerHubStatusText = "Provider update failed: \(error.localizedDescription)"
+                providerHubStatusText = "App update failed: \(error.localizedDescription)"
                 resetCapabilityManifestState(statusText: "Needs refresh", clearCache: false)
             }
         }
@@ -856,7 +891,7 @@ final class WorkbenchModel: ObservableObject {
             }
             capabilityManifestSummary = response.brokerSafeSummary
             if let summary = response.brokerSafeSummary {
-                capabilityManifestStatusText = "Ready: \(summary.totalGrantCount) grants"
+                capabilityManifestStatusText = "Ready: \(summary.totalGrantCount) permissions"
             } else {
                 capabilityManifestStatusText = "Cached: summary pending"
             }
@@ -1131,7 +1166,7 @@ final class WorkbenchModel: ObservableObject {
         }
         let requestForDecision = currentRequest ?? request
         guard requestForDecision.isActionable || decision == .deny else {
-            approvalCenterStatusText = "Missing destination; deny or ask runtime to resubmit"
+            approvalCenterStatusText = "Missing destination; deny or ask Eva to retry"
             return
         }
         guard decision == .deny || !requestForDecision.isExpired() else {
@@ -1740,7 +1775,7 @@ final class WorkbenchModel: ObservableObject {
         enrollmentCode = nil
         enrollmentExpiresAt = nil
         providerProfiles = WorkbenchProviderCatalog.defaultStates
-        providerHubStatusText = "Sign in to connect providers."
+        providerHubStatusText = "Sign in to connect apps."
         providerActionInFlight = nil
         recentSessionRecords.removeAll()
         lastSignInURL = nil
@@ -1879,11 +1914,11 @@ final class WorkbenchModel: ObservableObject {
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
         if status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
-            runtimeErrors[runtime] = "Your evaOS Workbench session expired or was revoked. Sign in again to open gateways."
+            runtimeErrors[runtime] = "Your evaOS Workbench session expired or was revoked. Sign in again to open workspaces."
             return
         }
         runtimeURLs[runtime] = nil
-        runtimeErrors[runtime] = "This account is not authorized for that gateway or customer."
+        runtimeErrors[runtime] = "This account is not authorized for that workspace or customer."
     }
 
     private func applyDefaultCustomerIfNeeded(_ response: DesktopCustomerTargetsResponse) {
@@ -1922,12 +1957,12 @@ final class WorkbenchModel: ObservableObject {
         case .httpStatus(let status, let url):
             loadingRuntimePages.remove(runtime)
             let suffix = url.map { " at \($0.absoluteString)" } ?? ""
-            runtimeErrors[runtime] = "Runtime page returned HTTP \(status)\(suffix)."
+            runtimeErrors[runtime] = "Workspace page returned HTTP \(status)\(suffix)."
         case .fallbackDetected(let label):
             loadingRuntimePages.remove(runtime)
             let attempts = fallbackReloadAttempts[runtime, default: 0]
             guard attempts < 1, isSignedIn else {
-                runtimeErrors[runtime] = "\(label). Reconnect this runtime to refresh the authenticated session."
+                runtimeErrors[runtime] = "\(label). Reconnect this workspace to refresh the authenticated session."
                 return
             }
             fallbackReloadAttempts[runtime] = attempts + 1
@@ -2058,7 +2093,7 @@ final class RuntimeNavigationObserver: NSObject, WKNavigationDelegate {
         webView.evaluateJavaScript(script) { [weak self] result, _ in
             guard let self else { return }
             if (result as? Bool) == true {
-                self.onEvent(self.runtime, .fallbackDetected("OpenClaw loaded its gateway connect screen"))
+                self.onEvent(self.runtime, .fallbackDetected("This workspace opened its connection screen"))
             } else {
                 self.onEvent(self.runtime, .finished)
             }
@@ -2066,15 +2101,15 @@ final class RuntimeNavigationObserver: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        onEvent(runtime, .failed("Runtime page failed to load: \(error.localizedDescription)."))
+        onEvent(runtime, .failed("Workspace page failed to load: \(error.localizedDescription)."))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        onEvent(runtime, .failed("Runtime page failed to start loading: \(error.localizedDescription)."))
+        onEvent(runtime, .failed("Workspace page failed to start loading: \(error.localizedDescription)."))
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        onEvent(runtime, .failed("Runtime web content stopped unexpectedly. Reconnect this runtime to continue."))
+        onEvent(runtime, .failed("Workspace web content stopped unexpectedly. Reconnect this workspace to continue."))
     }
 
     func webView(

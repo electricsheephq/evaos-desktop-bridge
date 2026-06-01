@@ -17,16 +17,17 @@ governance, auth, cost, and support recovery have proven paths.
 
 ## Customer Journey
 
-1. A signed-in customer sees Creative Studio only when
-   `creative_studio`/`VITE_EVAOS_CREATIVE_STUDIO` is enabled.
+1. A signed-in customer sees Creative Studio in Workbench as a hosted web
+   workspace; dashboard rollout may still use
+   `creative_studio`/`VITE_EVAOS_CREATIVE_STUDIO`.
 2. Workbench opens the hosted Comfy Cloud page directly inside the Creative
    Studio runtime view.
 3. The dashboard `/dashboard/creative-studio` route embeds the same hosted page
    and provides a new-tab escape hatch for browser policies or login flows.
 4. Comfy handles its own login, workflow canvas, queue state, account recovery,
    and hosted GPU state.
-5. Disabled customers can hide the feature flag without affecting brokered
-   evaOS runtimes.
+5. The hosted web workspace is independent of brokered evaOS runtimes and does
+   not install local ComfyUI.
 
 ## API Lane
 
@@ -40,8 +41,8 @@ owns:
 - output retrieval through signed or brokered URLs;
 - disabled, expired, revoked, and unavailable states.
 
-Workbench must not expose raw Comfy API keys, provider tokens, model paths, or
-workflow secrets. Provider/Auth Hub and Capability Manifest grants should be
+Workbench must not expose raw Comfy API keys, app tokens, model paths, or
+workflow secrets. Connected Apps and What Eva Can Access summaries should be
 the source of truth for whether an agent may submit or retrieve work.
 
 ## Deferred VM-Local Path
@@ -64,7 +65,8 @@ Until then, VM-local ComfyUI is not a release blocker for Creative Studio.
 - `RuntimeDefinition.isBrokeredRuntime(.creativeStudio)` is false.
 - `RuntimeDefinition.externalURL(for: .creativeStudio)` is
   `https://www.comfy.org/cloud`.
-- Creative Studio remains feature-flagged off by default.
+- Creative Studio is visible in Workbench as a hosted web workspace rather than
+  hidden behind a local-GPU or VM install gate.
 - Workbench copy says hosted Comfy and does not claim local GPU execution.
 - The macOS app does not embed ComfyUI, GPU workers, model storage, or workflow
   automation.
