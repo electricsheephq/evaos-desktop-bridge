@@ -8,18 +8,12 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $selection) {
-            if model.featureFlags.isEnabled(.sessionCenter) || model.featureFlags.isEnabled(.approvalCenter) {
+            if model.featureFlags.isEnabled(.sessionCenter), model.featureFlags.isEnabled(.approvalCenter) {
                 Section("Home") {
-                    if model.featureFlags.isEnabled(.sessionCenter) {
-                        FeatureSidebarRow(title: "Home", systemImage: "house")
-                            .tag(SidebarSelection.sessionCenter)
-                    }
-
-                    if model.featureFlags.isEnabled(.approvalCenter) {
-                        FeatureSidebarRow(title: "Approvals", systemImage: "checkmark.shield")
-                            .tag(SidebarSelection.approvalCenter)
-                    }
+                    homeSidebarRows
                 }
+            } else if model.featureFlags.isEnabled(.sessionCenter) || model.featureFlags.isEnabled(.approvalCenter) {
+                homeSidebarRows
             }
 
             Section(AppBrand.runtimeSectionTitle) {
@@ -118,6 +112,19 @@ struct SidebarView: View {
             if let target = pendingCustomerTarget {
                 Text("Open workspaces for \(model.sanitizedCustomerId) will be replaced with \(target.customerId).")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var homeSidebarRows: some View {
+        if model.featureFlags.isEnabled(.sessionCenter) {
+            FeatureSidebarRow(title: "Home", systemImage: "house")
+                .tag(SidebarSelection.sessionCenter)
+        }
+
+        if model.featureFlags.isEnabled(.approvalCenter) {
+            FeatureSidebarRow(title: "Approvals", systemImage: "checkmark.shield")
+                .tag(SidebarSelection.approvalCenter)
         }
     }
 }

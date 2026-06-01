@@ -116,7 +116,7 @@ public enum WorkbenchMissionCardDeriver {
             attentionState: attention,
             lastUpdate: isoString(lastUpdate),
             nextAction: detail,
-            details: runtimeDetails(status: status),
+            details: runtimeDetails(status: status, fallback: definition.subtitle),
             sourcePointer: "broker:runtime_status:\(definition.key.rawValue)",
             auditId: nil
         )
@@ -327,8 +327,8 @@ public enum WorkbenchMissionCardDeriver {
         return status.healthSummary ?? definition.subtitle
     }
 
-    private static func runtimeDetails(status: RuntimeStatusResponse?) -> [String] {
-        guard let status else { return [] }
+    private static func runtimeDetails(status: RuntimeStatusResponse?, fallback: String) -> [String] {
+        guard let status else { return [fallback] }
         return [
             status.roomId.map { "Room: \(capped($0, limit: 80))" },
             status.owner.map { "Owner: \(capped($0, limit: 80))" },

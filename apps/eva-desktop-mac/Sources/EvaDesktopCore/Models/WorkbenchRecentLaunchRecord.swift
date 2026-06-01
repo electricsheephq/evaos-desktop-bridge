@@ -28,6 +28,7 @@ public struct WorkbenchRecentLaunchRecord: Identifiable, Codable, Equatable, Sen
         self.nextAction = "Open this workspace again."
         self.details = [
             "Saved shortcut",
+            definition.subtitle,
             "Uses a fresh secure workspace session"
         ]
         self.sourcePointer = "broker:runtime_status:\(runtime.rawValue)"
