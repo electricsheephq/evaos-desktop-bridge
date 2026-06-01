@@ -117,6 +117,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var capabilityManifestStatusText = "Unchecked"
     @Published var capabilityManifestAgentID = "openclaw"
     @Published var isRefreshingCapabilityManifest = false
+    @Published var agentAssignments: [WorkbenchAgentAssignment] = []
     @Published var usageDashboardCards: [WorkbenchAgentUsageCard] = []
     @Published var usageDashboardStatusText = "Unchecked"
     @Published var isRefreshingUsageDashboard = false
@@ -197,9 +198,32 @@ final class WorkbenchModel: ObservableObject {
         return email == "admin@100yen.org"
     }
 
+    var currentAccountRole: WorkbenchAccountRole {
+        let normalizedRoles = Set(sessionRoles.map { $0.lowercased().replacingOccurrences(of: "-", with: "_") })
+        if let role = WorkbenchAccountRole.allCases.first(where: { normalizedRoles.contains($0.rawValue) }) {
+            return role
+        }
+        return canAccessAdminRuntimes ? .technicalAdmin : .member
+    }
+
+    var currentAssignment: WorkbenchAgentAssignment? {
+        agentAssignments.first
+    }
+
     var visibleRuntimes: [RuntimeDefinition] {
         RuntimeDefinition
             .visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
+            .filter { WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime($0.key, role: currentAccountRole, assignment: currentAssignment) }
+    }
+
+    func canOpenSurface(_ surface: String) -> Bool {
+        guard currentAccountRole == .agentOnly else {
+            return true
+        }
+        if surface == "today" || surface == "assigned_agent_workspace" {
+            return true
+        }
+        return currentAssignment?.allowsSurface(surface) == true
     }
 
     var loadedRuntimeKeys: [RuntimeKey] {
@@ -721,6 +745,9 @@ final class WorkbenchModel: ObservableObject {
             providerHubStatusText = "Sign in before connecting apps."
             return
         }
+        guard canUseProvider(providerKey) else {
+            return
+        }
         guard providerActionInFlight == nil else { return }
         providerActionInFlight = providerKey
         providerHubStatusText = "Opening Business Browser for app sign-in..."
@@ -853,6 +880,9 @@ final class WorkbenchModel: ObservableObject {
             providerHubStatusText = "Sign in before changing app access."
             return
         }
+        guard canUseProvider(providerKey) else {
+            return
+        }
         guard providerActionInFlight == nil else { return }
         providerActionInFlight = providerKey
         providerHubStatusText = "\(statusPrefix)..."
@@ -880,13 +910,27 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func visibleProviderProfiles(_ profiles: [WorkbenchProviderProfileState]) -> [WorkbenchProviderProfileState] {
-        WorkbenchProviderCatalog.visibleStates(from: profiles)
+        let visibleProfiles = WorkbenchProviderCatalog.visibleStates(from: profiles)
+        guard currentAccountRole == .agentOnly else {
+            return visibleProfiles
+        }
+        return visibleProfiles.filter { profile in
+            agentAssignments.contains { $0.canUseProviderProfile(profile) }
+        }
     }
 
     private func updateConnectedAppMissionCards(from profiles: [WorkbenchProviderProfileState]) {
         let providerCards = WorkbenchMissionCardDeriver.providerCards(from: profiles)
         var nextCards = sessionMissionCards.filter { $0.surface != "connected_apps" }
         nextCards.append(contentsOf: providerCards)
+        sessionMissionCards = nextCards
+        sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
+    }
+
+    private func updateAssignedAgentMissionCards() {
+        let assignmentCards = WorkbenchMissionCardDeriver.assignedAgentCards(from: agentAssignments)
+        var nextCards = sessionMissionCards.filter { $0.surface != "assigned_agent" }
+        nextCards.insert(contentsOf: assignmentCards, at: 0)
         sessionMissionCards = nextCards
         sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
     }
@@ -912,11 +956,24 @@ final class WorkbenchModel: ObservableObject {
                 try capabilityManifestStore.saveToken(token)
             }
             capabilityManifestSummary = response.brokerSafeSummary
-            if let summary = response.brokerSafeSummary {
+            if let assignments = response.agentAssignments, !assignments.isEmpty {
+                agentAssignments = assignments
+                capabilityManifestStatusText = "Ready: \(assignments.count) assigned agent"
+            } else if let summary = response.brokerSafeSummary {
                 capabilityManifestStatusText = "Ready: \(summary.totalGrantCount) permissions"
+                agentAssignments = [
+                    WorkbenchAgentAssignment.fromCapabilitySummary(
+                        summary,
+                        customerAccountID: sanitizedCustomerId,
+                        assignedUserID: session?.userEmail ?? sanitizedCustomerId,
+                        displayName: summary.agentID
+                    )
+                ]
             } else {
                 capabilityManifestStatusText = "Cached: summary pending"
+                agentAssignments.removeAll()
             }
+            updateAssignedAgentMissionCards()
             await refreshUsageDashboard(trigger: "capability_manifest")
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
             clearLocalSessionState(allowKeychainInteraction: false)
@@ -1113,6 +1170,7 @@ final class WorkbenchModel: ObservableObject {
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.queueCards(from: queueRaw))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.auditCards(from: auditRaw))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.codexCards(statusRaw: codexStatusRaw, remoteRaw: codexRemoteRaw, threadsRaw: codexThreadsRaw))
+        nextCards.append(contentsOf: WorkbenchMissionCardDeriver.assignedAgentCards(from: agentAssignments))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.providerCards(from: providerProfiles))
 
         guard sanitizedCustomerId == customerSnapshot else { return }
@@ -1939,6 +1997,9 @@ final class WorkbenchModel: ObservableObject {
             try? capabilityManifestStore.clear(allowUserInteraction: allowKeychainInteraction)
         }
         capabilityManifestSummary = nil
+        agentAssignments.removeAll()
+        sessionMissionCards.removeAll { $0.surface == "assigned_agent" }
+        sessionRecords = WorkbenchSessionContract.records(from: sessionMissionCards, customerId: sanitizedCustomerId)
         capabilityManifestStatusText = statusText
         isRefreshingCapabilityManifest = false
         resetUsageDashboardState(statusText: statusText)
@@ -1973,7 +2034,24 @@ final class WorkbenchModel: ObservableObject {
 
     private func canAccess(_ runtime: RuntimeKey) -> Bool {
         let definition = RuntimeDefinition.definition(for: runtime)
-        return !definition.requiresAdmin || canAccessAdminRuntimes
+        return (!definition.requiresAdmin || canAccessAdminRuntimes)
+            && WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(runtime, role: currentAccountRole, assignment: currentAssignment)
+    }
+
+    private func canUseProvider(_ providerKey: WorkbenchProviderKey) -> Bool {
+        guard currentAccountRole == .agentOnly else {
+            return true
+        }
+        guard let profile = providerProfiles.first(where: { $0.key == providerKey }) else {
+            providerHubStatusText = "That app is not assigned to this user."
+            return false
+        }
+        let allowed = agentAssignments.contains { $0.canUseProviderProfile(profile) }
+        if !allowed {
+            let title = WorkbenchProviderCatalog.profile(for: providerKey)?.title ?? "That app"
+            providerHubStatusText = "\(title) is not assigned to this user."
+        }
+        return allowed
     }
 
     private func ensureSelectedRuntimeIsVisible() {

@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #242 Assigned Agent Model slice: Workbench now decodes the
+  `evaos.agent_assignment.v1` shape, derives a first assignment from safe
+  capability-manifest summaries, keeps agent-only users limited to assigned
+  surfaces and granted apps, exposes pause/revoke authority as owner/admin-only
+  policy, and renders assigned agents as Home cards without adding a live
+  runtime mutation surface.
 - Add the issue #241 Approval runtime resolution contract slice: Workbench now
   attaches a normalized destination proof to approval decisions, keeps allow
   actions fail-closed when proof is missing, preserves deny for malformed

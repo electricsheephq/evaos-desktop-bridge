@@ -242,6 +242,24 @@ public enum WorkbenchMissionCardDeriver {
         }
     }
 
+    public static func assignedAgentCards(from assignments: [WorkbenchAgentAssignment]) -> [WorkbenchMissionCard] {
+        assignments.map { assignment in
+            WorkbenchMissionCard(
+                id: "assigned-agent-\(assignment.assignmentID)",
+                surface: "assigned_agent",
+                runtime: assignment.runtime,
+                title: assignment.agentDisplayName,
+                status: assignment.statusText,
+                attentionState: assignment.attentionState,
+                lastUpdate: nil,
+                nextAction: assignment.nextAction,
+                details: assignedAgentDetails(assignment),
+                sourcePointer: assignment.sourcePointer,
+                auditId: assignment.auditID
+            )
+        }
+    }
+
     private static func codexReadinessCard(statusRaw: String, remoteRaw: String) -> WorkbenchMissionCard {
         guard let statusObject = jsonObject(from: statusRaw), statusObject["ok"] as? Bool == true else {
             return bridgeFailureCard(id: "codex-readiness", title: "Codex Readiness", sourcePointer: "bridge:codex.app_server.status")
@@ -474,6 +492,19 @@ public enum WorkbenchMissionCardDeriver {
             sourcePointer: sourcePointer,
             auditId: nil
         )
+    }
+
+    private static func assignedAgentDetails(_ assignment: WorkbenchAgentAssignment) -> [String] {
+        [
+            "Assigned user: \(capped(assignment.assignedUserID, limit: 80))",
+            "Runtime: \(assignment.runtime.rawValue)",
+            "Allowed apps: \(assignment.allowedProviderGrants.count)",
+            "Allowed surfaces: \(assignment.allowedSurfaces.joined(separator: ", "))",
+            "Approval mode: \(assignment.approvalPolicy.defaultMode)",
+            assignment.budget.dailyUSD.map { String(format: "Daily budget: $%.2f", $0) },
+            assignment.budget.dailyTokens.map { "Daily tokens: \($0)" },
+            assignment.killSwitch.enabled ? "Kill switch: \(assignment.killSwitch.state.rawValue)" : "Kill switch: disabled",
+        ].compactMap { $0 }
     }
 
     private static func jsonObject(from raw: String) -> [String: Any]? {

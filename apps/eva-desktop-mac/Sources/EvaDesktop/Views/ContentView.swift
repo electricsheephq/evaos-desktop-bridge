@@ -21,10 +21,14 @@ struct ContentView: View {
                     SessionCenterView(
                         model: model,
                         openConnectedApps: {
-                            sidebarSelection = .providersHub
+                            if model.canOpenSurface("connected_apps") {
+                                sidebarSelection = .providersHub
+                            }
                         },
                         openApprovals: {
-                            sidebarSelection = .approvalCenter
+                            if model.canOpenSurface("approvals") {
+                                sidebarSelection = .approvalCenter
+                            }
                         }
                     ) { runtime in
                         sidebarSelection = .runtime(runtime)
