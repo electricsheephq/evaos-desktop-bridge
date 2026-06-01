@@ -1013,17 +1013,17 @@ precondition(releaseScriptSource.contains("hosted Comfy Cloud web surface"))
 precondition(releaseScriptSource.contains("future graduation scope"))
 precondition(releaseScriptSource.contains("Session Center recent-launches"))
 
-let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.6.23/evaOS-Workbench-0.6.23.zip")!
-let olderManifest = WorkbenchReleaseManifest(version: "0.6.22", build: "62", downloadURL: trustedDownload)
-let newerManifest = WorkbenchReleaseManifest(version: "0.6.23", build: "1", downloadURL: trustedDownload)
-let newerBuildManifest = WorkbenchReleaseManifest(version: "0.6.23", build: "64", downloadURL: trustedDownload)
+let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v0.6.24/evaOS-Workbench-0.6.24.zip")!
+let olderManifest = WorkbenchReleaseManifest(version: "0.6.23", build: "63", downloadURL: trustedDownload)
+let newerManifest = WorkbenchReleaseManifest(version: "0.6.24", build: "1", downloadURL: trustedDownload)
+let newerBuildManifest = WorkbenchReleaseManifest(version: "0.6.24", build: "65", downloadURL: trustedDownload)
 precondition(!olderManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(!newerManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(newerBuildManifest.isNewerThan(currentVersion: AppBrand.version, currentBuild: AppBrand.buildNumber))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: AppBrand.defaultUpdateManifestURL)!))
 precondition(WorkbenchUpdateClient.isTrustedUpdateURL(trustedDownload))
 precondition(!WorkbenchUpdateClient.isTrustedUpdateURL(URL(string: "https://example.com/evaOS-Workbench-0.1.1.zip")!))
-try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.6.23", build: "63", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
+try WorkbenchUpdateClient.validate(WorkbenchReleaseManifest(version: "0.6.24", build: "64", downloadURL: trustedDownload, sha256: String(repeating: "a", count: 64), releaseNotesURL: URL(string: "https://www.electricsheephq.com/evaos-workbench")!))
 
 let broker = RuntimeSessionBrokerClient()
 precondition(broker.endpoint.absoluteString == "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/desktop-runtime-session")

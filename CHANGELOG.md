@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.24 - 2026-06-01
+
 - Improve the issue #97 Shared Browser inactive/on-demand UX: Workbench now
   labels the brokered path as `Start / Attach`, explains that the shared VM
   browser can take up to a minute to wake after idle, and Session Center points
