@@ -8,6 +8,7 @@ public enum RuntimeKey: String, CaseIterable, Codable, Identifiable, Sendable {
     case liveBrowser = "browser"
     case terminal
     case creativeStudio = "creative_studio"
+    case teamChat = "team_chat"
 
     public var id: String { rawValue }
 }
@@ -88,6 +89,12 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
             title: "Creative Studio",
             subtitle: "Open the hosted Comfy creative workspace in Workbench.",
             systemImage: "paintbrush.pointed"
+        ),
+        RuntimeDefinition(
+            key: .teamChat,
+            title: "Team Chat",
+            subtitle: "Company chat for people and assigned Eva agents.",
+            systemImage: "message.badge"
         )
     ]
 
@@ -101,7 +108,7 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
 
     public static func isBrokeredRuntime(_ key: RuntimeKey) -> Bool {
         switch key {
-        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal:
+        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .teamChat:
             return true
         case .creativeStudio:
             return false
@@ -110,7 +117,7 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
 
     public static func externalURL(for key: RuntimeKey) -> URL? {
         switch key {
-        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal:
+        case .openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .teamChat:
             return nil
         case .creativeStudio:
             return URL(string: "https://www.comfy.org/cloud")

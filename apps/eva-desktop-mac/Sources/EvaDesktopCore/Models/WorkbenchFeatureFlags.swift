@@ -6,6 +6,7 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
     case sessionCenter = "session_center"
     case approvalCenter = "approval_center"
     case creativeStudio = "creative_studio"
+    case teamChat = "team_chat"
 
     public var userDefaultsKey: String {
         "EvaDesktop.feature.\(rawValue)"
@@ -15,7 +16,7 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
         switch self {
         case .providersHub, .sessionCenter, .approvalCenter, .creativeStudio:
             return true
-        case .sharedBrowser2:
+        case .sharedBrowser2, .teamChat:
             return false
         }
     }
@@ -81,6 +82,18 @@ public enum WorkbenchFeatureFlagKey: String, CaseIterable, Codable, Sendable {
                 rolloutCriteria: "Hosted Comfy path, login/embedded-page proof, no local GPU dependency",
                 rollbackAction: "Disable flag and remove Creative Studio from the workspace list",
                 publicCopy: "Open the hosted creative workflow studio from Workbench."
+            )
+        case .teamChat:
+            return WorkbenchFeatureFlagDescriptor(
+                key: self,
+                dashboardEnvironmentKey: "VITE_EVAOS_TEAM_CHAT",
+                primaryIssue: "#245",
+                owner: "Workbench + Broker + ClickClack",
+                surface: "Team Chat",
+                navigationPlacement: "Workspaces",
+                rolloutCriteria: "Brokered ClickClack workspace, mirrored member, service bot, assigned agent, channel, DM, revocable secret refs, embedded smoke",
+                rollbackAction: "Disable flag and hide Team Chat while keeping existing workspaces unchanged",
+                publicCopy: "Chat with teammates and assigned Eva agents in a company workspace."
             )
         }
     }

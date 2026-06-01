@@ -220,6 +220,9 @@ final class WorkbenchModel: ObservableObject {
     var visibleRuntimes: [RuntimeDefinition] {
         RuntimeDefinition
             .visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
+            .filter { runtime in
+                runtime.key != .teamChat || featureFlags.isEnabled(.teamChat)
+            }
             .filter { WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime($0.key, role: currentAccountRole, assignment: currentAssignment) }
     }
 

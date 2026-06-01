@@ -382,7 +382,10 @@ a release package or the installed `/Applications/evaOS.app`.
 
 ## ClickClack Reference Boundary
 
-Use ClickClack later as a wrapped Team Chat runtime:
+Use ClickClack later as a wrapped Team Chat runtime. The Workbench V1 spike
+adds a default-off `Team Chat` workspace entry and a small binding contract;
+it does not embed ClickClack by default, mint sessions, or introduce a chat
+authority inside Workbench.
 
 - one ClickClack workspace per `customer_account`
 - human members mirrored from evaOS users
@@ -390,6 +393,24 @@ Use ClickClack later as a wrapped Team Chat runtime:
 - channels such as `today`, `ops`, `approvals`, `agents`, and `support`
 - DMs for human-agent direct work
 - OpenClaw ClickClack channel extension for agent participation
+
+### Team Chat Binding Contract
+
+`evaos.team_chat_binding.v1` is the control-plane shape for the pilot:
+
+| Field | Meaning | Authority |
+| --- | --- | --- |
+| `customer_account_id` | evaOS customer account that owns the chat workspace. | Dashboard/Supabase |
+| `clickclack_workspace_id` | ClickClack workspace identifier. | Broker provisioner |
+| `workspace_route_id` | Embeddable workspace route id, not a magic-link URL. | Broker provisioner |
+| `human_user_id` | Mirrored evaOS user in the pilot workspace. | Dashboard/Supabase |
+| `service_bot_id` | Service bot used for evaOS/OpenClaw integration. | Broker/Cortex secret authority |
+| `assigned_agent_id` | evaOS agent assignment represented in chat. | Broker/Cortex |
+| `channel_id` | Pilot shared channel id. | ClickClack chat state |
+| `direct_message_id` | Pilot human-agent DM id. | ClickClack chat state |
+| `bot_token_secret_ref` | Revocable secret reference, never the raw bot token. | Broker/Cortex secret authority |
+| `embed_url` | Broker-minted Workbench/Dashboard URL, optional until SSO exists. | Broker session minting |
+| `source_pointer` / `audit_id` | Provenance for provisioning and revocation. | Broker/audit |
 
 Required before customer rollout:
 
@@ -402,8 +423,10 @@ Required before customer rollout:
 - embedded Workbench/Dashboard smoke
 - upload security and retention policy
 
-ClickClack stores chat state. It does not own billing, account membership,
-provider grants, agent assignment, or permission policy.
+ClickClack owns chat state only. It does not own billing, seats, account
+membership, provider grants, agent assignment, account policy, route guards,
+approval decisions, audit authority, runtime launch URLs, or provider-token
+revocation.
 
 ## Milestone
 
