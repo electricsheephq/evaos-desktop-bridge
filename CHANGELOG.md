@@ -4,6 +4,13 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #245 ClickClack Team Chat binding spike: Workbench now has a
+  default-off brokered Team Chat runtime and a versioned
+  `evaos.team_chat_binding.v1` contract for one customer workspace, one
+  mirrored human, one service bot, one assigned agent, one channel, one DM,
+  and revocable bot-token secret references without adopting ClickClack as
+  billing, membership, provider-grant, agent-assignment, or permission
+  authority.
 - Add the issue #244 AionUi reference spike: Workbench now includes a native
   Agent Workspace Preview on Home that demonstrates AionUi-inspired
   agent/team cards, task launcher cards, assistant source labels, app/tool

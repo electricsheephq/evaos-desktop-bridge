@@ -71,7 +71,8 @@ precondition(WorkbenchFeatureFlagKey.allCases.map(\.rawValue) == [
     "shared_browser_2",
     "session_center",
     "approval_center",
-    "creative_studio"
+    "creative_studio",
+    "team_chat"
 ])
 let featureFlags = WorkbenchFeatureFlags()
 precondition(featureFlags.isEnabled(.providersHub))
@@ -79,12 +80,14 @@ precondition(!featureFlags.isEnabled(.sharedBrowser2))
 precondition(featureFlags.isEnabled(.sessionCenter))
 precondition(featureFlags.isEnabled(.approvalCenter))
 precondition(featureFlags.isEnabled(.creativeStudio))
+precondition(!featureFlags.isEnabled(.teamChat))
 precondition(featureFlags.enabledKeys == [.providersHub, .sessionCenter, .approvalCenter, .creativeStudio])
 precondition(featureFlags.storedValue(for: .creativeStudio) == true)
 precondition(featureFlags.storedValue(for: .providersHub) == true)
 precondition(featureFlags.storedValue(for: .sharedBrowser2) == false)
 precondition(featureFlags.storedValue(for: .sessionCenter) == true)
 precondition(featureFlags.storedValue(for: .approvalCenter) == true)
+precondition(featureFlags.storedValue(for: .teamChat) == false)
 precondition(WorkbenchFeatureFlags.descriptors.map(\.key) == WorkbenchFeatureFlagKey.allCases)
 precondition(WorkbenchFeatureFlags.descriptors.filter(\.defaultEnabled).map(\.key) == [.providersHub, .sessionCenter, .approvalCenter, .creativeStudio])
 precondition(WorkbenchFeatureFlags.descriptors.map(\.dashboardEnvironmentKey) == [
@@ -92,33 +95,39 @@ precondition(WorkbenchFeatureFlags.descriptors.map(\.dashboardEnvironmentKey) ==
     "VITE_EVAOS_SHARED_BROWSER_2",
     "VITE_EVAOS_SESSION_CENTER",
     "VITE_EVAOS_APPROVAL_CENTER",
-    "VITE_EVAOS_CREATIVE_STUDIO"
+    "VITE_EVAOS_CREATIVE_STUDIO",
+    "VITE_EVAOS_TEAM_CHAT"
 ])
 precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.primaryIssue == "#96")
 precondition(WorkbenchFeatureFlagKey.sharedBrowser2.descriptor.primaryIssue == "#97")
 precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.primaryIssue == "#100")
 precondition(WorkbenchFeatureFlagKey.approvalCenter.descriptor.primaryIssue == "#144")
 precondition(WorkbenchFeatureFlagKey.creativeStudio.descriptor.primaryIssue == "#102")
+precondition(WorkbenchFeatureFlagKey.teamChat.descriptor.primaryIssue == "#245")
 precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.navigationPlacement == "Settings")
 precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.navigationPlacement == "Home")
 precondition(WorkbenchFeatureFlagKey.approvalCenter.descriptor.navigationPlacement == "Home")
 precondition(WorkbenchFeatureFlagKey.creativeStudio.descriptor.navigationPlacement == "Workspaces")
+precondition(WorkbenchFeatureFlagKey.teamChat.descriptor.navigationPlacement == "Workspaces")
 precondition(WorkbenchFeatureFlagKey.sharedBrowser2.descriptor.rollbackAction.contains("base Business Browser workspace visible"))
 precondition(WorkbenchFeatureFlagKey.providersHub.descriptor.publicCopy.contains("without storing passwords"))
 precondition(WorkbenchFeatureFlagKey.sessionCenter.descriptor.rolloutCriteria.contains("dashboard parity"))
 precondition(WorkbenchFeatureFlagKey.approvalCenter.descriptor.publicCopy.contains("actual destination"))
+precondition(WorkbenchFeatureFlagKey.teamChat.descriptor.rolloutCriteria.contains("revocable secret refs"))
 
 let featureFlagDefaults = UserDefaults(suiteName: "EvaDesktopCoreSmoke.feature-flags.\(UUID().uuidString)")!
 featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.providersHub.userDefaultsKey)
 featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.sharedBrowser2.userDefaultsKey)
 featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.approvalCenter.userDefaultsKey)
 featureFlagDefaults.set(false, forKey: WorkbenchFeatureFlagKey.creativeStudio.userDefaultsKey)
+featureFlagDefaults.set(true, forKey: WorkbenchFeatureFlagKey.teamChat.userDefaultsKey)
 let configuredFeatureFlags = WorkbenchFeatureFlags(userDefaults: featureFlagDefaults)
 precondition(!configuredFeatureFlags.isEnabled(.providersHub))
 precondition(configuredFeatureFlags.isEnabled(.sharedBrowser2))
 precondition(configuredFeatureFlags.isEnabled(.sessionCenter))
 precondition(configuredFeatureFlags.isEnabled(.approvalCenter))
 precondition(!configuredFeatureFlags.isEnabled(.creativeStudio))
+precondition(configuredFeatureFlags.isEnabled(.teamChat))
 let providerCatalogKeys = WorkbenchProviderCatalog.profiles.map(\.key)
 precondition(providerCatalogKeys == [.openAICodex, .googleWorkspace, .pipedream, .slack, .notion, .linear, .github])
 precondition(WorkbenchProviderCatalog.profiles.allSatisfy { !$0.rawSecretsStoredInWorkbench })
@@ -988,14 +997,27 @@ precondition(agentOnlySurfaces.contains("assigned_agent_workspace"))
 precondition(agentOnlySurfaces.contains("business_browser"))
 precondition(agentOnlySurfaces.contains("creative_studio"))
 precondition(!agentOnlySurfaces.contains("terminal"))
+precondition(!agentOnlySurfaces.contains("team_chat"))
 precondition(!agentOnlySurfaces.contains("technical_dashboards"))
 precondition(!agentOnlySurfaces.contains("billing"))
 precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessTechnicalDashboards(role: .agentOnly) == false)
 precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessTechnicalDashboards(role: .technicalAdmin) == true)
 precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.liveBrowser, role: .agentOnly, assignment: decodedAssignment))
 precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.creativeStudio, role: .agentOnly, assignment: decodedAssignment))
+precondition(!WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.teamChat, role: .agentOnly, assignment: decodedAssignment))
 precondition(!WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.openclaw, role: .agentOnly, assignment: decodedAssignment))
 precondition(!WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.terminal, role: .agentOnly, assignment: decodedAssignment))
+let teamChatAssignment = WorkbenchAgentAssignment(
+    assignmentID: "assign-chat-1",
+    customerAccountID: "acct-1",
+    assignedUserID: "usr-employee-1",
+    agentID: "agent-ops",
+    agentDisplayName: "Ops Helper",
+    allowedProviderGrants: [],
+    allowedSurfaces: ["today", "assigned_agent_workspace", "team_chat"],
+    sourcePointer: "dashboard:agent_assignment:assign-chat-1"
+)
+precondition(WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime(.teamChat, role: .agentOnly, assignment: teamChatAssignment))
 
 let assignmentFromCapability = WorkbenchAgentAssignment.fromCapabilitySummary(
     verifiedManifest.safeSummary,
@@ -1337,21 +1359,27 @@ precondition(resolver.sanitizedCustomerId("") == "golden")
 precondition(RuntimeDefinition.isBrokeredRuntime(.openclaw))
 precondition(RuntimeDefinition.isBrokeredRuntime(.terminal))
 precondition(RuntimeDefinition.isBrokeredRuntime(.openDesign))
+precondition(RuntimeDefinition.isBrokeredRuntime(.teamChat))
 precondition(!RuntimeDefinition.isBrokeredRuntime(.creativeStudio))
 precondition(RuntimeDefinition.externalURL(for: .creativeStudio)?.absoluteString == "https://www.comfy.org/cloud")
 precondition(RuntimeDefinition.externalURL(for: .openDesign) == nil)
+precondition(RuntimeDefinition.externalURL(for: .teamChat) == nil)
 precondition(!RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: false).contains { $0.key == .terminal })
 precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: true).contains { $0.key == .terminal })
 precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: false).contains { $0.key == .openDesign })
 precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: true).contains { $0.key == .openDesign })
+precondition(RuntimeDefinition.visibleRuntimes(canAccessAdminRuntimes: false).contains { $0.key == .teamChat })
 precondition(RuntimeDefinition.definition(for: .openDesign).availability == .enabled)
 precondition(RuntimeDefinition.definition(for: .creativeStudio).availability == .enabled)
+precondition(RuntimeDefinition.definition(for: .teamChat).availability == .enabled)
 precondition(RuntimeDefinition.definition(for: .openclaw).title == "Eva Workspace")
 precondition(RuntimeDefinition.definition(for: .openDesign).title == "Design Workspace")
 precondition(RuntimeDefinition.definition(for: .liveBrowser).title == "Business Browser")
 precondition(RuntimeDefinition.definition(for: .creativeStudio).title == "Creative Studio")
+precondition(RuntimeDefinition.definition(for: .teamChat).title == "Team Chat")
 precondition(RuntimeDefinition.definition(for: .creativeStudio).subtitle.contains("hosted Comfy"))
-precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .creativeStudio])
+precondition(RuntimeDefinition.definition(for: .teamChat).subtitle.contains("assigned Eva agents"))
+precondition(RuntimeDefinition.all.map(\.key) == [.openclaw, .hermes, .missionControl, .openDesign, .liveBrowser, .terminal, .creativeStudio, .teamChat])
 
 let contentViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/ContentView.swift", encoding: .utf8)
 precondition(!contentViewSource.contains("case .sharedBrowser2"))
@@ -1422,6 +1450,8 @@ precondition(commandCenterADR.contains("AionUi Keep / Reject Decisions"))
 precondition(commandCenterADR.contains("Agent/team cards"))
 precondition(commandCenterADR.contains("Reject"))
 precondition(commandCenterADR.contains("Screenshot evidence"))
+precondition(commandCenterADR.contains("evaos.team_chat_binding.v1"))
+precondition(commandCenterADR.contains("ClickClack owns chat state only"))
 let sidebarSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/SidebarView.swift", encoding: .utf8)
 precondition(sidebarSource.contains("Section(\"Home\")"))
 precondition(sidebarSource.contains("FeatureSidebarRow(title: \"Home\""))
@@ -1548,6 +1578,7 @@ precondition(workbenchModelSource.contains("approvalNotificationService.deliver"
 precondition(workbenchModelSource.contains("subtracting(candidateNotificationIDs)"))
 precondition(workbenchModelSource.contains("15_000_000_000"))
 precondition(workbenchModelSource.contains("resetCapabilityManifestState(statusText: \"Unchecked\", clearCache: true)"))
+precondition(workbenchModelSource.contains("runtime.key != .teamChat || featureFlags.isEnabled(.teamChat)"))
 precondition(workbenchModelSource.contains("bridgeKey([\"queue\", \"list\", \"--json\", \"--limit\", \"10\"])"))
 precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"status\", \"--json\"])"))
 precondition(workbenchModelSource.contains("bridgeKey([\"codex\", \"app-server\", \"threads\", \"--json\", \"--max-items\", \"5\"])"))
@@ -1647,6 +1678,38 @@ precondition(osViewsSource.contains("capabilityManifestStatusText"))
 precondition(!osViewsSource.contains("manifestJWT"))
 precondition(!osViewsSource.contains("manifest_jwt"))
 
+let teamChatBindingJSON = """
+{
+  "schema_version": "evaos.team_chat_binding.v1",
+  "customer_account_id": "acct-1",
+  "clickclack_workspace_id": "ccw-1",
+  "workspace_route_id": "route-acct-1",
+  "human_user_id": "usr-owner-1",
+  "service_bot_id": "bot-eva-service",
+  "assigned_agent_id": "agent-ops",
+  "channel_id": "chan-today",
+  "direct_message_id": "dm-owner-agent",
+  "bot_token_secret_ref": "secret://broker/clickclack/bot-eva-service",
+  "embed_url": "https://chat.electricsheephq.com/app/route-acct-1/chan-today",
+  "source_pointer": "broker:team_chat_binding:acct-1",
+  "audit_id": "audit-team-chat-binding-1"
+}
+""".data(using: .utf8)!
+let decodedTeamChatBinding = try EvaDesktopISO8601.decoder().decode(WorkbenchTeamChatBinding.self, from: teamChatBindingJSON)
+precondition(decodedTeamChatBinding.schemaVersion == "evaos.team_chat_binding.v1")
+precondition(decodedTeamChatBinding.hasPilotPath)
+precondition(decodedTeamChatBinding.isRevocable)
+precondition(!decodedTeamChatBinding.isRevoked)
+precondition(decodedTeamChatBinding.botTokenSecretRef.hasPrefix("secret://"))
+precondition(decodedTeamChatBinding.embedURL?.absoluteString.contains("/app/") == true)
+precondition(decodedTeamChatBinding.sourcePointer == "broker:team_chat_binding:acct-1")
+let encodedTeamChatBinding = try JSONEncoder().encode(decodedTeamChatBinding)
+let encodedTeamChatBindingJSON = String(data: encodedTeamChatBinding, encoding: .utf8) ?? ""
+precondition(encodedTeamChatBindingJSON.contains("\"bot_token_secret_ref\""))
+precondition(!encodedTeamChatBindingJSON.contains("ccb_"))
+precondition(!encodedTeamChatBindingJSON.contains("magic"))
+precondition(!encodedTeamChatBindingJSON.contains("cookie"))
+
 let encodedLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .liveBrowser))
 let launchJSON = String(data: encodedLaunch, encoding: .utf8) ?? ""
 precondition(launchJSON.contains("\"action\":\"runtime_launch\""))
@@ -1662,10 +1725,23 @@ let encodedCreativeStudioLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(
 let creativeStudioLaunchJSON = String(data: encodedCreativeStudioLaunch, encoding: .utf8) ?? ""
 precondition(creativeStudioLaunchJSON.contains("\"runtime\":\"creative_studio\""))
 
+let encodedTeamChatLaunch = try JSONEncoder().encode(RuntimeLaunchRequest(customerId: "golden", runtime: .teamChat))
+let teamChatLaunchJSON = String(data: encodedTeamChatLaunch, encoding: .utf8) ?? ""
+precondition(teamChatLaunchJSON.contains("\"action\":\"runtime_launch\""))
+precondition(teamChatLaunchJSON.contains("\"customer_id\":\"golden\""))
+precondition(teamChatLaunchJSON.contains("\"runtime\":\"team_chat\""))
+precondition(!teamChatLaunchJSON.contains("token"))
+
 let encodedRuntimeStatus = try JSONEncoder().encode(RuntimeStatusRequest(customerId: "golden", runtime: .liveBrowser))
 let runtimeStatusJSON = String(data: encodedRuntimeStatus, encoding: .utf8) ?? ""
 precondition(runtimeStatusJSON.contains("\"action\":\"runtime_status\""))
 precondition(runtimeStatusJSON.contains("\"runtime\":\"browser\""))
+
+let encodedTeamChatStatus = try JSONEncoder().encode(RuntimeStatusRequest(customerId: "golden", runtime: .teamChat))
+let teamChatStatusJSON = String(data: encodedTeamChatStatus, encoding: .utf8) ?? ""
+precondition(teamChatStatusJSON.contains("\"action\":\"runtime_status\""))
+precondition(teamChatStatusJSON.contains("\"runtime\":\"team_chat\""))
+precondition(!teamChatStatusJSON.contains("token"))
 
 let encodedSharedBrowserStop = try JSONEncoder().encode(SharedBrowserStopRequest(customerId: "golden"))
 let sharedBrowserStopJSON = String(data: encodedSharedBrowserStop, encoding: .utf8) ?? ""

@@ -317,6 +317,7 @@ public enum WorkbenchAgentAssignmentAccessPolicy {
                 "billing",
                 "technical_dashboards",
                 "terminal",
+                "team_chat",
                 "assigned_agent_workspace"
             ]
         case .technicalAdmin, .support:
@@ -328,6 +329,7 @@ public enum WorkbenchAgentAssignmentAccessPolicy {
                 "creative_studio",
                 "technical_dashboards",
                 "terminal",
+                "team_chat",
                 "assigned_agent_workspace"
             ]
         case .billingAdmin:
@@ -377,6 +379,8 @@ public enum WorkbenchAgentAssignmentAccessPolicy {
             return assignment.allowsSurface("creative_studio")
         case .openDesign:
             return assignment.allowsSurface("open_design")
+        case .teamChat:
+            return assignment.allowsSurface("team_chat")
         case .openclaw, .hermes, .missionControl, .terminal:
             return false
         }
