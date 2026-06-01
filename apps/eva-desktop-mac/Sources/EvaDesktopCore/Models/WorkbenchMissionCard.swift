@@ -184,6 +184,64 @@ public enum WorkbenchMissionCardDeriver {
         return cards
     }
 
+    public static func providerCards(from profiles: [WorkbenchProviderProfileState]) -> [WorkbenchMissionCard] {
+        profiles.compactMap { profile in
+            guard profile.status != .planned else { return nil }
+
+            let attention: WorkbenchMissionAttentionState
+            let nextAction: String
+            switch profile.status {
+            case .connected:
+                if profile.hasConnectionProof {
+                    attention = .active
+                    nextAction = profile.hasBrokeredGrant
+                        ? "\(profile.title) is connected and Eva has an auditable access handle."
+                        : "\(profile.title) is connected. Allow Eva when you want agents to use it."
+                } else {
+                    attention = .needsAttention
+                    nextAction = "Refresh Connected Apps to verify \(profile.title) before agents use it."
+                }
+            case .needsLogin:
+                attention = .needsAttention
+                nextAction = "Open Connected Apps and sign in to \(profile.title) in the Business Browser."
+            case .revoked:
+                attention = .needsAttention
+                nextAction = "\(profile.title) access was disconnected. Reconnect it before assigned agents use it."
+            case .expired:
+                attention = .needsAttention
+                nextAction = "\(profile.title) access expired. Reconnect it in Connected Apps."
+            case .error:
+                attention = .needsAttention
+                nextAction = profile.usageSummary ?? "Connected Apps could not verify \(profile.title)."
+            case .planned:
+                return nil
+            }
+
+            let expiryDetail = profile.expiresAt.flatMap { expiry in
+                isoString(expiry).map { "Expires: \($0)" }
+            }
+            let details = [
+                profile.accountLabel.map { "Account: \($0)" },
+                profile.hasBrokeredGrant ? "Eva access handle: ready" : nil,
+                expiryDetail,
+            ].compactMap { $0 }
+
+            return WorkbenchMissionCard(
+                id: "provider-\(profile.key.rawValue)",
+                surface: "connected_apps",
+                runtime: nil,
+                title: profile.title,
+                status: profile.status.displayText,
+                attentionState: attention,
+                lastUpdate: isoString(profile.lastValidatedAt ?? profile.display?.lastCheckedAt),
+                nextAction: nextAction,
+                details: details,
+                sourcePointer: profile.sourcePointer ?? "broker:provider_grant:\(profile.key.rawValue)",
+                auditId: profile.auditID
+            )
+        }
+    }
+
     private static func codexReadinessCard(statusRaw: String, remoteRaw: String) -> WorkbenchMissionCard {
         guard let statusObject = jsonObject(from: statusRaw), statusObject["ok"] as? Bool == true else {
             return bridgeFailureCard(id: "codex-readiness", title: "Codex Readiness", sourcePointer: "bridge:codex.app_server.status")
