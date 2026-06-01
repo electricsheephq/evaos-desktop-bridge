@@ -398,6 +398,14 @@ struct SessionCenterView: View {
                 }
             )
 
+            AionReferenceSpikeSection(
+                assignments: model.agentAssignments,
+                providerProfiles: model.providerProfiles,
+                capabilitySummary: model.capabilityManifestSummary,
+                todayItems: model.todayItems,
+                pendingApprovalCount: model.approvalRequests.count
+            )
+
             AgentWorkspaceSummaryGrid(
                 attentionCount: recordsNeedingAttention.count,
                 activeCount: activeRecordCount,
@@ -822,6 +830,352 @@ private struct AgentQuickActionCard: View {
                 .stroke(Color.electricSheepLineWarm, lineWidth: 1)
         )
     }
+}
+
+private struct AionReferenceSpikeSection: View {
+    let assignments: [WorkbenchAgentAssignment]
+    let providerProfiles: [WorkbenchProviderProfileState]
+    let capabilitySummary: WorkbenchCapabilityManifestSummary?
+    let todayItems: [WorkbenchTodayItem]
+    let pendingApprovalCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SessionWorkspaceSectionHeader(
+                title: "Agent Workspace Preview",
+                subtitle: "Native evaOS patterns for agents, teams, tasks, app readiness, and approvals.",
+                status: "Preview",
+                systemImage: "sparkles.rectangle.stack",
+                tint: Color.electricSheepCyan
+            )
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
+                AgentTeamPreviewCard(assignment: primaryAssignment)
+                TaskLauncherPreviewCard()
+                AssistantCatalogPreviewCard(assignedAgentName: primaryAgentName)
+                AppToolReadinessPreviewCard(providerProfiles: businessProfiles, capabilitySummary: capabilitySummary)
+                PermissionBadgesPreviewCard(pendingApprovalCount: pendingApprovalCount, todayItems: todayItems)
+            }
+        }
+    }
+
+    private var primaryAssignment: WorkbenchAgentAssignment? {
+        assignments.first
+    }
+
+    private var primaryAgentName: String {
+        primaryAssignment?.agentDisplayName ?? "Sales Follow-up"
+    }
+
+    private var businessProfiles: [WorkbenchProviderProfileState] {
+        providerProfiles
+            .filter { $0.key != .openAICodex && $0.status != .planned }
+            .prefix(3)
+            .map { $0 }
+    }
+}
+
+private struct AgentTeamPreviewCard: View {
+    let assignment: WorkbenchAgentAssignment?
+
+    var body: some View {
+        PreviewPatternCard(title: "Agent Team", systemImage: "person.3.sequence", status: statusText, tint: tint) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(agentName)
+                    .font(.headline)
+                    .foregroundStyle(Color.electricSheepPrimaryText)
+                    .lineLimit(1)
+                previewLine("Role", value: "Assigned agent")
+                previewLine("Apps", value: allowedAppsText)
+                previewLine("Budget", value: budgetText)
+                previewLine("Approvals", value: assignment?.approvalPolicy.defaultMode == "ask" ? "Asks before sensitive actions" : "Policy required")
+            }
+        }
+    }
+
+    private var agentName: String {
+        assignment?.agentDisplayName ?? "Sales Follow-up"
+    }
+
+    private var statusText: String {
+        assignment?.statusText ?? "Preview"
+    }
+
+    private var tint: Color {
+        switch assignment?.attentionState {
+        case .active, .done:
+            return .electricSheepSuccess
+        case .needsAttention:
+            return .electricSheepDanger
+        case .idle, .unknown, nil:
+            return .electricSheepGoldSoft
+        }
+    }
+
+    private var allowedAppsText: String {
+        let grants = assignment?.allowedProviderGrants.prefix(3).map(readableGrant) ?? ["Google Workspace"]
+        return grants.isEmpty ? "Assigned apps only" : grants.joined(separator: ", ")
+    }
+
+    private var budgetText: String {
+        guard let budget = assignment?.budget else {
+            return "$5/day cap"
+        }
+        if let dailyUSD = budget.dailyUSD {
+            return "$\(formatPreviewDollars(dailyUSD))/day"
+        }
+        if let dailyTokens = budget.dailyTokens {
+            return "\(dailyTokens) tokens/day"
+        }
+        return "Policy controlled"
+    }
+}
+
+private struct TaskLauncherPreviewCard: View {
+    private let tasks = [
+        ("Email follow-up", "Needs Gmail", "Ask first"),
+        ("Sales research", "Uses browser", "Ready"),
+        ("Admin inbox", "Needs approval", "Review"),
+        ("Creative brief", "Uses Creative Studio", "Ready")
+    ]
+
+    var body: some View {
+        PreviewPatternCard(title: "Task Launcher", systemImage: "bolt.square", status: "4 templates", tint: Color.electricSheepGoldSoft) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(tasks, id: \.0) { task in
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.right.circle")
+                            .foregroundStyle(Color.electricSheepCyan)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(task.0)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.electricSheepPrimaryText)
+                            Text("\(task.1) · \(task.2)")
+                                .font(.caption2)
+                                .foregroundStyle(Color.electricSheepMutedText)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct AssistantCatalogPreviewCard: View {
+    let assignedAgentName: String
+
+    private var rows: [(String, String, String)] {
+        [
+            (assignedAgentName, "Assigned", "Limited to this user"),
+            ("Email Ops", "evaOS", "Built-in business template"),
+            ("Pitch Deck Creator", "Extension", "Creative workflow"),
+            ("Research Assistant", "Customer", "Admin-created")
+        ]
+    }
+
+    var body: some View {
+        PreviewPatternCard(title: "Assistant Catalog", systemImage: "rectangle.stack.badge.person.crop", status: "Source labels", tint: Color.electricSheepCyan) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(rows, id: \.0) { row in
+                    HStack(spacing: 8) {
+                        Text(row.0)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.electricSheepPrimaryText)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(row.1)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(sourceTint(row.1))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(sourceTint(row.1).opacity(0.14), in: Capsule())
+                    }
+                    Text(row.2)
+                        .font(.caption2)
+                        .foregroundStyle(Color.electricSheepMutedText)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+}
+
+private struct AppToolReadinessPreviewCard: View {
+    let providerProfiles: [WorkbenchProviderProfileState]
+    let capabilitySummary: WorkbenchCapabilityManifestSummary?
+
+    var body: some View {
+        PreviewPatternCard(title: "App & Tool Readiness", systemImage: "slider.horizontal.3", status: readinessStatus, tint: readinessTint) {
+            VStack(alignment: .leading, spacing: 8) {
+                if providerProfiles.isEmpty {
+                    previewLine("Apps", value: "Connect Google Workspace first")
+                } else {
+                    ForEach(providerProfiles) { profile in
+                        readinessRow(profile.title, status: profile.status.displayText, tint: providerStatusTint(profile.status))
+                    }
+                }
+                previewLine("Safe tools", value: toolsText)
+            }
+        }
+    }
+
+    private var readinessStatus: String {
+        providerProfiles.contains { $0.status == .needsLogin || $0.status == .error || $0.status == .expired } ? "Needs check" : "Readable"
+    }
+
+    private var readinessTint: Color {
+        readinessStatus == "Readable" ? .electricSheepSuccess : .electricSheepGoldSoft
+    }
+
+    private var toolsText: String {
+        guard let capabilitySummary else {
+            return "Safe summaries only"
+        }
+        let allowed = capabilitySummary.tools(for: .allowed).prefix(2)
+        if allowed.isEmpty {
+            return "No allowed tools yet"
+        }
+        return allowed.joined(separator: ", ")
+    }
+}
+
+private struct PermissionBadgesPreviewCard: View {
+    let pendingApprovalCount: Int
+    let todayItems: [WorkbenchTodayItem]
+
+    var body: some View {
+        PreviewPatternCard(title: "Permission Badges", systemImage: "checkmark.shield", status: "\(pendingCount) pending", tint: pendingCount > 0 ? .electricSheepDanger : .electricSheepSuccess) {
+            VStack(alignment: .leading, spacing: 8) {
+                readinessRow("Needs Your Okay", status: pendingCount > 0 ? "\(pendingCount) waiting" : "Clear", tint: pendingCount > 0 ? .electricSheepDanger : .electricSheepSuccess)
+                readinessRow("Browser sign-in", status: browserNeedsLogin ? "Needs login" : "Clear", tint: browserNeedsLogin ? .electricSheepGoldSoft : .electricSheepSuccess)
+                readinessRow("App access", status: appNeedsConnection ? "Needs app" : "Ready", tint: appNeedsConnection ? .electricSheepGoldSoft : .electricSheepSuccess)
+                Text("Badges point back to broker approvals and Today items; they are not local permission memory.")
+                    .font(.caption2)
+                    .foregroundStyle(Color.electricSheepMutedText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var pendingCount: Int {
+        max(pendingApprovalCount, todayItems.filter { $0.kind == .approvalNeeded }.count)
+    }
+
+    private var browserNeedsLogin: Bool {
+        todayItems.contains { $0.kind == .browserLoginNeeded }
+    }
+
+    private var appNeedsConnection: Bool {
+        todayItems.contains { $0.kind == .connectedAppNeeded }
+    }
+}
+
+private struct PreviewPatternCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    let status: String
+    let tint: Color
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                RuntimeIconBadge(systemImage: systemImage, tint: tint)
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(Color.electricSheepPrimaryText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                StatusPill(title: status, systemImage: "sparkles", tint: tint)
+            }
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+        .background(Color.electricSheepSurfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tint.opacity(0.32), lineWidth: 1)
+        )
+    }
+}
+
+private func previewLine(_ label: String, value: String) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.electricSheepMutedText)
+            .frame(width: 68, alignment: .leading)
+        Text(value)
+            .font(.caption)
+            .foregroundStyle(Color.electricSheepSecondaryText)
+            .lineLimit(1)
+        Spacer(minLength: 0)
+    }
+}
+
+private func readinessRow(_ title: String, status: String, tint: Color) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Circle()
+            .fill(tint)
+            .frame(width: 7, height: 7)
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.electricSheepPrimaryText)
+            .lineLimit(1)
+        Spacer(minLength: 8)
+        Text(status)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+    }
+}
+
+private func sourceTint(_ source: String) -> Color {
+    switch source.lowercased() {
+    case "assigned":
+        return .electricSheepSuccess
+    case "evaos":
+        return .electricSheepCyan
+    case "extension":
+        return .electricSheepGoldSoft
+    default:
+        return .electricSheepSecondaryText
+    }
+}
+
+private func readableGrant(_ grant: String) -> String {
+    grant
+        .replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(of: "-", with: " ")
+        .split(separator: " ")
+        .map { word in
+            word.prefix(1).uppercased() + word.dropFirst().lowercased()
+        }
+        .joined(separator: " ")
+}
+
+private func providerStatusTint(_ status: WorkbenchProviderStatus) -> Color {
+    switch status {
+    case .connected:
+        return .electricSheepSuccess
+    case .needsLogin:
+        return .electricSheepCyan
+    case .planned:
+        return .electricSheepGoldSoft
+    case .revoked:
+        return .electricSheepMutedText
+    case .expired, .error:
+        return .electricSheepDanger
+    }
+}
+
+private func formatPreviewDollars(_ value: Double) -> String {
+    if value.rounded() == value {
+        return String(Int(value))
+    }
+    return String(format: "%.2f", value)
 }
 
 private struct AgentWorkspaceSummaryGrid: View {

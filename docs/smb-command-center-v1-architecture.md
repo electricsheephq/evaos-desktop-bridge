@@ -351,6 +351,35 @@ Do not use AionUi for:
 Any AionUi-inspired implementation must be native evaOS code and pass evaOS
 redaction, approval, audit, and permission tests.
 
+### AionUi Keep / Reject Decisions
+
+Issue `#244` locks the AionUi reference as an evaOS-native spike, not an
+adoption plan. The prototype lives inside the existing SwiftUI Workbench Home
+surface and uses existing account, assignment, provider, capability, Today, and
+approval evidence. It does not add a new shell, runtime engine, provider-token
+store, or trust policy.
+
+| AionUi pattern | Decision | evaOS V1 use | Reference paths |
+| --- | --- | --- | --- |
+| Agent/team cards | Keep as native concept | Show assigned agent, allowed apps, budget, and approval posture in one business-readable card. | `packages/desktop/src/renderer/pages/team/TeamPage.tsx`, `packages/desktop/src/common/types/team/teamTypes.ts` |
+| Task launcher | Keep as native concept | Present business tasks such as email follow-up, sales research, admin inbox, and creative brief without exposing runtime/provider jargon. | `packages/desktop/src/renderer/pages/cron/ScheduledTasksPage/index.tsx`, `CreateTaskDialog.tsx` |
+| Assistant catalog source labels | Keep as native concept | Distinguish assigned, built-in evaOS, extension, and customer-created assistants without making AionUi the catalog authority. | `packages/desktop/src/renderer/pages/settings/AssistantSettings/AssistantListPanel.tsx`, `AssistantEditDrawer.tsx` |
+| App and MCP readiness | Keep as native concept | Render connected-app and safe-tool readiness from broker/capability summaries in customer language. | `packages/desktop/src/renderer/pages/settings/ToolsSettings/McpManagement.tsx`, `McpServerHeader.tsx`, `McpServerToolsList.tsx` |
+| Pending permission badges | Keep as native concept | Surface approvals, browser sign-in, and app-connection needs from broker/Today evidence; do not persist permission truth locally. | `packages/desktop/src/renderer/pages/team/hooks/useTeamPendingPermissions.ts`, `Messages/components/MessagePermission.tsx` |
+| Electron shell / BrowserWindow | Reject | Workbench remains native SwiftUI with brokered WebViews only where already owned by evaOS. | `packages/desktop/electron.*` |
+| YOLO/full-auto defaults | Reject | evaOS keeps approval, audit, and scoped permission boundaries. | AionUi README Yolo examples |
+| Local config or secret authority | Reject | Dashboard/Supabase and Broker/Cortex remain authority; provider tokens must not enter Workbench/browser renderers. | AionUi local settings/storage surfaces |
+| Renderer-visible provider keys | Reject | Workbench consumes sanitized status and grant handles only. | AionUi provider configuration surfaces |
+| Bundled subprocess/MCP trust | Reject | evaOS broker policy must authorize tools and actions before Workbench renders them as available. | AionUi MCP/server management surfaces |
+
+Screenshot evidence for the native spike is stored with the sprint artifacts:
+
+- `docs/screenshots/issue-244/home-agent-workspace-preview.png`
+- `docs/screenshots/issue-244/home-agent-workspace-preview-cards.png`
+
+These screenshots were captured using the prompt-free Agent QA bundle path, not
+a release package or the installed `/Applications/evaOS.app`.
+
 ## ClickClack Reference Boundary
 
 Use ClickClack later as a wrapped Team Chat runtime:
