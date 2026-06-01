@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the next issue #97 Shared Browser controller slice: Workbench now has a
+  named broker-backed `Stop Browser` action for Shared Browser instead of only
+  local `Close View`, and the broker contract uses the fixed `browser_stop`
+  action after the same customer/runtime authorization used by status/open.
+
 ## 0.6.24 - 2026-06-01
 
 - Improve the issue #97 Shared Browser inactive/on-demand UX: Workbench now
