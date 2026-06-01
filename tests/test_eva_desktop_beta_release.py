@@ -178,9 +178,9 @@ def test_release_package_bundles_matching_bridge_helper() -> None:
     assert "Local Peekaboo:" in script
     assert "Bundled Peekaboo:" in script
     assert "Peekaboo $REQUIRED_PEEKABOO_VERSION is required for this release" in script
-    assert "Start / Attach" in script
-    assert "wake-after-idle" in script
-    assert "switches customers" in script
+    assert "Stop Browser" in script
+    assert "browser_stop" in script
+    assert "broker-stop release" in script
     assert "format_datetime(published, usegmt=True)" in script
     assert "published_at" in script
     assert "verify_app_signature" in script

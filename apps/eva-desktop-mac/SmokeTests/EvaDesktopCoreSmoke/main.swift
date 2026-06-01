@@ -1011,9 +1011,9 @@ precondition(releaseScriptSource.contains("""
 precondition(releaseScriptSource.contains("package_release()"))
 precondition(releaseScriptSource.contains("notarize_release()"))
 precondition(releaseScriptSource.contains("Developer ID signed, notarized, and stapled"))
-precondition(releaseScriptSource.contains("Start / Attach"))
-precondition(releaseScriptSource.contains("wake-after-idle"))
-precondition(releaseScriptSource.contains("switches customers"))
+precondition(releaseScriptSource.contains("Stop Browser"))
+precondition(releaseScriptSource.contains("browser_stop"))
+precondition(releaseScriptSource.contains("broker-stop release"))
 
 let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v\(AppBrand.version)/evaOS-Workbench-\(AppBrand.version).zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.6.23", build: "63", downloadURL: trustedDownload)
