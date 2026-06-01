@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum WorkbenchApprovalRiskClass: String, Codable, Equatable, Sendable {
@@ -83,6 +84,135 @@ public struct WorkbenchApprovalDestinationPreview: Codable, Equatable, Sendable 
     }
 }
 
+public struct WorkbenchApprovalDestinationProof: Codable, Equatable, Sendable {
+    public let kind: WorkbenchApprovalPreviewKind
+    public let fingerprint: String
+    public let summary: String
+    public let source: String
+    public let sourcePointer: String?
+
+    public init(
+        kind: WorkbenchApprovalPreviewKind,
+        fingerprint: String,
+        summary: String,
+        source: String = "workbench_preview",
+        sourcePointer: String? = nil
+    ) {
+        self.kind = kind
+        self.fingerprint = fingerprint
+        self.summary = summary
+        self.source = source
+        self.sourcePointer = sourcePointer
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case fingerprint
+        case summary
+        case source
+        case sourcePointer = "source_pointer"
+    }
+
+    public static func derived(
+        from preview: WorkbenchApprovalDestinationPreview,
+        sourcePointer: String?
+    ) -> WorkbenchApprovalDestinationProof? {
+        guard preview.isActionable, preview.primary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return nil
+        }
+        guard !containsRedactedDestinationEvidence(preview.primary),
+              !containsRedactedDestinationEvidence(preview.secondary) else {
+            return nil
+        }
+        let normalizedPrimary = fingerprintComponent(preview.primary, kind: preview.kind)
+        let normalizedSecondary = fingerprintComponent(preview.secondary, kind: preview.kind)
+        let components = [preview.kind.rawValue, normalizedPrimary, normalizedSecondary]
+        let fingerprint = "dest-\(stableHexDigest(components.joined(separator: "|")))"
+        return WorkbenchApprovalDestinationProof(
+            kind: preview.kind,
+            fingerprint: fingerprint,
+            summary: summary(for: preview),
+            sourcePointer: sourcePointer
+        )
+    }
+
+    public func validated(
+        against preview: WorkbenchApprovalDestinationPreview,
+        sourcePointer fallbackSourcePointer: String?
+    ) -> WorkbenchApprovalDestinationProof? {
+        guard kind == preview.kind,
+              preview.isActionable,
+              fingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              !containsRedactedDestinationEvidence(preview.primary),
+              !containsRedactedDestinationEvidence(preview.secondary) else {
+            return nil
+        }
+        if let sourcePointer, let fallbackSourcePointer, sourcePointer != fallbackSourcePointer {
+            return nil
+        }
+        if sourcePointer == nil, let fallbackSourcePointer {
+            return WorkbenchApprovalDestinationProof(
+                kind: kind,
+                fingerprint: fingerprint,
+                summary: summary,
+                source: source,
+                sourcePointer: fallbackSourcePointer
+            )
+        }
+        return self
+    }
+
+    private static func summary(for preview: WorkbenchApprovalDestinationPreview) -> String {
+        let primary = preview.primary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let secondary = preview.secondary?.trimmingCharacters(in: .whitespacesAndNewlines), !secondary.isEmpty {
+            return capped("\(preview.kind.rawValue): \(primary) (\(secondary))", limit: 220)
+        }
+        return capped("\(preview.kind.rawValue): \(primary)", limit: 220)
+    }
+
+    private static func fingerprintComponent(_ value: String?, kind: WorkbenchApprovalPreviewKind) -> String {
+        guard let value else { return "" }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch kind {
+        case .emailRecipient:
+            let parts = trimmed.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return trimmed }
+            return "\(parts[0])@\(parts[1].lowercased())"
+        case .url:
+            return urlFingerprintComponent(trimmed)
+        case .messageRecipient, .filePath, .purchase, .secretName, .budget, .permission, .missingDestination:
+            return trimmed
+        }
+    }
+
+    private static func urlFingerprintComponent(_ raw: String) -> String {
+        guard var components = URLComponents(string: raw) else {
+            return raw
+        }
+        guard components.scheme != nil || components.host != nil else {
+            return raw.lowercased()
+        }
+        if let scheme = components.scheme {
+            components.scheme = scheme.lowercased()
+        }
+        if let host = components.host {
+            components.host = host.lowercased()
+        }
+        return components.string ?? raw
+    }
+
+    private static func capped(_ value: String, limit: Int) -> String {
+        guard value.count > limit else { return value }
+        return String(value.prefix(limit))
+    }
+
+    private static func stableHexDigest(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let ownerID: String
@@ -91,6 +221,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
     public let riskClass: WorkbenchApprovalRiskClass
     public let actionPayload: [String: String]
     public let destinationPreview: WorkbenchApprovalDestinationPreview
+    public let destinationProof: WorkbenchApprovalDestinationProof?
     public let allowAlwaysSupported: Bool
     public let createdAt: String
     public let expiresAt: String?
@@ -105,6 +236,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         riskClass: WorkbenchApprovalRiskClass,
         actionPayload: [String: String],
         destinationPreview: WorkbenchApprovalDestinationPreview,
+        destinationProof: WorkbenchApprovalDestinationProof? = nil,
         allowAlwaysSupported: Bool = false,
         createdAt: String,
         expiresAt: String? = nil,
@@ -118,6 +250,16 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         self.riskClass = riskClass
         self.actionPayload = actionPayload
         self.destinationPreview = destinationPreview
+        let derivedProof = WorkbenchApprovalDestinationProof.derived(
+            from: destinationPreview,
+            sourcePointer: sourcePointer
+        )
+        if let providedProof = destinationProof?.validated(against: destinationPreview, sourcePointer: sourcePointer),
+           providedProof.fingerprint == derivedProof?.fingerprint {
+            self.destinationProof = providedProof
+        } else {
+            self.destinationProof = derivedProof
+        }
         self.allowAlwaysSupported = allowAlwaysSupported
         self.createdAt = createdAt
         self.expiresAt = expiresAt
@@ -138,7 +280,16 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         expiresAt = try container.decodeIfPresent(String.self, forKey: .expiresAt)
         sourcePointer = try container.decodeIfPresent(String.self, forKey: .sourcePointer) ?? "approval:\(id)"
         auditId = try container.decodeIfPresent(String.self, forKey: .auditId)
-        destinationPreview = WorkbenchApprovalPreviewBuilder.preview(toolName: toolName, payload: actionPayload)
+        let preview = WorkbenchApprovalPreviewBuilder.preview(toolName: toolName, payload: actionPayload)
+        destinationPreview = preview
+        let decodedProof = try container.decodeIfPresent(WorkbenchApprovalDestinationProof.self, forKey: .destinationProof)
+        let derivedProof = WorkbenchApprovalDestinationProof.derived(from: preview, sourcePointer: sourcePointer)
+        if let decodedProof = decodedProof?.validated(against: preview, sourcePointer: sourcePointer),
+           decodedProof.fingerprint == derivedProof?.fingerprint {
+            destinationProof = decodedProof
+        } else {
+            destinationProof = derivedProof
+        }
     }
 
     public static func pending(
@@ -189,6 +340,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
             riskClass: riskClass,
             actionPayload: [:],
             destinationPreview: destinationPreview,
+            destinationProof: destinationProof,
             allowAlwaysSupported: allowAlwaysSupported,
             createdAt: createdAt,
             expiresAt: expiresAt,
@@ -201,6 +353,10 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         destinationPreview.isActionable
     }
 
+    public var hasDestinationProof: Bool {
+        destinationProof != nil
+    }
+
     public var isBudgetApproval: Bool {
         destinationPreview.kind == .budget || toolName.lowercased().contains("budget")
     }
@@ -209,7 +365,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         guard !isBudgetApproval else {
             return false
         }
-        guard allowAlwaysSupported, isActionable, destinationPreview.warning == nil else {
+        guard allowAlwaysSupported, isActionable, hasDestinationProof, destinationPreview.warning == nil else {
             return false
         }
         return !containsRedactedDestinationEvidence(destinationPreview.primary)
@@ -301,6 +457,7 @@ public struct WorkbenchApprovalRequest: Identifiable, Codable, Equatable, Sendab
         case riskClass = "risk_class"
         case actionPayload = "action_payload"
         case destinationPreview = "destination_preview"
+        case destinationProof = "destination_proof"
         case allowAlwaysSupported = "allow_always_supported"
         case createdAt = "created_at"
         case expiresAt = "expires_at"
@@ -346,10 +503,104 @@ public struct WorkbenchApprovalRequestsResponse: Codable, Equatable, Sendable {
 public struct WorkbenchApprovalDecisionRequest: Codable, Equatable, Sendable {
     public let decision: WorkbenchApprovalDecision
     public let scope: WorkbenchApprovalScope
+    public let destinationProof: WorkbenchApprovalDestinationProof?
+    public let requestSourcePointer: String?
+    public let requestAuditId: String?
 
-    public init(decision: WorkbenchApprovalDecision, scope: WorkbenchApprovalScope? = nil) {
+    public init(
+        decision: WorkbenchApprovalDecision,
+        scope: WorkbenchApprovalScope? = nil,
+        request: WorkbenchApprovalRequest? = nil
+    ) {
         self.decision = decision
         self.scope = scope ?? decision.defaultScope
+        destinationProof = request?.destinationProof
+        requestSourcePointer = request?.sourcePointer
+        requestAuditId = request?.auditId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case decision
+        case scope
+        case destinationProof = "destination_proof"
+        case requestSourcePointer = "request_source_pointer"
+        case requestAuditId = "request_audit_id"
+    }
+}
+
+public struct WorkbenchApprovalRuntimeResult: Codable, Equatable, Sendable {
+    public let status: String
+    public let runtime: String?
+    public let message: String?
+    public let sourcePointer: String?
+    public let auditId: String?
+
+    public init(
+        status: String,
+        runtime: String? = nil,
+        message: String? = nil,
+        sourcePointer: String? = nil,
+        auditId: String? = nil
+    ) {
+        self.status = status
+        self.runtime = runtime
+        self.message = message
+        self.sourcePointer = sourcePointer
+        self.auditId = auditId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case runtime
+        case message
+        case sourcePointer = "source_pointer"
+        case auditId = "audit_id"
+    }
+
+    public var displayText: String {
+        if let message, !message.isEmpty {
+            return message
+        }
+        if let runtime, !runtime.isEmpty {
+            return "\(runtime): \(status)"
+        }
+        return status
+    }
+}
+
+public struct WorkbenchApprovalDecisionResponse: Decodable, Equatable, Sendable {
+    public let ok: Bool?
+    public let request: WorkbenchApprovalRequest?
+    public let runtimeResult: WorkbenchApprovalRuntimeResult?
+
+    public init(
+        ok: Bool? = nil,
+        request: WorkbenchApprovalRequest?,
+        runtimeResult: WorkbenchApprovalRuntimeResult? = nil
+    ) {
+        self.ok = ok
+        self.request = request
+        self.runtimeResult = runtimeResult
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case request
+        case approval
+        case resolvedRequest = "resolved_request"
+        case runtimeResult = "runtime_result"
+        case result
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ok = try container.decodeIfPresent(Bool.self, forKey: .ok)
+        request = try container.decodeIfPresent(WorkbenchApprovalRequest.self, forKey: .request)
+            ?? container.decodeIfPresent(WorkbenchApprovalRequest.self, forKey: .approval)
+            ?? container.decodeIfPresent(WorkbenchApprovalRequest.self, forKey: .resolvedRequest)
+            ?? (try? WorkbenchApprovalRequest(from: decoder))
+        runtimeResult = try container.decodeIfPresent(WorkbenchApprovalRuntimeResult.self, forKey: .runtimeResult)
+            ?? (try? container.decodeIfPresent(WorkbenchApprovalRuntimeResult.self, forKey: .result))
     }
 }
 

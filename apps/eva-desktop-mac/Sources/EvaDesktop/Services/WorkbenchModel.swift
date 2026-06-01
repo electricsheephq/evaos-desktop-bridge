@@ -1197,6 +1197,10 @@ final class WorkbenchModel: ObservableObject {
             approvalCenterStatusText = "Missing destination; deny or ask Eva to retry"
             return
         }
+        guard requestForDecision.hasDestinationProof || decision == .deny else {
+            approvalCenterStatusText = "Missing destination proof; deny or ask Eva to retry"
+            return
+        }
         guard decision == .deny || !requestForDecision.isExpired() else {
             approvalCenterStatusText = "Approval request has expired; refresh before deciding"
             return
@@ -1210,15 +1214,20 @@ final class WorkbenchModel: ObservableObject {
         defer { approvalDecisionInFlight = nil }
 
         do {
-            _ = try await broker.decideApproval(
+            let response = try await broker.decideApproval(
                 approvalID: requestForDecision.id,
                 decision: decision,
+                request: requestForDecision,
                 desktopSession: session
             )
             approvalRequests.removeAll { $0.id == requestForDecision.id }
             approvalPendingRequestIDs.remove(requestForDecision.id)
             approvalNotifiedRequestIDs.remove(requestForDecision.id)
-            approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
+            if let runtimeResult = response.runtimeResult {
+                approvalCenterStatusText = "Resolved: \(runtimeResult.displayText)"
+            } else {
+                approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
+            }
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             clearLocalSessionState(allowKeychainInteraction: false)
             approvalCenterStatusText = "Session expired"

@@ -197,11 +197,12 @@ public struct RuntimeSessionBrokerClient: Sendable {
         approvalID: String,
         decision: WorkbenchApprovalDecision,
         scope: WorkbenchApprovalScope? = nil,
+        request: WorkbenchApprovalRequest? = nil,
         desktopSession: DesktopSession?
-    ) async throws -> WorkbenchApprovalRequest {
+    ) async throws -> WorkbenchApprovalDecisionResponse {
         try await postCapability(
             pathComponents: ["approvals", approvalID, "decide"],
-            body: WorkbenchApprovalDecisionRequest(decision: decision, scope: scope),
+            body: WorkbenchApprovalDecisionRequest(decision: decision, scope: scope, request: request),
             desktopSession: desktopSession,
             decoder: EvaDesktopISO8601.decoder()
         )

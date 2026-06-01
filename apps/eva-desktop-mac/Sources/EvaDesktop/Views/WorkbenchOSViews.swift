@@ -901,7 +901,8 @@ private struct ApprovalRequestCard: View {
 
     private var approvalEvidenceHelp: String {
         let audit = request.auditId.map { " Audit: \($0)." } ?? ""
-        return "Source: \(request.sourcePointer).\(audit)"
+        let proof = request.destinationProof.map { " Destination proof: \($0.fingerprint)." } ?? " Destination proof missing."
+        return "Source: \(request.sourcePointer).\(audit)\(proof)"
     }
 
     private func shortTimestamp(_ value: String) -> String {
