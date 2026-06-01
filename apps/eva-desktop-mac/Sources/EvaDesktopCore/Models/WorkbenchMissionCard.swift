@@ -496,6 +496,7 @@ public enum WorkbenchMissionCardDeriver {
 
     private static func assignedAgentDetails(_ assignment: WorkbenchAgentAssignment) -> [String] {
         [
+            "Agent ID: \(capped(assignment.agentID, limit: 80))",
             "Assigned user: \(capped(assignment.assignedUserID, limit: 80))",
             "Runtime: \(assignment.runtime.rawValue)",
             "Allowed apps: \(assignment.allowedProviderGrants.count)",

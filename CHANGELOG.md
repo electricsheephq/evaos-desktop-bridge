@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #243 Home/Today V1 slice: Workbench now derives
+  `evaos.today_item.v1` cards from connected-app, approval, Business Browser,
+  assigned-agent, Company Brain, and recent-work evidence, renders business
+  next actions first, and keeps raw source/audit details collapsed under
+  technical details.
 - Add the issue #242 Assigned Agent Model slice: Workbench now decodes the
   `evaos.agent_assignment.v1` shape, derives a first assignment from safe
   capability-manifest summaries, keeps agent-only users limited to assigned

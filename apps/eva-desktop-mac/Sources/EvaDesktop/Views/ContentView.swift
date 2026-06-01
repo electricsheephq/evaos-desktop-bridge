@@ -29,6 +29,9 @@ struct ContentView: View {
                             if model.canOpenSurface("approvals") {
                                 sidebarSelection = .approvalCenter
                             }
+                        },
+                        openCompanyBrain: {
+                            model.openCompanyBrainDashboard()
                         }
                     ) { runtime in
                         sidebarSelection = .runtime(runtime)

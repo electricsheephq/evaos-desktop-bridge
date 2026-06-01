@@ -6,6 +6,7 @@ public enum WorkbenchSessionSurface: String, Codable, Sendable {
     case audit
     case codex
     case bridge
+    case connectedApps = "connected_apps"
     case assignedAgent = "assigned_agent"
     case unknown
 }
@@ -196,6 +197,8 @@ public enum WorkbenchSessionContract {
             return "codex_app_server"
         case .bridge:
             return "desktop_bridge"
+        case .connectedApps:
+            return "connected_apps"
         case .assignedAgent:
             return "agent_assignment"
         case .unknown:
@@ -238,6 +241,12 @@ public enum WorkbenchSessionContract {
             return WorkbenchSessionResumeRoute(
                 kind: .assignedAgent,
                 runtime: card.runtime,
+                targetId: card.id,
+                sourcePointer: card.sourcePointer
+            )
+        case .connectedApps:
+            return WorkbenchSessionResumeRoute(
+                kind: .evidenceOnly,
                 targetId: card.id,
                 sourcePointer: card.sourcePointer
             )

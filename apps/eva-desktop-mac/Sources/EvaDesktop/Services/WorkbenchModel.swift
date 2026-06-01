@@ -210,6 +210,13 @@ final class WorkbenchModel: ObservableObject {
         agentAssignments.first
     }
 
+    var todayItems: [WorkbenchTodayItem] {
+        WorkbenchTodayItemDeriver.items(
+            from: sessionRecords,
+            recentRecords: recentSessionRecords
+        )
+    }
+
     var visibleRuntimes: [RuntimeDefinition] {
         RuntimeDefinition
             .visibleRuntimes(canAccessAdminRuntimes: canAccessAdminRuntimes)
@@ -806,7 +813,35 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
+    func openCompanyBrainDashboard() {
+        guard isSignedIn else { return }
+        guard canOpenSurface("company_brain") else { return }
+        guard let url = companyBrainDashboardURL() else {
+            runtimeErrors[selectedRuntime] = "Dashboard URL is invalid."
+            return
+        }
+
+        Task { @MainActor in
+            _ = try? await openProviderAuthHandoff(url)
+        }
+    }
+
     private func providerDashboardURL(providerKey: WorkbenchProviderKey) -> URL? {
+        dashboardURL(pathComponent: "dashboard/providers", queryItems: [
+            URLQueryItem(name: "provider", value: providerKey.rawValue),
+            URLQueryItem(name: "customer_id", value: sanitizedCustomerId),
+            URLQueryItem(name: "surface", value: "workbench"),
+        ])
+    }
+
+    private func companyBrainDashboardURL() -> URL? {
+        dashboardURL(pathComponent: "dashboard/company-brain", queryItems: [
+            URLQueryItem(name: "customer_id", value: sanitizedCustomerId),
+            URLQueryItem(name: "surface", value: "workbench"),
+        ])
+    }
+
+    private func dashboardURL(pathComponent: String, queryItems: [URLQueryItem]) -> URL? {
         guard var components = URLComponents(string: dashboardBaseURLString) else {
             return nil
         }
@@ -814,12 +849,8 @@ final class WorkbenchModel: ObservableObject {
         if path.hasSuffix("/") {
             path.removeLast()
         }
-        components.path = path + "/dashboard/providers"
-        components.queryItems = [
-            URLQueryItem(name: "provider", value: providerKey.rawValue),
-            URLQueryItem(name: "customer_id", value: sanitizedCustomerId),
-            URLQueryItem(name: "surface", value: "workbench"),
-        ]
+        components.path = path + "/" + pathComponent
+        components.queryItems = queryItems
         return components.url
     }
 
