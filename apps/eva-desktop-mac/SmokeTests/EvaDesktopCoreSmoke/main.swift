@@ -1028,9 +1028,10 @@ precondition(releaseScriptSource.contains("""
 precondition(releaseScriptSource.contains("package_release()"))
 precondition(releaseScriptSource.contains("notarize_release()"))
 precondition(releaseScriptSource.contains("Developer ID signed, notarized, and stapled"))
-precondition(releaseScriptSource.contains("Stop Browser"))
-precondition(releaseScriptSource.contains("browser_stop"))
-precondition(releaseScriptSource.contains("broker-stop release"))
+precondition(releaseScriptSource.contains("Makes Home the default Workbench front door"))
+precondition(releaseScriptSource.contains("Connected Apps"))
+precondition(releaseScriptSource.contains("Business Browser"))
+precondition(releaseScriptSource.contains("hosted Comfy Cloud"))
 
 let trustedDownload = URL(string: "https://github.com/electricsheephq/evaos-workbench-releases/releases/download/evaos-workbench-v\(AppBrand.version)/evaOS-Workbench-\(AppBrand.version).zip")!
 let olderManifest = WorkbenchReleaseManifest(version: "0.6.23", build: "63", downloadURL: trustedDownload)

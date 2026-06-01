@@ -15,8 +15,8 @@ APP_BUNDLE_NAME="evaOS"
 DISPLAY_NAME="evaOS Workbench"
 BUNDLE_ID="com.electricsheephq.EvaDesktop"
 MIN_SYSTEM_VERSION="14.0"
-VERSION="0.6.25"
-BUILD_NUMBER="65"
+VERSION="0.6.26"
+BUILD_NUMBER="66"
 REQUIRED_PEEKABOO_VERSION="${EVAOS_REQUIRED_PEEKABOO_VERSION:-3.2.2 or newer}"
 REQUIRED_PEEKABOO_VERSION_RE="${EVAOS_REQUIRED_PEEKABOO_VERSION_RE:-((^|[^0-9.])3\\.2\\.[2-9]([^0-9.]|$)|(^|[^0-9.])3\\.[3-9][0-9]*\\.[0-9]+([^0-9.]|$)|(^|[^0-9.])[4-9][0-9]*\\.[0-9]+\\.[0-9]+([^0-9.]|$))}"
 UPDATE_MANIFEST_URL="${EVA_DESKTOP_UPDATE_MANIFEST_URL:-https://www.electricsheephq.com/evaos-workbench/updates.json}"
@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Adds the broker-backed Stop Browser action for Shared Browser, separate from local Close View.</li>
-  <li>Routes Workbench and dashboard stop requests through the fixed browser_stop broker action after customer/runtime authorization.</li>
-  <li>Keeps update metadata and public download copy aligned with the 0.6.25 broker-stop release.</li>
+  <li>Makes Home the default Workbench front door for SMB owners.</li>
+  <li>Renames customer-facing surfaces to Connected Apps, Business Browser, Workspaces, and Needs Your Okay.</li>
+  <li>Shows Creative Studio as the hosted Comfy Cloud workspace and keeps technical activity collapsed by default.</li>
 </ul>
 EOF
 
