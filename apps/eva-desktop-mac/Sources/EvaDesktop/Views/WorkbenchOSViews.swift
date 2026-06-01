@@ -415,6 +415,14 @@ struct SessionCenterView: View {
                 )
             }
 
+            if !assignedAgentRecords.isEmpty {
+                recordSection(
+                    title: "Assigned Agents",
+                    subtitle: "Agents assigned to this account with their allowed apps, budget, and current state.",
+                    records: assignedAgentRecords
+                )
+            }
+
             if !gatewayRecords.isEmpty {
                 recordSection(
                     title: "Workspaces",
@@ -503,6 +511,8 @@ struct SessionCenterView: View {
             return "list.clipboard"
         case .codex:
             return "sparkle.magnifyingglass"
+        case .assignedAgent:
+            return "person.crop.circle.badge.checkmark"
         default:
             return "rectangle.3.group.bubble.left"
         }
@@ -516,8 +526,12 @@ struct SessionCenterView: View {
         model.sessionRecords.filter { $0.surface == .broker && $0.attentionState != .needsAttention }
     }
 
+    private var assignedAgentRecords: [WorkbenchSessionRecord] {
+        model.sessionRecords.filter { $0.surface == .assignedAgent && $0.attentionState != .needsAttention }
+    }
+
     private var evidenceRecords: [WorkbenchSessionRecord] {
-        model.sessionRecords.filter { $0.surface != .broker && $0.attentionState != .needsAttention }
+        model.sessionRecords.filter { ![.broker, .assignedAgent].contains($0.surface) && $0.attentionState != .needsAttention }
     }
 
     private var activeRecordCount: Int {

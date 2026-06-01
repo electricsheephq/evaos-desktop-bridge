@@ -117,6 +117,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var capabilityManifestStatusText = "Unchecked"
     @Published var capabilityManifestAgentID = "openclaw"
     @Published var isRefreshingCapabilityManifest = false
+    @Published var agentAssignments: [WorkbenchAgentAssignment] = []
     @Published var usageDashboardCards: [WorkbenchAgentUsageCard] = []
     @Published var usageDashboardStatusText = "Unchecked"
     @Published var isRefreshingUsageDashboard = false
@@ -891,6 +892,14 @@ final class WorkbenchModel: ObservableObject {
         sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
     }
 
+    private func updateAssignedAgentMissionCards() {
+        let assignmentCards = WorkbenchMissionCardDeriver.assignedAgentCards(from: agentAssignments)
+        var nextCards = sessionMissionCards.filter { $0.surface != "assigned_agent" }
+        nextCards.insert(contentsOf: assignmentCards, at: 0)
+        sessionMissionCards = nextCards
+        sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
+    }
+
     func refreshCapabilityManifest(trigger _: String = "manual") async {
         guard isSignedIn else {
             resetCapabilityManifestState(statusText: "Sign in first", clearCache: false)
@@ -914,9 +923,19 @@ final class WorkbenchModel: ObservableObject {
             capabilityManifestSummary = response.brokerSafeSummary
             if let summary = response.brokerSafeSummary {
                 capabilityManifestStatusText = "Ready: \(summary.totalGrantCount) permissions"
+                agentAssignments = [
+                    WorkbenchAgentAssignment.fromCapabilitySummary(
+                        summary,
+                        customerAccountID: sanitizedCustomerId,
+                        assignedUserID: session?.userEmail ?? sanitizedCustomerId,
+                        displayName: summary.agentID
+                    )
+                ]
             } else {
                 capabilityManifestStatusText = "Cached: summary pending"
+                agentAssignments.removeAll()
             }
+            updateAssignedAgentMissionCards()
             await refreshUsageDashboard(trigger: "capability_manifest")
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
             clearLocalSessionState(allowKeychainInteraction: false)
@@ -1113,6 +1132,7 @@ final class WorkbenchModel: ObservableObject {
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.queueCards(from: queueRaw))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.auditCards(from: auditRaw))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.codexCards(statusRaw: codexStatusRaw, remoteRaw: codexRemoteRaw, threadsRaw: codexThreadsRaw))
+        nextCards.append(contentsOf: WorkbenchMissionCardDeriver.assignedAgentCards(from: agentAssignments))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.providerCards(from: providerProfiles))
 
         guard sanitizedCustomerId == customerSnapshot else { return }
@@ -1939,6 +1959,9 @@ final class WorkbenchModel: ObservableObject {
             try? capabilityManifestStore.clear(allowUserInteraction: allowKeychainInteraction)
         }
         capabilityManifestSummary = nil
+        agentAssignments.removeAll()
+        sessionMissionCards.removeAll { $0.surface == "assigned_agent" }
+        sessionRecords = WorkbenchSessionContract.records(from: sessionMissionCards, customerId: sanitizedCustomerId)
         capabilityManifestStatusText = statusText
         isRefreshingCapabilityManifest = false
         resetUsageDashboardState(statusText: statusText)
