@@ -77,6 +77,7 @@ public enum WorkbenchRecentLaunchStore {
         return Array(decoded
             .filter { sanitizedCustomerId($0.customerId) == scopedCustomerId }
             .filter { RuntimeDefinition.isBrokeredRuntime($0.runtime) }
+            .map(normalized)
             .sorted(by: isNewer)
             .prefix(maxRecords))
     }
@@ -103,7 +104,8 @@ public enum WorkbenchRecentLaunchStore {
     public static func sessionRecord(
         from record: WorkbenchRecentLaunchRecord
     ) -> WorkbenchSessionRecord {
-        WorkbenchSessionRecord(
+        let record = normalized(record)
+        return WorkbenchSessionRecord(
             id: record.id,
             surface: .broker,
             runtime: record.runtime,
@@ -123,6 +125,14 @@ public enum WorkbenchRecentLaunchStore {
             ),
             sourcePointer: record.sourcePointer,
             auditId: nil
+        )
+    }
+
+    private static func normalized(_ record: WorkbenchRecentLaunchRecord) -> WorkbenchRecentLaunchRecord {
+        WorkbenchRecentLaunchRecord(
+            runtime: record.runtime,
+            customerId: record.customerId,
+            openedAt: record.openedAt
         )
     }
 

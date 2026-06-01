@@ -1505,6 +1505,16 @@ let storedRecentLaunchData = try JSONEncoder().encode([
 let scopedRecentLaunches = WorkbenchRecentLaunchStore.records(from: storedRecentLaunchData, customerId: "golden")
 precondition(scopedRecentLaunches.count == 1)
 precondition(scopedRecentLaunches[0].customerId == "golden")
+let legacyRecentLaunchData = """
+[{"id":"recent-browser","runtime":"browser","customer_id":"golden","title":"Shared Browser","status":"Restorable","opened_at":"2026-06-01T10:00:00Z","next_action":"Open this workspace again.","details":["Saved shortcut","Shared browser for sign-ins"],"source_pointer":"broker:runtime_status:browser"}]
+""".data(using: .utf8)!
+let normalizedLegacyRecentLaunch = WorkbenchRecentLaunchStore.records(from: legacyRecentLaunchData, customerId: "golden")
+precondition(normalizedLegacyRecentLaunch.count == 1)
+precondition(normalizedLegacyRecentLaunch[0].title == "Business Browser")
+precondition(!normalizedLegacyRecentLaunch[0].details.joined(separator: " ").contains("Shared Browser"))
+let normalizedLegacySessionRecord = WorkbenchRecentLaunchStore.sessionRecord(from: normalizedLegacyRecentLaunch[0])
+precondition(normalizedLegacySessionRecord.title == "Business Browser")
+precondition(!normalizedLegacySessionRecord.details.joined(separator: " ").contains("Shared Browser"))
 let mixedPrecisionRecentLaunches = WorkbenchRecentLaunchStore.merged(
     WorkbenchRecentLaunchRecord(runtime: .terminal, customerId: "golden", openedAt: "2026-06-01T09:00:00.123Z"),
     into: [
