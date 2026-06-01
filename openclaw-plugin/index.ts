@@ -251,7 +251,7 @@ function readOnlyTools(): ToolDefinition[] {
         },
       },
     ),
-    tool("evaos_shared_browser_guidance", "Read Shared Browser status/guidance so cloud agents default to the VM browser for web tasks.", "evaosSharedBrowserGuidance"),
+    tool("evaos_shared_browser_guidance", "Read Business Browser status/guidance so cloud agents default to the brokered VM browser for web tasks.", "evaosSharedBrowserGuidance"),
     tool("customer_mac_status", "Read paired customer Mac connector, iPhone Mirroring, and Screen Sharing readiness.", "customerMacStatus"),
     tool("desktop_control_status", "Read the customer-granted Full Access / Ask Permission control session state.", "customerMacControlStatus"),
     tool(

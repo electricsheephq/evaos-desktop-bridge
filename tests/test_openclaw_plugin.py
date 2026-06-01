@@ -254,6 +254,8 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
     assert payload["profiles"]["data"]["raw_secrets_stored_in_workbench"] is False
     assert payload["active"]["data"]["needs_reauth"] is False
     assert payload["active"]["data"]["active_profile"]["provider_key"] == "openai_codex"
+    assert payload["browser"]["data"]["schema_version"] == "evaos.browser_status.v1"
+    assert payload["browser"]["data"]["business_browser_preferred_for_cloud_web_tasks"] is True
     assert payload["browser"]["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
     assert payload["browser"]["data"]["status"]["status"] == "ready"
     serialized = json.dumps(payload)
@@ -1147,5 +1149,7 @@ def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_conn
     assert active_payload["data"]["active_profile"]["client_secret"] == "[redacted]"
     assert active_payload["data"]["active_profile"]["authorization"] == "[redacted]"
     assert active_payload["data"]["active_profile"]["headers"] == "[redacted]"
+    assert browser_payload["data"]["schema_version"] == "evaos.browser_status.v1"
+    assert browser_payload["data"]["business_browser_preferred_for_cloud_web_tasks"] is True
     assert browser_payload["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
     assert browser_payload["data"]["status"]["status"] == "ready"

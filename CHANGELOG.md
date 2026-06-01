@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #240 Business Browser controller contract slice: Workbench now
+  normalizes broker browser status into `evaos.browser_status.v1`, preserves
+  legacy `runtime_status` compatibility, redacts browser URL query/fragment
+  evidence, clears customer-scoped browser status on account changes, and gives
+  OpenClaw/Hermes the same Business Browser guidance contract.
 - Add the issue #239 Connected Apps V1 contract slice: Workbench now decodes
   `evaos.provider_grant.v1` broker metadata, recognizes Pipedream as the
   behind-the-scenes integration engine, handles `needs_auth`/expired/revoked

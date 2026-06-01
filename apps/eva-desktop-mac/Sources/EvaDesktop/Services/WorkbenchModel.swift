@@ -55,6 +55,7 @@ final class WorkbenchModel: ObservableObject {
             sharedBrowserRoomText = "Not opened"
             sharedBrowserCurrentURLText = "Unavailable"
             sharedBrowserLastActivityText = "Not checked"
+            businessBrowserStatus = nil
             isRefreshingSharedBrowserStatus = false
             isStoppingSharedBrowser = false
             loadRecentSessionRecords()
@@ -123,6 +124,7 @@ final class WorkbenchModel: ObservableObject {
     @Published var sharedBrowserRoomText = "Not opened"
     @Published var sharedBrowserCurrentURLText = "Unavailable"
     @Published var sharedBrowserLastActivityText = "Not checked"
+    @Published var businessBrowserStatus: WorkbenchBrowserStatus?
     @Published var isRefreshingSharedBrowserStatus = false
     @Published var isStoppingSharedBrowser = false
     @Published var runtimeStatuses: [RuntimeKey: RuntimeStatusResponse] = [:]
@@ -334,6 +336,12 @@ final class WorkbenchModel: ObservableObject {
             sharedBrowserRoomText = "Stopped at broker"
             sharedBrowserCurrentURLText = "Unavailable"
             sharedBrowserLastActivityText = "Refresh status before reopening"
+            businessBrowserStatus = WorkbenchBrowserStatus(
+                customerID: customerSnapshot,
+                status: "stopped",
+                actions: [.startAttach, .refreshStatus],
+                sourcePointer: "broker:runtime_status:browser"
+            )
             updateSessionRecord(for: runtime, status: nil, error: nil)
             webViewRefreshToken = UUID()
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
@@ -978,6 +986,7 @@ final class WorkbenchModel: ObservableObject {
                 sharedBrowserRoomText = "Unavailable"
                 sharedBrowserCurrentURLText = "Unavailable"
                 sharedBrowserLastActivityText = "Not checked"
+                businessBrowserStatus = nil
             }
             return
         }
@@ -1000,10 +1009,7 @@ final class WorkbenchModel: ObservableObject {
             runtimeStatuses[runtime] = status
             runtimeErrors[runtime] = nil
             if runtime == .liveBrowser {
-                sharedBrowserStatusText = Self.shortRuntimeStatus(status.status)
-                sharedBrowserRoomText = status.roomId ?? status.displayLabel
-                sharedBrowserCurrentURLText = Self.safeURLSummary(status.currentUrl)
-                sharedBrowserLastActivityText = Self.activitySummary(status.lastActivityAt ?? status.lastCheckedAt)
+                applyBusinessBrowserStatus(status, customerId: customerSnapshot)
             }
             updateSessionRecord(for: runtime, status: status, error: nil)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
@@ -1020,6 +1026,7 @@ final class WorkbenchModel: ObservableObject {
                 sharedBrowserRoomText = "Status unavailable"
                 sharedBrowserCurrentURLText = "Unavailable"
                 sharedBrowserLastActivityText = error.localizedDescription
+                businessBrowserStatus = nil
             }
             updateSessionRecord(for: runtime, status: nil, error: error.localizedDescription)
         }
@@ -1039,6 +1046,15 @@ final class WorkbenchModel: ObservableObject {
         if sessionCenterStatusText == "Unchecked" {
             sessionCenterStatusText = "Ready"
         }
+    }
+
+    private func applyBusinessBrowserStatus(_ status: RuntimeStatusResponse, customerId: String) {
+        let browserStatus = WorkbenchBrowserStatus.from(runtimeStatus: status, customerID: customerId)
+        businessBrowserStatus = browserStatus
+        sharedBrowserStatusText = Self.shortRuntimeStatus(browserStatus.status)
+        sharedBrowserRoomText = browserStatus.roomID ?? status.displayLabel
+        sharedBrowserCurrentURLText = browserStatus.currentURL?.displayText ?? "Unavailable"
+        sharedBrowserLastActivityText = Self.activitySummary(browserStatus.lastActivityAt)
     }
 
     func refreshSessionCenterState() async {
@@ -1065,10 +1081,7 @@ final class WorkbenchModel: ObservableObject {
                 guard sanitizedCustomerId == customerSnapshot else { return }
                 nextStatuses[definition.key] = status
                 if definition.key == .liveBrowser {
-                    sharedBrowserStatusText = Self.shortRuntimeStatus(status.status)
-                    sharedBrowserRoomText = status.roomId ?? status.displayLabel
-                    sharedBrowserCurrentURLText = Self.safeURLSummary(status.currentUrl)
-                    sharedBrowserLastActivityText = Self.activitySummary(status.lastActivityAt ?? status.lastCheckedAt)
+                    applyBusinessBrowserStatus(status, customerId: customerSnapshot)
                 }
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 guard sanitizedCustomerId == customerSnapshot else { return }
@@ -1798,6 +1811,7 @@ final class WorkbenchModel: ObservableObject {
         sharedBrowserRoomText = "Unavailable"
         sharedBrowserCurrentURLText = "Unavailable"
         sharedBrowserLastActivityText = "Not checked"
+        businessBrowserStatus = nil
         isRefreshingSharedBrowserStatus = false
         isStoppingSharedBrowser = false
         pairingText = "Sign in, start the connector, then pair this Mac with evaOS."
@@ -1840,6 +1854,7 @@ final class WorkbenchModel: ObservableObject {
         sharedBrowserRoomText = "Not opened"
         sharedBrowserCurrentURLText = "Unavailable"
         sharedBrowserLastActivityText = "Not checked"
+        businessBrowserStatus = nil
         isRefreshingSharedBrowserStatus = false
         isStoppingSharedBrowser = false
         webViews.reset()

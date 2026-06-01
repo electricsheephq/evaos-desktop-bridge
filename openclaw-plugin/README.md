@@ -129,8 +129,13 @@ export EVAOS_PROVIDER_AUTH_IDENTITY="user@example.com"
 export EVAOS_PROVIDER_GRANT_CACHE_FILE="$HOME/.openclaw/evaos-provider-grants.json"
 export EVAOS_PROVIDER_PROFILES_JSON='{"provider_profiles":[]}'
 export EVAOS_PROVIDER_GRANTS_JSON='[]'
-export EVAOS_SHARED_BROWSER_STATUS_JSON='{"status":"ready"}'
+export EVAOS_SHARED_BROWSER_STATUS_JSON='{"schema_version":"evaos.browser_status.v1","status":"ready","actions":["start_attach","refresh_status","stop_browser"]}'
 ```
+
+`evaos_shared_browser_guidance` returns the same `evaos.browser_status.v1`
+metadata shape that Workbench uses for Business Browser status. It is guidance
+only: agents may prefer the brokered browser for auth/CAPTCHA and cloud web
+tasks, but this does not add generic browser automation or raw cookie access.
 
 `evaos_provider_complete_auth` posts signed metadata proof for the VM-side
 Codex/OpenAI readiness check. The proof includes identity, scopes, expiry, and a

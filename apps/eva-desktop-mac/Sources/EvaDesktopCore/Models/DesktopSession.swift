@@ -137,6 +137,9 @@ public struct RuntimeStatusRequest: Codable, Equatable, Sendable {
 }
 
 public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
+    public let schemaVersion: String?
+    public let customerAccountID: String?
+    public let customerID: String?
     public let runtimeKey: RuntimeKey
     public let displayLabel: String
     public let status: String
@@ -151,9 +154,18 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
     public let controlSessionActive: Bool?
     public let updateAvailable: Bool?
     public let lastActivityAt: Date?
+    public let actions: [String]?
+    public let browserActions: [WorkbenchBrowserAction]?
+    public let currentURLSummary: WorkbenchBrowserURLSummary?
+    public let sourcePointer: String?
+    public let auditID: String?
 
     enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case customerAccountID = "customer_account_id"
+        case customerID = "customer_id"
         case runtimeKey = "runtime_key"
+        case runtime
         case displayLabel = "display_label"
         case status
         case healthSummary = "health_summary"
@@ -167,6 +179,88 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
         case controlSessionActive = "control_session_active"
         case updateAvailable = "update_available"
         case lastActivityAt = "last_activity_at"
+        case needsAuth = "needs_auth"
+        case needsCaptcha = "needs_captcha"
+        case actions
+        case sourcePointer = "source_pointer"
+        case auditID = "audit_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion)
+        customerAccountID = try container.decodeIfPresent(String.self, forKey: .customerAccountID)
+        customerID = try container.decodeIfPresent(String.self, forKey: .customerID)
+        if let decodedRuntime = try container.decodeIfPresent(RuntimeKey.self, forKey: .runtimeKey)
+            ?? container.decodeIfPresent(RuntimeKey.self, forKey: .runtime)
+        {
+            runtimeKey = decodedRuntime
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.runtimeKey,
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Expected runtime_key or runtime")
+            )
+        }
+        displayLabel = try container.decodeIfPresent(String.self, forKey: .displayLabel)
+            ?? RuntimeDefinition.definition(for: runtimeKey).title
+        status = try container.decode(String.self, forKey: .status)
+        healthSummary = try container.decodeIfPresent(String.self, forKey: .healthSummary)
+        lastCheckedAt = try container.decodeIfPresent(Date.self, forKey: .lastCheckedAt)
+        roomId = try container.decodeIfPresent(String.self, forKey: .roomId)
+
+        if let rawCurrentURL = try? container.decodeIfPresent(String.self, forKey: .currentUrl) {
+            currentUrl = rawCurrentURL
+            currentURLSummary = WorkbenchBrowserURLSummary.sanitized(from: rawCurrentURL)
+        } else if let summary = try? container.decodeIfPresent(WorkbenchBrowserURLSummary.self, forKey: .currentUrl) {
+            currentURLSummary = summary
+            currentUrl = summary.displayText
+        } else {
+            currentUrl = nil
+            currentURLSummary = nil
+        }
+
+        owner = try container.decodeIfPresent(String.self, forKey: .owner)
+        authNeeded = try container.decodeIfPresent(Bool.self, forKey: .authNeeded)
+            ?? container.decodeIfPresent(Bool.self, forKey: .needsAuth)
+        captchaNeeded = try container.decodeIfPresent(Bool.self, forKey: .captchaNeeded)
+            ?? container.decodeIfPresent(Bool.self, forKey: .needsCaptcha)
+        waitingOnUser = try container.decodeIfPresent(Bool.self, forKey: .waitingOnUser)
+        controlSessionActive = try container.decodeIfPresent(Bool.self, forKey: .controlSessionActive)
+        updateAvailable = try container.decodeIfPresent(Bool.self, forKey: .updateAvailable)
+        lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
+        let decodedActions = try container.decodeIfPresent([String].self, forKey: .actions)
+        actions = decodedActions
+        browserActions = decodedActions?.compactMap(WorkbenchBrowserAction.init(rawValue:))
+        sourcePointer = try container.decodeIfPresent(String.self, forKey: .sourcePointer)
+        auditID = try container.decodeIfPresent(String.self, forKey: .auditID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(schemaVersion, forKey: .schemaVersion)
+        try container.encodeIfPresent(customerAccountID, forKey: .customerAccountID)
+        try container.encodeIfPresent(customerID, forKey: .customerID)
+        try container.encode(runtimeKey, forKey: .runtimeKey)
+        try container.encode(displayLabel, forKey: .displayLabel)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(healthSummary, forKey: .healthSummary)
+        try container.encodeIfPresent(lastCheckedAt, forKey: .lastCheckedAt)
+        try container.encodeIfPresent(roomId, forKey: .roomId)
+        if let currentURLSummary {
+            try container.encode(currentURLSummary, forKey: .currentUrl)
+        } else {
+            try container.encodeIfPresent(currentUrl, forKey: .currentUrl)
+        }
+        try container.encodeIfPresent(owner, forKey: .owner)
+        try container.encodeIfPresent(authNeeded, forKey: .authNeeded)
+        try container.encodeIfPresent(captchaNeeded, forKey: .captchaNeeded)
+        try container.encodeIfPresent(waitingOnUser, forKey: .waitingOnUser)
+        try container.encodeIfPresent(controlSessionActive, forKey: .controlSessionActive)
+        try container.encodeIfPresent(updateAvailable, forKey: .updateAvailable)
+        try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
+        try container.encodeIfPresent(browserActions ?? actions?.compactMap(WorkbenchBrowserAction.init(rawValue:)), forKey: .actions)
+        try container.encodeIfPresent(sourcePointer, forKey: .sourcePointer)
+        try container.encodeIfPresent(auditID, forKey: .auditID)
     }
 }
 

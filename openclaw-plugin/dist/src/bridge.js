@@ -887,12 +887,14 @@ function sharedBrowserGuidancePayload() {
     return redactConnectorSecrets({
         ok: true,
         data: {
+            schema_version: "evaos.browser_status.v1",
             customer_id: process.env.EVAOS_CUSTOMER_ID || null,
+            business_browser_preferred_for_cloud_web_tasks: true,
             shared_browser_preferred_for_cloud_web_tasks: true,
-            instructions: "Use Shared Browser for cloud web tasks that need a persistent VM browser, user auth/CAPTCHA handoff, or human-visible browsing state. Use local Mac browser tools only when the task explicitly needs the customer's Mac browser.",
+            instructions: "Use Business Browser for cloud web tasks that need a persistent VM browser, user auth/CAPTCHA handoff, or human-visible browsing state. Use local Mac browser tools only when the task explicitly needs the customer's Mac browser.",
             status: status || null,
         },
-        warnings: status ? [] : ["Shared Browser live status is not configured in this VM environment yet."],
+        warnings: status ? [] : ["Business Browser live status is not configured in this VM environment yet."],
     });
 }
 function readJSONEnv(name) {
