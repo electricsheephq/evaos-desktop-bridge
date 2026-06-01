@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Corrects Creative Studio to open the hosted Comfy Cloud web surface directly.</li>
-  <li>Keeps VM-local/proxy ComfyUI as future graduation scope instead of a release blocker.</li>
-  <li>Retains the Session Center recent-launches and Codex visible-GUI readiness polish from 0.6.22.</li>
+  <li>Labels inactive Shared Browser sessions as Start / Attach and explains the one-minute wake-after-idle path.</li>
+  <li>Points Session Center inactive browser evidence back to the same start-or-reattach action.</li>
+  <li>Clears stale Shared Browser and Session Center evidence when an admin switches customers.</li>
 </ul>
 EOF
 
