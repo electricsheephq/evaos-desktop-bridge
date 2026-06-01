@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Improve the issue #97 Shared Browser inactive/on-demand UX: Workbench now
+  labels the brokered path as `Start / Attach`, explains that the shared VM
+  browser can take up to a minute to wake after idle, and Session Center points
+  inactive browser evidence back to the same start-or-reattach action instead
+  of making the state look like an unexplained proxy failure.
+
 ## 0.6.23 - 2026-06-01
 
 - Correct the issue #102 Creative Studio product path back to the hosted Comfy

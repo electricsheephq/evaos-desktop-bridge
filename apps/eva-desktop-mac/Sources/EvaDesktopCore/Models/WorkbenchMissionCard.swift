@@ -306,6 +306,14 @@ public enum WorkbenchMissionCardDeriver {
         if status.controlSessionActive == true {
             return "\(definition.title) has an active control session."
         }
+        if definition.key == .liveBrowser {
+            switch normalizedRuntimeStatus(status.status) {
+            case "unavailable", "offline", "degraded", "error", "failed":
+                return "Open Shared Browser to start or reattach; refresh status after it loads."
+            default:
+                break
+            }
+        }
         switch normalizedRuntimeStatus(status.status) {
         case "unavailable", "offline":
             return "\(definition.title) is unavailable from the broker right now."

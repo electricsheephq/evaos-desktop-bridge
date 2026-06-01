@@ -106,7 +106,7 @@ private struct RuntimeToolbar: View {
             Button {
                 model.reconnectSelectedRuntime()
             } label: {
-                Label("Reconnect", systemImage: "arrow.clockwise")
+                Label(reconnectTitle, systemImage: "arrow.clockwise")
             }
             .disabled((RuntimeDefinition.isBrokeredRuntime(definition.key) && !model.isSignedIn) || !model.isRuntimeAvailable(definition.key) || model.isRuntimeLoading(definition.key))
 
@@ -138,6 +138,13 @@ private struct RuntimeToolbar: View {
             return .secondary
         }
         return definition.requiresAdmin ? .electricSheepAmber : .electricSheepCyan
+    }
+
+    private var reconnectTitle: String {
+        if definition.key == .liveBrowser, model.runtimeURLs[definition.key] == nil {
+            return "Start / Attach"
+        }
+        return "Reconnect"
     }
 }
 
@@ -308,6 +315,9 @@ private struct RuntimeStatusStrip: View {
         if status.controlSessionActive == true {
             return "\(definition.title) has an active control session."
         }
+        if definition.key == .liveBrowser, isInactiveSharedBrowserStatus(status) {
+            return "Open Shared Browser to start or reattach. Startup can take up to a minute after the browser has been idle."
+        }
         return status.healthSummary ?? definition.subtitle
     }
 
@@ -366,6 +376,15 @@ private struct RuntimeStatusStrip: View {
         isAttention ? "exclamationmark.triangle" : "waveform.path.ecg"
     }
 
+    private func isInactiveSharedBrowserStatus(_ status: RuntimeStatusResponse) -> Bool {
+        switch status.status.lowercased() {
+        case "degraded", "disabled", "error", "failed", "unavailable", "offline":
+            return true
+        default:
+            return false
+        }
+    }
+
     private func shortDate(_ date: Date) -> String {
         date.formatted(date: .omitted, time: .shortened)
     }
@@ -399,14 +418,16 @@ private struct RuntimeLaunchView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 560)
             } else {
-                Text("Ready to open an authenticated gateway session.")
+                Text(launchDetail)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 560)
             }
 
             Button {
                 model.loadSelectedRuntime()
             } label: {
-                Label("Open \(definition.title)", systemImage: "play.fill")
+                Label(launchButtonTitle, systemImage: "play.fill")
                     .frame(minWidth: 220)
             }
             .buttonStyle(.borderedProminent)
@@ -415,6 +436,20 @@ private struct RuntimeLaunchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    private var launchDetail: String {
+        if definition.key == .liveBrowser {
+            return "Ready to start or attach to the shared VM browser."
+        }
+        return "Ready to open an authenticated gateway session."
+    }
+
+    private var launchButtonTitle: String {
+        if definition.key == .liveBrowser {
+            return "Start / Attach Shared Browser"
+        }
+        return "Open \(definition.title)"
     }
 }
 
@@ -427,11 +462,18 @@ private struct RuntimeLoadingView: View {
                 .controlSize(.large)
             Text("Opening \(definition.title)...")
                 .font(.headline)
-            Text("Requesting a short-lived gateway session.")
+            Text(loadingDetail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var loadingDetail: String {
+        if definition.key == .liveBrowser {
+            return "Starting or attaching to the shared VM browser. This can take up to a minute after idle."
+        }
+        return "Requesting a short-lived gateway session."
     }
 }
 

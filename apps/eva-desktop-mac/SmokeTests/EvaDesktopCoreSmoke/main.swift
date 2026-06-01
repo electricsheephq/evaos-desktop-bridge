@@ -884,6 +884,9 @@ precondition(runtimeDetailSource.contains("RuntimeStatusStrip"))
 precondition(runtimeDetailSource.contains("model.refreshSelectedRuntimeStatus()"))
 precondition(runtimeDetailSource.contains("model.closeSelectedRuntimeView()"))
 precondition(runtimeDetailSource.contains("Shared Browser status"))
+precondition(runtimeDetailSource.contains("Start / Attach Shared Browser"))
+precondition(runtimeDetailSource.contains("Startup can take up to a minute"))
+precondition(runtimeDetailSource.contains("Open Shared Browser to start or reattach"))
 precondition(runtimeDetailSource.contains("!RuntimeDefinition.isBrokeredRuntime(definition.key)"))
 precondition(runtimeDetailSource.contains("definition.key == .liveBrowser && model.isRefreshingSharedBrowserStatus"))
 let runtimeWebViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/RuntimeWebView.swift", encoding: .utf8)
@@ -1349,6 +1352,7 @@ let unavailableMissionCard = WorkbenchMissionCardDeriver.runtimeCard(
 )
 precondition(unavailableMissionCard.attentionState == .needsAttention)
 precondition(unavailableMissionCard.status == "Unavailable")
+precondition(unavailableMissionCard.nextAction.contains("start or reattach"))
 
 let queueRaw = """
 {"ok":true,"data":{"events":[{"queue_id":"queue-approval","timestamp":"2026-05-28T01:00:00Z","kind":"approval_needed","source_audit_id":"audit-approval","message":"Approve visible action"},{"queue_id":"queue-attention","timestamp":"2026-05-28T01:01:00Z","kind":"attention","source_audit_id":"audit-attention"},{"queue_id":"queue-done","timestamp":"2026-05-28T01:02:00Z","kind":"done","source_audit_id":"audit-done"},{"queue_id":"queue-error","timestamp":"2026-05-28T01:03:00Z","kind":"error","source_audit_id":"audit-error"},{"queue_id":"queue-idle","timestamp":"2026-05-28T01:04:00Z","kind":"idle","source_audit_id":"audit-idle"}]}}
