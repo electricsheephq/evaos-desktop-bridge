@@ -178,17 +178,17 @@ public enum WorkbenchProviderCatalog {
     public static let profiles: [WorkbenchProviderProfile] = [
         WorkbenchProviderProfile(
             key: .openAICodex,
-            title: "OpenAI / Codex",
-            subtitle: "Connect once, then broker account availability to evaOS agents without storing raw provider secrets in Workbench.",
+            title: "Codex Desktop",
+            subtitle: "Technical readiness for advanced Codex handoff. Most businesses do not need to configure this directly.",
             readiness: .needsLogin,
             capabilities: ["Codex remote control readiness", "OpenAI profile status", "OpenClaw VM grant metadata"]
         ),
         WorkbenchProviderProfile(
             key: .googleWorkspace,
             title: "Google Workspace",
-            subtitle: "Prepare Gmail, Calendar, and Drive access through the brokered Shared Browser handoff.",
-            readiness: .planned,
-            capabilities: ["Gmail context", "Calendar scheduling", "Drive files"]
+            subtitle: "Let Eva help with Gmail, Calendar, and Drive after you sign in through the business browser.",
+            readiness: .needsLogin,
+            capabilities: ["Read email context", "Draft calendar work", "Find Drive files"]
         ),
         WorkbenchProviderProfile(
             key: .slack,

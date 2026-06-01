@@ -13,16 +13,16 @@ struct SettingsView: View {
 
             TextField("Dashboard URL", text: $dashboardBaseURL)
                 .help("Used for ElectricSheep login and desktop session handoff.")
-            TextField("Gateway domain", text: $runtimeBaseDomain)
-                .help("Used to resolve customer-scoped gateway hosts for OpenClaw, Hermes, Mission Control, Shared Browser, and Terminal.")
+            TextField("Workspace domain", text: $runtimeBaseDomain)
+                .help("Used to resolve customer-scoped workspace hosts for Eva Workspace, Agent Workspace, Mission Control, Business Browser, and Terminal.")
             TextField("Update manifest URL", text: $updateManifestURL)
                 .help("Workbench checks this signed release manifest for app updates.")
 
-            Text("Advanced network and update settings. Dashboard and gateway-domain changes apply to new Workbench windows.")
+            Text("Advanced network and update settings. Dashboard and workspace-domain changes apply to new Workbench windows.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Text("OpenDesign and the other gateways use short-lived evaOS sessions. Mac and iPhone actions run through audited OpenClaw/Hermes tools with customer-controlled Full Access or Ask Permission mode.")
+            Text("Design Workspace and the other workspaces use short-lived evaOS sessions. Mac and iPhone actions run through audited agent tools with customer-controlled Full Access or Ask Permission mode.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

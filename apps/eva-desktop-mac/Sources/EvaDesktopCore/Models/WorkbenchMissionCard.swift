@@ -100,11 +100,11 @@ public enum WorkbenchMissionCardDeriver {
         } else if localURLLoaded {
             attention = .active
             statusText = "Loaded"
-            detail = "Gateway is open in Workbench; broker status has not been refreshed yet."
+            detail = "Workspace is open in Workbench; refresh Home for current status."
         } else {
             attention = .idle
             statusText = "Unchecked"
-            detail = "Refresh Session Center to read broker status."
+            detail = "Refresh Home to check this workspace."
         }
 
         return WorkbenchMissionCard(
@@ -116,7 +116,7 @@ public enum WorkbenchMissionCardDeriver {
             attentionState: attention,
             lastUpdate: isoString(lastUpdate),
             nextAction: detail,
-            details: runtimeDetails(status: status),
+            details: runtimeDetails(status: status, fallback: definition.subtitle),
             sourcePointer: "broker:runtime_status:\(definition.key.rawValue)",
             auditId: nil
         )
@@ -292,7 +292,7 @@ public enum WorkbenchMissionCardDeriver {
 
     private static func runtimeNextAction(definition: RuntimeDefinition, status: RuntimeStatusResponse) -> String {
         if status.authNeeded == true {
-            return "\(definition.title) needs auth handoff."
+            return "\(definition.title) needs sign-in."
         }
         if status.captchaNeeded == true {
             return "\(definition.title) reports CAPTCHA needed."
@@ -309,14 +309,14 @@ public enum WorkbenchMissionCardDeriver {
         if definition.key == .liveBrowser {
             switch normalizedRuntimeStatus(status.status) {
             case "unavailable", "offline", "degraded", "error", "failed":
-                return "Open Shared Browser to start or reattach; refresh status after it loads."
+                return "Open Business Browser to start or reattach; refresh status after it loads."
             default:
                 break
             }
         }
         switch normalizedRuntimeStatus(status.status) {
         case "unavailable", "offline":
-            return "\(definition.title) is unavailable from the broker right now."
+            return "\(definition.title) is unavailable right now."
         case "degraded", "error", "failed":
             return status.healthSummary ?? "\(definition.title) reports a runtime error."
         case "disabled":
@@ -327,8 +327,8 @@ public enum WorkbenchMissionCardDeriver {
         return status.healthSummary ?? definition.subtitle
     }
 
-    private static func runtimeDetails(status: RuntimeStatusResponse?) -> [String] {
-        guard let status else { return [] }
+    private static func runtimeDetails(status: RuntimeStatusResponse?, fallback: String) -> [String] {
+        guard let status else { return [fallback] }
         return [
             status.roomId.map { "Room: \(capped($0, limit: 80))" },
             status.owner.map { "Owner: \(capped($0, limit: 80))" },

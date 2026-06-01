@@ -85,7 +85,7 @@ public enum WorkbenchApprovalNotificationPlanner {
     private static func notification(for request: WorkbenchApprovalRequest) -> WorkbenchApprovalNotification {
         WorkbenchApprovalNotification(
             requestID: request.id,
-            title: "Approval needed: \(capped(request.toolName, limit: 48))",
+            title: "Needs your okay: \(capped(request.toolName, limit: 48))",
             body: body(for: request),
             sourcePointer: request.sourcePointer,
             auditID: request.auditId
@@ -97,8 +97,8 @@ public enum WorkbenchApprovalNotificationPlanner {
         return WorkbenchApprovalNotification(
             notificationID: expiringNotificationID(for: request.id),
             requestID: request.id,
-            title: "Approval expiring: \(capped(request.toolName, limit: 48))",
-            body: "\(expirationText). Open Approval Center to decide before the runtime times out.",
+            title: "Decision expiring: \(capped(request.toolName, limit: 48))",
+            body: "\(expirationText). Open Needs Your Okay to decide before the request expires.",
             sourcePointer: request.sourcePointer,
             auditID: request.auditId
         )
@@ -110,13 +110,13 @@ public enum WorkbenchApprovalNotificationPlanner {
 
     private static func body(for request: WorkbenchApprovalRequest) -> String {
         guard request.destinationPreview.isActionable else {
-            return "Missing actual destination. Open Approval Center to review before deciding."
+            return "Missing actual destination. Open Needs Your Okay to review before deciding."
         }
 
         let destination = capped(request.destinationPreview.primary, limit: destinationLimit)
         switch request.riskClass {
         case .critical:
-            return "Critical action for \(destination). Open Approval Center to review actual destination."
+            return "Critical action for \(destination). Open Needs Your Okay to review actual destination."
         case .warning:
             return "Review \(destination) before allowing this agent action."
         case .info:

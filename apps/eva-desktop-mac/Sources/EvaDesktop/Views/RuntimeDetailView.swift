@@ -22,11 +22,6 @@ struct RuntimeDetailView: View {
 
             Divider()
 
-            if RuntimeDefinition.isBrokeredRuntime(runtime) {
-                RuntimeStatusStrip(model: model, definition: definition)
-                Divider()
-            }
-
             ZStack {
                 if !model.loadedRuntimeKeys.isEmpty {
                     RuntimeWebViewDeck(
@@ -242,172 +237,6 @@ private struct RuntimeSignInView: View {
     }
 }
 
-private struct RuntimeStatusStrip: View {
-    @ObservedObject var model: WorkbenchModel
-    let definition: RuntimeDefinition
-
-    private var status: RuntimeStatusResponse? {
-        model.runtimeStatuses[definition.key]
-    }
-
-    private var error: String? {
-        model.runtimeErrors[definition.key]
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            RuntimeIconBadge(systemImage: statusIcon, tint: tint)
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(spacing: 8) {
-                    Text(statusTitle)
-                        .font(.subheadline.weight(.semibold))
-                    StatusPill(title: statusPillText, systemImage: statusIcon, tint: tint)
-                }
-                Text(statusDetail)
-                    .font(.caption)
-                    .foregroundStyle(Color.electricSheepSecondaryText)
-                    .lineLimit(2)
-                HStack(spacing: 10) {
-                    ForEach(detailChips, id: \.self) { chip in
-                        Text(chip)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(Color.electricSheepMutedText)
-                            .lineLimit(1)
-                    }
-                }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Color.electricSheepSurfaceRaised)
-    }
-
-    private var statusTitle: String {
-        if definition.key == .liveBrowser {
-            return "Shared Browser status"
-        }
-        return "\(definition.title) status"
-    }
-
-    private var statusPillText: String {
-        if let error {
-            return error.isEmpty ? "Unavailable" : "Needs attention"
-        }
-        if definition.key == .liveBrowser, model.sharedBrowserStatusText != "Unchecked" {
-            return model.sharedBrowserStatusText
-        }
-        guard let status else { return "Not checked" }
-        return status.status
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: "-", with: " ")
-            .capitalized
-    }
-
-    private var statusDetail: String {
-        if let error {
-            return error
-        }
-        guard let status else {
-            return "Refresh status to read broker runtime metadata for this customer."
-        }
-        if status.authNeeded == true {
-            return "\(definition.title) needs sign-in."
-        }
-        if status.captchaNeeded == true {
-            return "\(definition.title) needs a CAPTCHA or browser challenge."
-        }
-        if status.waitingOnUser == true {
-            return "\(definition.title) is waiting on the user."
-        }
-        if status.updateAvailable == true {
-            return "\(definition.title) has an update available."
-        }
-        if status.controlSessionActive == true {
-            return "\(definition.title) has an active control session."
-        }
-        if definition.key == .liveBrowser, isInactiveSharedBrowserStatus(status) {
-            return "Open Shared Browser to start or reattach. Startup can take up to a minute after the browser has been idle."
-        }
-        return status.healthSummary ?? definition.subtitle
-    }
-
-    private var detailChips: [String] {
-        if definition.key == .liveBrowser {
-            return [
-                "room \(capped(model.sharedBrowserRoomText, limit: 48))",
-                "url \(capped(model.sharedBrowserCurrentURLText, limit: 64))",
-                "activity \(capped(model.sharedBrowserLastActivityText, limit: 64))",
-            ]
-        }
-        guard let status else {
-            return ["source broker:runtime_status:\(definition.key.rawValue)"]
-        }
-        return [
-            status.owner.map { "owner \(capped($0, limit: 48))" },
-            status.roomId.map { "room \(capped($0, limit: 48))" },
-            status.lastCheckedAt.map { "checked \(shortDate($0))" },
-        ].compactMap { $0 }
-    }
-
-    private var tint: Color {
-        if isAttention {
-            return .electricSheepDanger
-        }
-        guard let status else {
-            return .electricSheepGoldSoft
-        }
-        switch status.status.lowercased() {
-        case "enabled", "ready", "active", "loaded":
-            return .electricSheepSuccess
-        default:
-            return .electricSheepGoldSoft
-        }
-    }
-
-    private var isAttention: Bool {
-        if error != nil {
-            return true
-        }
-        guard let status else {
-            return false
-        }
-        if status.authNeeded == true || status.captchaNeeded == true || status.waitingOnUser == true || status.updateAvailable == true {
-            return true
-        }
-        switch status.status.lowercased() {
-        case "degraded", "disabled", "error", "failed", "unavailable", "offline":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private var statusIcon: String {
-        isAttention ? "exclamationmark.triangle" : "waveform.path.ecg"
-    }
-
-    private func isInactiveSharedBrowserStatus(_ status: RuntimeStatusResponse) -> Bool {
-        switch status.status.lowercased() {
-        case "degraded", "disabled", "error", "failed", "unavailable", "offline":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func shortDate(_ date: Date) -> String {
-        date.formatted(date: .omitted, time: .shortened)
-    }
-
-    private func capped(_ value: String, limit: Int) -> String {
-        if value.count <= limit {
-            return value
-        }
-        return String(value.prefix(limit)) + "..."
-    }
-}
-
 private struct RuntimeLaunchView: View {
     @ObservedObject var model: WorkbenchModel
     let definition: RuntimeDefinition
@@ -451,14 +280,14 @@ private struct RuntimeLaunchView: View {
 
     private var launchDetail: String {
         if definition.key == .liveBrowser {
-            return "Ready to start or attach to the shared VM browser."
+            return "Ready to start or attach to the business browser. Startup can take up to a minute after the browser has been idle."
         }
-        return "Ready to open an authenticated gateway session."
+        return "Ready to open this workspace."
     }
 
     private var launchButtonTitle: String {
         if definition.key == .liveBrowser {
-            return "Start / Attach Shared Browser"
+            return "Start / Attach Business Browser"
         }
         return "Open \(definition.title)"
     }
@@ -482,9 +311,9 @@ private struct RuntimeLoadingView: View {
 
     private var loadingDetail: String {
         if definition.key == .liveBrowser {
-            return "Starting or attaching to the shared VM browser. This can take up to a minute after idle."
+            return "Starting or attaching to the business browser. This can take up to a minute after idle."
         }
-        return "Requesting a short-lived gateway session."
+        return "Opening a fresh workspace session."
     }
 }
 
@@ -495,7 +324,7 @@ private struct RuntimeUnavailableView: View {
         ContentUnavailableView {
             Label(definition.title, systemImage: definition.systemImage)
         } description: {
-            Text("This gateway is not available yet.")
+            Text("This workspace is not available yet.")
         }
     }
 }
