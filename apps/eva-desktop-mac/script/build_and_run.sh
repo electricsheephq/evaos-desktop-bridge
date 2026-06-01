@@ -471,9 +471,9 @@ write_sparkle_appcast() {
   cat > "$archive_dir/${archive_name%.zip}.html" <<EOF
 <h2>evaOS Workbench $VERSION</h2>
 <ul>
-  <li>Labels inactive Shared Browser sessions as Start / Attach and explains the one-minute wake-after-idle path.</li>
-  <li>Points Session Center inactive browser evidence back to the same start-or-reattach action.</li>
-  <li>Clears stale Shared Browser and Session Center evidence when an admin switches customers.</li>
+  <li>Adds the broker-backed Stop Browser action for Shared Browser, separate from local Close View.</li>
+  <li>Routes Workbench and dashboard stop requests through the fixed browser_stop broker action after customer/runtime authorization.</li>
+  <li>Keeps update metadata and public download copy aligned with the 0.6.25 broker-stop release.</li>
 </ul>
 EOF
 
