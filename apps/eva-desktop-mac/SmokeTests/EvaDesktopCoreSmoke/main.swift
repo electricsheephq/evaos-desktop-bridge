@@ -120,9 +120,10 @@ precondition(configuredFeatureFlags.isEnabled(.sessionCenter))
 precondition(configuredFeatureFlags.isEnabled(.approvalCenter))
 precondition(!configuredFeatureFlags.isEnabled(.creativeStudio))
 let providerCatalogKeys = WorkbenchProviderCatalog.profiles.map(\.key)
-precondition(providerCatalogKeys == [.openAICodex, .googleWorkspace, .slack, .notion, .linear, .github])
+precondition(providerCatalogKeys == [.openAICodex, .googleWorkspace, .pipedream, .slack, .notion, .linear, .github])
 precondition(WorkbenchProviderCatalog.profiles.allSatisfy { !$0.rawSecretsStoredInWorkbench })
 precondition(WorkbenchProviderCatalog.profile(for: .googleWorkspace)?.capabilities.contains("Read email context") == true)
+precondition(WorkbenchProviderCatalog.profile(for: .pipedream)?.subtitle.contains("behind the scenes") == true)
 precondition(WorkbenchProviderCatalog.profiles.first { $0.key == .openAICodex }?.readiness == .needsLogin)
 precondition(WorkbenchProviderCatalog.profile(for: .googleWorkspace)?.readiness == .needsLogin)
 precondition(WorkbenchProviderCatalog.profiles.filter { ![.openAICodex, .googleWorkspace].contains($0.key) }.allSatisfy { $0.readiness == .planned })
@@ -947,6 +948,8 @@ precondition(workbenchModelSource.contains("providerDashboardURL(providerKey: pr
 precondition(workbenchModelSource.contains("App setup is temporarily unavailable: HTTP"))
 precondition(workbenchModelSource.contains("broker.openSharedBrowserURL("))
 precondition(workbenchModelSource.contains("response.targetURL"))
+precondition(workbenchModelSource.contains("providerProfiles = WorkbenchProviderCatalog.defaultStates\n            updateConnectedAppMissionCards(from: providerProfiles)\n            providerHubStatusText = \"Sign in to connect apps.\""))
+precondition(workbenchModelSource.contains("providerProfiles = WorkbenchProviderCatalog.defaultStates\n            updateConnectedAppMissionCards(from: providerProfiles)\n            providerHubStatusText = \"Unavailable: \\(error.localizedDescription)\""))
 precondition(workbenchModelSource.contains("runtime: runtime"))
 precondition(!workbenchModelSource.contains("profiles.filter { $0.key == .openAICodex }"))
 precondition(workbenchModelSource.contains("WorkbenchProviderCatalog.visibleStates(from: profiles)"))
@@ -1196,18 +1199,31 @@ precondition(decodedProviderProfiles.rawSecretsStoredInWorkbench == false)
 let mergedProviderProfiles = WorkbenchProviderCatalog.visibleStates(from: decodedProviderProfiles.profiles)
 precondition(mergedProviderProfiles.count == WorkbenchProviderCatalog.profiles.count)
 precondition(mergedProviderProfiles.first { $0.key == .openAICodex }?.status == .connected)
+precondition(mergedProviderProfiles.first { $0.key == .pipedream }?.status == .planned)
 precondition(mergedProviderProfiles.first { $0.key == .slack }?.status == .planned)
 
 let expandedProviderProfilesResponse = """
-{"provider_profiles":[{"provider_key":"google_workspace","title":"Google Workspace","subtitle":"Gmail, Calendar, and Drive","status":"needs_login","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["gmail","calendar","drive"],"usage_summary":null,"last_validated_at":null},{"provider_key":"slack","title":"Slack","subtitle":"Workspace chat","status":"connected","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["channels"],"usage_summary":"Ready","last_validated_at":"2026-05-23T10:00:00Z"},{"provider_key":"github","title":"GitHub","subtitle":"Code hosting","status":"planned","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["pull_requests"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":"slack","raw_secrets_stored_in_workbench":false}
+{"schema_version":"evaos.provider_grant.v1","provider_profiles":[{"schema_version":"evaos.provider_grant.v1","grant_id":"grant-google-1","customer_account_id":"acct-1","provider_key":"google_workspace","title":"Google Workspace","subtitle":"Gmail, Calendar, and Drive","status":"needs_auth","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["gmail","calendar","drive"],"scopes":["gmail.readonly","calendar.readonly"],"usage_summary":null,"last_validated_at":null,"display":{"account_label":"owner@example.com","last_checked_at":"2026-05-23T10:00:00Z"},"source_pointer":"broker:provider_grant:grant-google-1","audit_id":"audit-google-1"},{"provider_key":"pipedream","title":"Pipedream Connection Service","subtitle":"Brokered integration engine","status":"connected","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["brokered app connections"],"usage_summary":"Connection engine ready","grant_handle":"epg-pipedream","revoke_handle":"revoke-pipedream","expires_at":"2026-06-23T10:00:00Z","last_validated_at":"2026-05-23T10:00:00Z"},{"provider_key":"slack","title":"Slack","subtitle":"Workspace chat","status":"connected","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["channels"],"usage_summary":"Ready","last_validated_at":"2026-05-23T10:00:00Z"},{"provider_key":"github","title":"GitHub","subtitle":"Code hosting","status":"planned","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["pull_requests"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":"slack","raw_secrets_stored_in_workbench":false}
 """.data(using: .utf8)!
 let decodedExpandedProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: expandedProviderProfilesResponse)
 let expandedVisibleProfiles = WorkbenchProviderCatalog.visibleStates(from: decodedExpandedProviderProfiles.profiles)
+precondition(decodedExpandedProviderProfiles.schemaVersion == "evaos.provider_grant.v1")
 precondition(decodedExpandedProviderProfiles.activeProviderKey == .slack)
 precondition(expandedVisibleProfiles.map(\.key) == providerCatalogKeys)
 precondition(expandedVisibleProfiles.first { $0.key == .googleWorkspace }?.status == .needsLogin)
+precondition(expandedVisibleProfiles.first { $0.key == .googleWorkspace }?.schemaVersion == "evaos.provider_grant.v1")
+precondition(expandedVisibleProfiles.first { $0.key == .googleWorkspace }?.grantedScopes == ["gmail.readonly", "calendar.readonly"])
+precondition(expandedVisibleProfiles.first { $0.key == .googleWorkspace }?.accountLabel == "owner@example.com")
+precondition(expandedVisibleProfiles.first { $0.key == .googleWorkspace }?.sourcePointer == "broker:provider_grant:grant-google-1")
+precondition(expandedVisibleProfiles.first { $0.key == .googleWorkspace }?.auditID == "audit-google-1")
+precondition(expandedVisibleProfiles.first { $0.key == .pipedream }?.hasBrokeredGrant == true)
+precondition(expandedVisibleProfiles.first { $0.key == .pipedream }?.revokeHandle == "revoke-pipedream")
 precondition(expandedVisibleProfiles.first { $0.key == .slack }?.hasConnectionProof == true)
 precondition(expandedVisibleProfiles.first { $0.key == .notion }?.status == .planned)
+let providerMissionCards = WorkbenchMissionCardDeriver.providerCards(from: expandedVisibleProfiles)
+precondition(providerMissionCards.contains { $0.id == "provider-google_workspace" && $0.attentionState == .needsAttention && $0.nextAction.contains("Business Browser") })
+precondition(providerMissionCards.contains { $0.id == "provider-pipedream" && $0.attentionState == .active && $0.details.contains("Eva access handle: ready") })
+precondition(providerMissionCards.contains { $0.sourcePointer == "broker:provider_grant:grant-google-1" && $0.auditId == "audit-google-1" })
 
 let providerAuthStartResponse = """
 {"provider_key":"openai_codex","status":"pending","connect_url":"https://browser-golden.ecs.electricsheephq.com/auth/callback?session=test","target_url":"https://chatgpt.com/codex","expires_at":"2026-05-23T10:30:00Z","instructions":"Complete Codex sign-in in Shared Browser.","provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"needs_login","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["codex"],"usage_summary":null,"last_validated_at":null}],"active_provider_key":null,"raw_secrets_stored_in_workbench":false}
@@ -1237,6 +1253,13 @@ let needsLoginProviderProfilesResponse = """
 let decodedNeedsLoginProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: needsLoginProviderProfilesResponse)
 precondition(WorkbenchProviderHubSummary.statusText(for: decodedNeedsLoginProviderProfiles) == "Needs login")
 precondition(WorkbenchProviderHubSummary.statusText(for: decodedProviderProfiles) == "Ready")
+
+let expiredProviderProfilesResponse = """
+{"provider_profiles":[{"provider_key":"google_workspace","title":"Google Workspace","subtitle":"Gmail, Calendar, and Drive","status":"expired","active":false,"raw_secrets_stored_in_workbench":false,"capabilities":["gmail"],"expires_at":"2026-05-23T10:00:00Z"}],"active_provider_key":null,"raw_secrets_stored_in_workbench":false}
+""".data(using: .utf8)!
+let decodedExpiredProviderProfiles = try EvaDesktopISO8601.decoder().decode(WorkbenchProviderProfilesResponse.self, from: expiredProviderProfilesResponse)
+precondition(decodedExpiredProviderProfiles.profiles.first?.status == .expired)
+precondition(WorkbenchProviderHubSummary.statusText(for: decodedExpiredProviderProfiles) == "Needs reconnection")
 
 let blockedProviderProfilesResponse = """
 {"provider_profiles":[{"provider_key":"openai_codex","title":"OpenAI / Codex","subtitle":"Connect once","status":"connected","active":true,"raw_secrets_stored_in_workbench":true,"capabilities":["codex"],"usage_summary":"Ready","grant_handle":"evaos-grant-123","last_validated_at":"2026-05-23T10:00:00Z"}],"active_provider_key":"openai_codex","raw_secrets_stored_in_workbench":true}

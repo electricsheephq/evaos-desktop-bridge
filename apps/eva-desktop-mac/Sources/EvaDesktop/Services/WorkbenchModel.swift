@@ -681,6 +681,7 @@ final class WorkbenchModel: ObservableObject {
     func refreshProviderProfiles() async {
         guard isSignedIn else {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
+            updateConnectedAppMissionCards(from: providerProfiles)
             providerHubStatusText = "Sign in to connect apps."
             resetCapabilityManifestState(statusText: "Sign in first", clearCache: false)
             return
@@ -690,6 +691,7 @@ final class WorkbenchModel: ObservableObject {
             let response = try await broker.providerProfiles(customerId: sanitizedCustomerId, desktopSession: session)
             let visibleProfiles = visibleProviderProfiles(response.profiles)
             providerProfiles = visibleProfiles
+            updateConnectedAppMissionCards(from: visibleProfiles)
             providerHubStatusText = WorkbenchProviderHubSummary.statusText(
                 rawSecretsStoredInWorkbench: response.rawSecretsStoredInWorkbench,
                 profiles: visibleProfiles
@@ -700,6 +702,7 @@ final class WorkbenchModel: ObservableObject {
             providerHubStatusText = "Session expired. Sign in again."
         } catch {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
+            updateConnectedAppMissionCards(from: providerProfiles)
             providerHubStatusText = "Unavailable: \(error.localizedDescription)"
             resetCapabilityManifestState(statusText: "Unavailable", clearCache: false)
         }
@@ -725,7 +728,9 @@ final class WorkbenchModel: ObservableObject {
                     customerId: sanitizedCustomerId,
                     desktopSession: session
                 )
-                providerProfiles = visibleProviderProfiles(response.profiles)
+                let visibleProfiles = visibleProviderProfiles(response.profiles)
+                providerProfiles = visibleProfiles
+                updateConnectedAppMissionCards(from: visibleProfiles)
                 await refreshCapabilityManifest(trigger: "provider_connect")
                 let runtime = try await openProviderAuthHandoff(response.connectURL)
                 var targetOpenWarning: String?
@@ -850,6 +855,7 @@ final class WorkbenchModel: ObservableObject {
                 let response = try await action()
                 let visibleProfiles = visibleProviderProfiles(response.profiles)
                 providerProfiles = visibleProfiles
+                updateConnectedAppMissionCards(from: visibleProfiles)
                 providerHubStatusText = WorkbenchProviderHubSummary.statusText(
                     rawSecretsStoredInWorkbench: response.rawSecretsStoredInWorkbench,
                     profiles: visibleProfiles
@@ -867,6 +873,14 @@ final class WorkbenchModel: ObservableObject {
 
     private func visibleProviderProfiles(_ profiles: [WorkbenchProviderProfileState]) -> [WorkbenchProviderProfileState] {
         WorkbenchProviderCatalog.visibleStates(from: profiles)
+    }
+
+    private func updateConnectedAppMissionCards(from profiles: [WorkbenchProviderProfileState]) {
+        let providerCards = WorkbenchMissionCardDeriver.providerCards(from: profiles)
+        var nextCards = sessionMissionCards.filter { $0.surface != "connected_apps" }
+        nextCards.append(contentsOf: providerCards)
+        sessionMissionCards = nextCards
+        sessionRecords = WorkbenchSessionContract.records(from: nextCards, customerId: sanitizedCustomerId)
     }
 
     func refreshCapabilityManifest(trigger _: String = "manual") async {
@@ -1086,6 +1100,7 @@ final class WorkbenchModel: ObservableObject {
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.queueCards(from: queueRaw))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.auditCards(from: auditRaw))
         nextCards.append(contentsOf: WorkbenchMissionCardDeriver.codexCards(statusRaw: codexStatusRaw, remoteRaw: codexRemoteRaw, threadsRaw: codexThreadsRaw))
+        nextCards.append(contentsOf: WorkbenchMissionCardDeriver.providerCards(from: providerProfiles))
 
         guard sanitizedCustomerId == customerSnapshot else { return }
         var mergedRuntimeErrors = runtimeErrors

@@ -952,6 +952,25 @@ private struct ProviderProfileCard: View {
                     .foregroundStyle(Color.electricSheepGoldSoft)
             }
 
+            if let accountLabel = profile.accountLabel, !accountLabel.isEmpty {
+                Label("Connected account: \(accountLabel)", systemImage: "person.crop.circle.badge.checkmark")
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepSecondaryText)
+                    .lineLimit(2)
+            }
+
+            if profile.hasBrokeredGrant {
+                Label("Eva has an auditable access handle for this app.", systemImage: "checkmark.seal")
+                    .font(.caption)
+                    .foregroundStyle(Color.electricSheepSuccess)
+            }
+
+            if let expiresAt = profile.expiresAt {
+                Label("Access expires \(expiresAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "calendar.badge.clock")
+                    .font(.caption)
+                    .foregroundStyle(profile.status == .expired ? Color.electricSheepDanger : Color.electricSheepMutedText)
+            }
+
             HStack(spacing: 8) {
                 Button(actionButtonTitle) {
                     if profile.status == .connected {
@@ -996,6 +1015,9 @@ private struct ProviderProfileCard: View {
         if profile.status == .connected && !profile.hasConnectionProof {
             return "Check connection"
         }
+        if profile.status == .expired {
+            return "Reconnect"
+        }
         if profile.status == .planned {
             return "Coming soon"
         }
@@ -1008,6 +1030,9 @@ private struct ProviderProfileCard: View {
         }
         if profile.status == .connected {
             return profile.hasConnectionProof ? "Use This App" : "Check Connection"
+        }
+        if profile.status == .expired {
+            return "Reconnect"
         }
         if profile.status == .planned {
             return "Coming Soon"
@@ -1025,6 +1050,8 @@ private struct ProviderProfileCard: View {
             return "sparkles"
         case .googleWorkspace:
             return "envelope.fill"
+        case .pipedream:
+            return "point.3.connected.trianglepath.dotted"
         case .slack:
             return "message.fill"
         case .notion:
@@ -1049,6 +1076,8 @@ private struct ProviderProfileCard: View {
             return .electricSheepGoldSoft
         case .revoked:
             return .electricSheepMutedText
+        case .expired:
+            return .electricSheepDanger
         case .error:
             return .electricSheepDanger
         }

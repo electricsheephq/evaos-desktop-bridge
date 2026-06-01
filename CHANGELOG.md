@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #239 Connected Apps V1 contract slice: Workbench now decodes
+  `evaos.provider_grant.v1` broker metadata, recognizes Pipedream as the
+  behind-the-scenes integration engine, handles `needs_auth`/expired/revoked
+  connection states in business language, reflects connected-app attention in
+  Home, and continues to keep raw provider secrets out of the Mac app.
+
 ## 0.6.26 - 2026-06-01
 
 - Add the SMB Command Center V1 architecture sprint contract: source-of-truth
