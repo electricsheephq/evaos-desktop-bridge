@@ -388,6 +388,12 @@ struct SessionCenterView: View {
                 canOpenApprovals: model.canOpenSurface("approvals"),
                 canOpenBusinessBrowser: model.canOpenSurface("business_browser"),
                 canOpenCreativeStudio: model.canOpenSurface("creative_studio"),
+                businessBrowserStatus: model.businessBrowserStatus,
+                browserStatusText: model.sharedBrowserStatusText,
+                browserRoomText: model.sharedBrowserRoomText,
+                browserCurrentURLText: model.sharedBrowserCurrentURLText,
+                browserLastActivityText: model.sharedBrowserLastActivityText,
+                isSignedIn: model.isSignedIn,
                 openConnectedApps: openConnectedApps,
                 openApprovals: openApprovals,
                 openBusinessBrowser: {
@@ -753,6 +759,12 @@ private struct AgentQuickActionGrid: View {
     let canOpenApprovals: Bool
     let canOpenBusinessBrowser: Bool
     let canOpenCreativeStudio: Bool
+    let businessBrowserStatus: WorkbenchBrowserStatus?
+    let browserStatusText: String
+    let browserRoomText: String
+    let browserCurrentURLText: String
+    let browserLastActivityText: String
+    let isSignedIn: Bool
     let openConnectedApps: () -> Void
     let openApprovals: () -> Void
     let openBusinessBrowser: () -> Void
@@ -779,11 +791,13 @@ private struct AgentQuickActionGrid: View {
                 )
             }
             if canOpenBusinessBrowser {
-                AgentQuickActionCard(
-                    title: "Open business browser",
-                    detail: "Use the shared browser for sign-ins, CAPTCHA, and web tasks Eva can help with.",
-                    systemImage: "globe",
-                    actionTitle: "Open Browser",
+                BusinessBrowserQuickActionCard(
+                    status: businessBrowserStatus,
+                    fallbackStatusText: browserStatusText,
+                    fallbackRoomText: browserRoomText,
+                    fallbackCurrentURLText: browserCurrentURLText,
+                    fallbackLastActivityText: browserLastActivityText,
+                    isSignedIn: isSignedIn,
                     action: openBusinessBrowser
                 )
             }
@@ -798,6 +812,204 @@ private struct AgentQuickActionGrid: View {
             }
         }
     }
+}
+
+private struct BusinessBrowserQuickActionCard: View {
+    let status: WorkbenchBrowserStatus?
+    let fallbackStatusText: String
+    let fallbackRoomText: String
+    let fallbackCurrentURLText: String
+    let fallbackLastActivityText: String
+    let isSignedIn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                RuntimeIconBadge(systemImage: "globe", tint: tint)
+                Spacer(minLength: 8)
+                StatusPill(title: statusLabel, systemImage: statusImage, tint: tint)
+            }
+            Text("Business Browser")
+                .font(.headline)
+                .foregroundStyle(Color.electricSheepPrimaryText)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(Color.electricSheepSecondaryText)
+                .lineLimit(3)
+            if !metadataRows.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(metadataRows, id: \.label) { row in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(row.label)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Color.electricSheepMutedText)
+                                .frame(width: 72, alignment: .leading)
+                            Text(row.value)
+                                .font(.caption)
+                                .foregroundStyle(Color.electricSheepSecondaryText)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            Button(actionTitle) {
+                action()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+        .background(Color.electricSheepSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(tint.opacity(0.38), lineWidth: 1)
+        )
+    }
+
+    private var normalizedStatus: String {
+        let rawStatus = status?.status ?? fallbackStatusText
+        return rawStatus
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private var statusLabel: String {
+        if !isSignedIn {
+            return "Sign in first"
+        }
+        if status?.needsCaptcha == true {
+            return "CAPTCHA"
+        }
+        if status?.needsAuth == true {
+            return "Needs sign-in"
+        }
+        if isHealthy {
+            return "Ready"
+        }
+        if isUnavailable {
+            return "Unavailable"
+        }
+        if normalizedStatus == "unchecked" || normalizedStatus == "not checked" {
+            return "Not checked"
+        }
+        return fallbackStatusText.isEmpty ? "Not checked" : fallbackStatusText
+    }
+
+    private var statusImage: String {
+        if !isSignedIn || status?.needsAuth == true || status?.needsCaptcha == true || isUnavailable {
+            return "exclamationmark.triangle"
+        }
+        if isHealthy {
+            return "checkmark.circle"
+        }
+        return "clock"
+    }
+
+    private var tint: Color {
+        if !isSignedIn || status?.needsAuth == true || status?.needsCaptcha == true || isUnavailable {
+            return .electricSheepGoldSoft
+        }
+        if isHealthy {
+            return .electricSheepSuccess
+        }
+        return .electricSheepCyan
+    }
+
+    private var detail: String {
+        if !isSignedIn {
+            return "Sign in to start the browser Eva uses for website logins, CAPTCHA, and web tasks."
+        }
+        if status?.needsCaptcha == true {
+            return "A website in Business Browser needs CAPTCHA before Eva can continue."
+        }
+        if status?.needsAuth == true {
+            return "A website in Business Browser needs you to sign in before Eva can continue."
+        }
+        if isHealthy {
+            return "Ready for sign-ins, CAPTCHA, and web tasks Eva can help with."
+        }
+        if isUnavailable {
+            return "Start or reattach the browser, then refresh status if the page is still loading."
+        }
+        return "Use the browser Eva opens for website sign-ins, CAPTCHA, and web tasks."
+    }
+
+    private var actionTitle: String {
+        if !isSignedIn {
+            return "Sign In First"
+        }
+        if isUnavailable || status == nil {
+            return "Start / Attach"
+        }
+        return "Open Browser"
+    }
+
+    private var isHealthy: Bool {
+        [
+            "ready",
+            "loaded",
+            "enabled",
+            "active",
+            "running",
+            "open"
+        ].contains(normalizedStatus)
+    }
+
+    private var isUnavailable: Bool {
+        [
+            "unavailable",
+            "offline",
+            "failed",
+            "error",
+            "degraded",
+            "closed locally",
+            "stopped",
+            "session expired"
+        ].contains(normalizedStatus)
+    }
+
+    private var metadataRows: [(label: String, value: String)] {
+        var rows: [(label: String, value: String)] = []
+        if let room = meaningful(status?.roomID) ?? meaningful(fallbackRoomText) {
+            rows.append(("Room", room))
+        }
+        if let site = meaningful(status?.currentURL?.displayText) ?? meaningful(fallbackCurrentURLText) {
+            rows.append(("Site", site))
+        }
+        if let date = status?.lastActivityAt {
+            rows.append(("Last activity", Self.activityFormatter.string(from: date)))
+        } else if let lastActivity = meaningful(fallbackLastActivityText) {
+            rows.append(("Last activity", lastActivity))
+        }
+        return rows
+    }
+
+    private func meaningful(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let lowered = trimmed.lowercased()
+        let placeholders: Set<String> = [
+            "not opened",
+            "not checked",
+            "unchecked",
+            "unavailable",
+            "status unavailable"
+        ]
+        return placeholders.contains(lowered) ? nil : trimmed
+    }
+
+    private static let activityFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 private struct AgentQuickActionCard: View {

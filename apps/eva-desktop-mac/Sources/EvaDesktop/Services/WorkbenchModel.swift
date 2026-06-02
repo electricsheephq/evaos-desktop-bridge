@@ -1891,6 +1891,10 @@ final class WorkbenchModel: ObservableObject {
         loadingRuntimes.remove(runtime)
         loadingRuntimePages.remove(runtime)
         fallbackReloadAttempts[runtime] = nil
+        if runtime == .liveBrowser {
+            runtimeStatuses[runtime] = nil
+            businessBrowserStatus = nil
+        }
     }
 
     private func resetRuntimeWebViewIfNeeded(_ runtime: RuntimeKey, customerId: String) {
