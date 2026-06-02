@@ -409,7 +409,19 @@ struct SessionCenterView: View {
                 providerProfiles: model.providerProfiles,
                 capabilitySummary: model.capabilityManifestSummary,
                 todayItems: model.todayItems,
-                pendingApprovalCount: model.approvalRequests.count
+                pendingApprovalCount: model.approvalRequests.count,
+                canOpenConnectedApps: model.canOpenSurface("connected_apps"),
+                canOpenApprovals: model.canOpenSurface("approvals"),
+                canOpenBusinessBrowser: model.isSignedIn && model.canOpenSurface("business_browser"),
+                canOpenCreativeStudio: model.canOpenSurface("creative_studio"),
+                openConnectedApps: openConnectedApps,
+                openApprovals: openApprovals,
+                openBusinessBrowser: {
+                    jumpToRuntime(.liveBrowser)
+                },
+                openCreativeStudio: {
+                    jumpToRuntime(.creativeStudio)
+                }
             )
 
             AgentWorkspaceSummaryGrid(
@@ -1050,20 +1062,37 @@ private struct AionReferenceSpikeSection: View {
     let capabilitySummary: WorkbenchCapabilityManifestSummary?
     let todayItems: [WorkbenchTodayItem]
     let pendingApprovalCount: Int
+    let canOpenConnectedApps: Bool
+    let canOpenApprovals: Bool
+    let canOpenBusinessBrowser: Bool
+    let canOpenCreativeStudio: Bool
+    let openConnectedApps: () -> Void
+    let openApprovals: () -> Void
+    let openBusinessBrowser: () -> Void
+    let openCreativeStudio: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             SessionWorkspaceSectionHeader(
-                title: "Agent Workspace Preview",
-                subtitle: "Native evaOS patterns for agents, teams, tasks, app readiness, and approvals.",
-                status: "Preview",
+                title: "Start Work With Eva",
+                subtitle: "Pick a starter task and Workbench opens the right app, browser, or approval inbox.",
+                status: "Actions",
                 systemImage: "sparkles.rectangle.stack",
                 tint: Color.electricSheepCyan
             )
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
                 AgentTeamPreviewCard(assignment: primaryAssignment)
-                TaskLauncherPreviewCard()
+                TaskLauncherPreviewCard(
+                    canOpenConnectedApps: canOpenConnectedApps,
+                    canOpenApprovals: canOpenApprovals,
+                    canOpenBusinessBrowser: canOpenBusinessBrowser,
+                    canOpenCreativeStudio: canOpenCreativeStudio,
+                    openConnectedApps: openConnectedApps,
+                    openApprovals: openApprovals,
+                    openBusinessBrowser: openBusinessBrowser,
+                    openCreativeStudio: openCreativeStudio
+                )
                 AssistantCatalogPreviewCard(assignedAgentName: primaryAgentName)
                 AppToolReadinessPreviewCard(providerProfiles: businessProfiles, capabilitySummary: capabilitySummary)
                 PermissionBadgesPreviewCard(pendingApprovalCount: pendingApprovalCount, todayItems: todayItems)
@@ -1144,33 +1173,88 @@ private struct AgentTeamPreviewCard: View {
 }
 
 private struct TaskLauncherPreviewCard: View {
-    private let tasks = [
-        ("Email follow-up", "Needs Gmail", "Ask first"),
-        ("Sales research", "Uses browser", "Ready"),
-        ("Admin inbox", "Needs approval", "Review"),
-        ("Creative brief", "Uses Creative Studio", "Ready")
-    ]
+    let canOpenConnectedApps: Bool
+    let canOpenApprovals: Bool
+    let canOpenBusinessBrowser: Bool
+    let canOpenCreativeStudio: Bool
+    let openConnectedApps: () -> Void
+    let openApprovals: () -> Void
+    let openBusinessBrowser: () -> Void
+    let openCreativeStudio: () -> Void
 
     var body: some View {
-        PreviewPatternCard(title: "Task Launcher", systemImage: "bolt.square", status: "4 templates", tint: Color.electricSheepGoldSoft) {
+        PreviewPatternCard(title: "Task Launcher", systemImage: "bolt.square", status: "4 actions", tint: Color.electricSheepGoldSoft) {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(tasks, id: \.0) { task in
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.right.circle")
-                            .foregroundStyle(Color.electricSheepCyan)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(task.0)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.electricSheepPrimaryText)
-                            Text("\(task.1) · \(task.2)")
-                                .font(.caption2)
-                                .foregroundStyle(Color.electricSheepMutedText)
-                                .lineLimit(1)
-                        }
-                    }
-                }
+                TaskLauncherActionRow(
+                    title: "Email follow-up",
+                    detail: "Connect Gmail first",
+                    actionTitle: canOpenConnectedApps ? "Open Apps" : "Sign in first",
+                    systemImage: "envelope",
+                    isEnabled: canOpenConnectedApps,
+                    action: openConnectedApps
+                )
+                TaskLauncherActionRow(
+                    title: "Sales research",
+                    detail: "Use the Business Browser",
+                    actionTitle: canOpenBusinessBrowser ? "Open Browser" : "Sign in first",
+                    systemImage: "globe",
+                    isEnabled: canOpenBusinessBrowser,
+                    action: openBusinessBrowser
+                )
+                TaskLauncherActionRow(
+                    title: "Admin inbox",
+                    detail: "Review waiting decisions",
+                    actionTitle: canOpenApprovals ? "Review" : "Sign in first",
+                    systemImage: "checkmark.shield",
+                    isEnabled: canOpenApprovals,
+                    action: openApprovals
+                )
+                TaskLauncherActionRow(
+                    title: "Creative brief",
+                    detail: "Open hosted Creative Studio",
+                    actionTitle: canOpenCreativeStudio ? "Create" : "Sign in first",
+                    systemImage: "paintbrush.pointed",
+                    isEnabled: canOpenCreativeStudio,
+                    action: openCreativeStudio
+                )
             }
         }
+    }
+}
+
+private struct TaskLauncherActionRow: View {
+    let title: String
+    let detail: String
+    let actionTitle: String
+    let systemImage: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(isEnabled ? Color.electricSheepCyan : Color.electricSheepMutedText)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.electricSheepPrimaryText)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(Color.electricSheepMutedText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button(actionTitle) {
+                action()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!isEnabled)
+            .help(isEnabled ? detail : "Sign in to use this task.")
+        }
+        .padding(.vertical, 2)
+        .opacity(isEnabled ? 1 : 0.62)
     }
 }
 
