@@ -1221,7 +1221,9 @@ final class WorkbenchModel: ObservableObject {
                 }
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 guard sanitizedCustomerId == customerSnapshot else { return }
-                nextErrors[definition.key] = "Account permissions unavailable"
+                let message = "Account permissions unavailable"
+                nextErrors[definition.key] = message
+                degradeRuntimeAuthorization(definition.key, message: message)
                 failures += 1
             } catch {
                 guard sanitizedCustomerId == customerSnapshot else { return }

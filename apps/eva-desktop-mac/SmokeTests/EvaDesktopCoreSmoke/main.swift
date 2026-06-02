@@ -1602,6 +1602,10 @@ precondition(runtimeAuthDegradeSource.contains("runtimeStatuses[runtime] = nil")
 precondition(runtimeAuthDegradeSource.contains("businessBrowserStatus = nil"))
 precondition(runtimeAuthDegradeSource.contains("updateSessionRecord(for: runtime, status: nil, error: message)"))
 precondition(!runtimeAuthDegradeSource.contains("clearLocalSessionState"))
+let sessionCenterRefreshStart = workbenchModelSource.range(of: "func refreshSessionCenterState() async")!
+let sessionCenterRefreshEnd = workbenchModelSource.range(of: "func reopenRecentSession")!
+let sessionCenterRefreshSource = String(workbenchModelSource[sessionCenterRefreshStart.lowerBound..<sessionCenterRefreshEnd.lowerBound])
+precondition(sessionCenterRefreshSource.contains("degradeRuntimeAuthorization(definition.key, message: message)"))
 precondition(workbenchModelSource.contains("resetCapabilityManifestState(statusText: \"Account permissions unavailable\", clearCache: false)"))
 precondition(workbenchModelSource.contains("resetUsageDashboardState(statusText: \"Account permissions unavailable\")"))
 precondition(workbenchModelSource.contains("approvalCenterStatusText = \"Account permissions unavailable\""))
