@@ -71,7 +71,9 @@ Workbench core exposes `WorkbenchCapabilityManifestVerifier` and
 `WorkbenchCapabilityManifestStore` caches the signed manifest token in the
 Workbench Keychain service `com.electricsheephq.EvaDesktop.capabilities`, using
 the account `capability-manifest`. Cache state is cleared on sign-out, broker
-401/403, customer switch, and Workbench broker-client rebuild.
+customer switch, and Workbench broker-client rebuild. Passive broker refresh
+failures clear rendered capability state without erasing the desktop session or
+the last stored manifest token.
 
 ## Workbench Broker Fetch
 
@@ -120,10 +122,11 @@ a valid token without `safe_summary`, Workbench stores the token and shows
 inside the macOS app while still allowing the broker to phase in safe display
 metadata.
 
-HTTP 401/403 clears the signed-in Workbench session and manifest cache. HTTP 404
-clears the manifest cache and reports `No policy for agent`. Other failures
-leave the last Keychain write untouched but clear rendered summary state and
-report `Unavailable`.
+HTTP 401/403 clears rendered capability state and reports `Account permissions
+unavailable`, but does not erase the signed-in Workbench desktop session from a
+passive refresh alone. HTTP 404 clears the manifest cache and reports
+`No policy for agent`. Other failures leave the last Keychain write untouched
+but clear rendered summary state and report `Unavailable`.
 
 ## Runtime Fit
 

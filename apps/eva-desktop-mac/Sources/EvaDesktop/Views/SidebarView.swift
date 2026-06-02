@@ -17,20 +17,49 @@ struct SidebarView: View {
             }
 
             Section(AppBrand.runtimeSectionTitle) {
-                ForEach(model.visibleRuntimes) { runtime in
+                ForEach(model.visibleWorkspaceRuntimes) { runtime in
                     RuntimeSidebarRow(runtime: runtime)
                         .tag(SidebarSelection.runtime(runtime.key))
+                }
+            }
+
+            if shouldShowBusinessAdminSection {
+                Section("Business Admin") {
+                    if model.featureFlags.isEnabled(.providersHub), model.canOpenSurface("connected_apps") {
+                        FeatureSidebarRow(title: "Connected Apps", systemImage: "person.badge.key")
+                            .tag(SidebarSelection.providersHub)
+                    }
+                    if model.canOpenPeopleAccessDashboard {
+                        Button {
+                            model.openPeopleAccessDashboard()
+                        } label: {
+                            FeatureSidebarRow(title: "People & Access", systemImage: "person.2.badge.gearshape")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if model.canOpenCompanyBrainDashboard {
+                        Button {
+                            model.openCompanyBrainDashboard()
+                        } label: {
+                            FeatureSidebarRow(title: "Company Brain", systemImage: "brain")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if !model.visibleTechnicalDashboardRuntimes.isEmpty {
+                Section("Technical Dashboards") {
+                    ForEach(model.visibleTechnicalDashboardRuntimes) { runtime in
+                        RuntimeSidebarRow(runtime: runtime, title: runtime.technicalDashboardTitle)
+                            .tag(SidebarSelection.runtime(runtime.key))
+                    }
                 }
             }
 
             Section(AppBrand.bridgeSectionTitle) {
                 Label(AppBrand.macAndIPhoneTitle, systemImage: "macbook.and.iphone")
                     .tag(SidebarSelection.bridge)
-
-                if model.featureFlags.isEnabled(.providersHub), model.canOpenSurface("connected_apps") {
-                    FeatureSidebarRow(title: "Connected Apps", systemImage: "person.badge.key")
-                        .tag(SidebarSelection.providersHub)
-                }
             }
         }
         .listStyle(.sidebar)
@@ -127,6 +156,12 @@ struct SidebarView: View {
                 .tag(SidebarSelection.approvalCenter)
         }
     }
+
+    private var shouldShowBusinessAdminSection: Bool {
+        model.canOpenPeopleAccessDashboard
+            || model.canOpenCompanyBrainDashboard
+            || (model.featureFlags.isEnabled(.providersHub) && model.canOpenSurface("connected_apps"))
+    }
 }
 
 private struct SidebarBrandHeader: View {
@@ -139,6 +174,7 @@ private struct SidebarBrandHeader: View {
 
 private struct RuntimeSidebarRow: View {
     let runtime: RuntimeDefinition
+    var title: String? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -146,7 +182,7 @@ private struct RuntimeSidebarRow: View {
                 .foregroundStyle(rowColor)
                 .frame(width: 18)
 
-            Text(runtime.title)
+            Text(title ?? runtime.title)
                 .lineLimit(1)
         }
     }

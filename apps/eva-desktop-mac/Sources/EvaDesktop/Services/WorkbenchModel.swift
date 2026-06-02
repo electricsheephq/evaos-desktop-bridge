@@ -190,8 +190,15 @@ final class WorkbenchModel: ObservableObject {
 
     var canAccessAdminRuntimes: Bool {
         guard isSignedIn else { return false }
-        let normalizedRoles = Set(sessionRoles.map { $0.lowercased() })
-        if isOperatorSession && (normalizedRoles.contains("admin") || normalizedRoles.contains("customer_service") || normalizedRoles.contains("support")) {
+        let normalizedRoles = Set(sessionRoles.map { $0.lowercased().replacingOccurrences(of: "-", with: "_") })
+        if normalizedRoles.contains("owner")
+            || normalizedRoles.contains("admin")
+            || normalizedRoles.contains("technical_admin") {
+            return true
+        }
+        if isOperatorSession
+            && (normalizedRoles.contains("customer_service")
+                || normalizedRoles.contains("support")) {
             return true
         }
         let email = session?.userEmail?.lowercased() ?? ""
@@ -226,14 +233,29 @@ final class WorkbenchModel: ObservableObject {
             .filter { WorkbenchAgentAssignmentAccessPolicy.canAccessRuntime($0.key, role: currentAccountRole, assignment: currentAssignment) }
     }
 
+    var visibleWorkspaceRuntimes: [RuntimeDefinition] {
+        visibleRuntimes.filter { !$0.isTechnicalDashboard }
+    }
+
+    var visibleTechnicalDashboardRuntimes: [RuntimeDefinition] {
+        guard canAccessAdminRuntimes else { return [] }
+        return visibleRuntimes.filter(\.isTechnicalDashboard)
+    }
+
     func canOpenSurface(_ surface: String) -> Bool {
-        guard currentAccountRole == .agentOnly else {
-            return true
-        }
-        if surface == "today" || surface == "assigned_agent_workspace" {
-            return true
-        }
-        return currentAssignment?.allowsSurface(surface) == true
+        let visibleSurfaces = WorkbenchAgentAssignmentAccessPolicy.visibleSurfaces(
+            for: currentAccountRole,
+            assignment: currentAssignment
+        )
+        return visibleSurfaces.contains(Self.normalizedSurface(surface))
+    }
+
+    var canOpenPeopleAccessDashboard: Bool {
+        isSignedIn && canOpenSurface("members")
+    }
+
+    var canOpenCompanyBrainDashboard: Bool {
+        isSignedIn && canOpenSurface("company_brain")
     }
 
     var loadedRuntimeKeys: [RuntimeKey] {
@@ -674,8 +696,11 @@ final class WorkbenchModel: ObservableObject {
             applyDefaultCustomerIfNeeded(response)
             ensureSelectedRuntimeIsVisible()
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-            clearLocalSessionState(allowKeychainInteraction: false)
-            customerTargetError = "Your evaOS Workbench session expired. Sign in again."
+            customerTargets = []
+            sessionRoles = []
+            isOperatorSession = false
+            ensureSelectedRuntimeIsVisible()
+            customerTargetError = "Sign-in succeeded, but account permissions could not load. Refresh or sign out and back in if this persists."
         } catch {
             customerTargets = []
             isOperatorSession = false
@@ -740,8 +765,10 @@ final class WorkbenchModel: ObservableObject {
             )
             await refreshCapabilityManifest(trigger: "provider_profiles")
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-            clearLocalSessionState(allowKeychainInteraction: false)
-            providerHubStatusText = "Session expired. Sign in again."
+            providerProfiles = WorkbenchProviderCatalog.defaultStates
+            updateConnectedAppMissionCards(from: providerProfiles)
+            providerHubStatusText = "Account permissions unavailable. Refresh or sign out and back in if this persists."
+            resetCapabilityManifestState(statusText: "Account permissions unavailable", clearCache: false)
         } catch {
             providerProfiles = WorkbenchProviderCatalog.defaultStates
             updateConnectedAppMissionCards(from: providerProfiles)
@@ -818,8 +845,21 @@ final class WorkbenchModel: ObservableObject {
 
     func openCompanyBrainDashboard() {
         guard isSignedIn else { return }
-        guard canOpenSurface("company_brain") else { return }
-        guard let url = companyBrainDashboardURL() else {
+        guard canOpenCompanyBrainDashboard else { return }
+        openDashboardHandoff(pathComponent: "dashboard/company-brain", surface: "company-brain")
+    }
+
+    func openPeopleAccessDashboard() {
+        guard isSignedIn else { return }
+        guard canOpenPeopleAccessDashboard else { return }
+        openDashboardHandoff(pathComponent: "dashboard/invites", surface: "people-access")
+    }
+
+    private func openDashboardHandoff(pathComponent: String, surface: String) {
+        guard let url = dashboardURL(pathComponent: pathComponent, queryItems: [
+            URLQueryItem(name: "customer_id", value: sanitizedCustomerId),
+            URLQueryItem(name: "surface", value: surface),
+        ]) else {
             runtimeErrors[selectedRuntime] = "Dashboard URL is invalid."
             return
         }
@@ -832,13 +872,6 @@ final class WorkbenchModel: ObservableObject {
     private func providerDashboardURL(providerKey: WorkbenchProviderKey) -> URL? {
         dashboardURL(pathComponent: "dashboard/providers", queryItems: [
             URLQueryItem(name: "provider", value: providerKey.rawValue),
-            URLQueryItem(name: "customer_id", value: sanitizedCustomerId),
-            URLQueryItem(name: "surface", value: "workbench"),
-        ])
-    }
-
-    private func companyBrainDashboardURL() -> URL? {
-        dashboardURL(pathComponent: "dashboard/company-brain", queryItems: [
             URLQueryItem(name: "customer_id", value: sanitizedCustomerId),
             URLQueryItem(name: "surface", value: "workbench"),
         ])
@@ -1010,8 +1043,7 @@ final class WorkbenchModel: ObservableObject {
             updateAssignedAgentMissionCards()
             await refreshUsageDashboard(trigger: "capability_manifest")
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
-            clearLocalSessionState(allowKeychainInteraction: false)
-            capabilityManifestStatusText = "Session expired. Sign in again."
+            resetCapabilityManifestState(statusText: "Account permissions unavailable", clearCache: false)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 404 {
             resetCapabilityManifestState(statusText: "No policy for agent", clearCache: true)
         } catch {
@@ -1058,8 +1090,7 @@ final class WorkbenchModel: ObservableObject {
                 .subtracting(candidateAgentIDs)
                 .union(deliveredAgentIDs)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 || status == 403 {
-            clearLocalSessionState(allowKeychainInteraction: false)
-            usageDashboardStatusText = "Session expired. Sign in again."
+            resetUsageDashboardState(statusText: "Account permissions unavailable")
         } catch {
             resetUsageDashboardState(statusText: "Usage unavailable")
         }
@@ -1176,9 +1207,8 @@ final class WorkbenchModel: ObservableObject {
                 }
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 guard sanitizedCustomerId == customerSnapshot else { return }
-                clearLocalSessionState(allowKeychainInteraction: false)
-                sessionCenterStatusText = "Session expired"
-                return
+                nextErrors[definition.key] = "Account permissions unavailable"
+                failures += 1
             } catch {
                 guard sanitizedCustomerId == customerSnapshot else { return }
                 nextErrors[definition.key] = error.localizedDescription
@@ -1265,8 +1295,8 @@ final class WorkbenchModel: ObservableObject {
                 .subtracting(candidateNotificationIDs)
                 .union(deliveredNotificationIDs)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-            clearLocalSessionState(allowKeychainInteraction: false)
-            approvalCenterStatusText = "Session expired"
+            approvalRequests = []
+            approvalCenterStatusText = "Account permissions unavailable"
         } catch {
             approvalRequests = []
             approvalCenterStatusText = "Approval Center unavailable: \(error.localizedDescription)"
@@ -2088,9 +2118,13 @@ final class WorkbenchModel: ObservableObject {
         return allowed
     }
 
+    private static func normalizedSurface(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func ensureSelectedRuntimeIsVisible() {
         if !canAccess(selectedRuntime) {
-            selectedRuntime = .openclaw
+            selectedRuntime = visibleRuntimes.first?.key ?? .liveBrowser
         }
     }
 

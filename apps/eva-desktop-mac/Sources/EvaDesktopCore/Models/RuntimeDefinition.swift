@@ -51,19 +51,22 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
             key: .openclaw,
             title: "Eva Workspace",
             subtitle: "Main Eva dashboard and chat workspace.",
-            systemImage: "bubble.left.and.bubble.right"
+            systemImage: "bubble.left.and.bubble.right",
+            requiresAdmin: true
         ),
         RuntimeDefinition(
             key: .hermes,
             title: "Agent Workspace",
             subtitle: "Second agent workspace on the same evaOS server.",
-            systemImage: "sparkles"
+            systemImage: "sparkles",
+            requiresAdmin: true
         ),
         RuntimeDefinition(
             key: .missionControl,
             title: "Mission Control",
             subtitle: "Goals, jobs, approvals, and agent coordination.",
-            systemImage: "checklist"
+            systemImage: "checklist",
+            requiresAdmin: true
         ),
         RuntimeDefinition(
             key: .openDesign,
@@ -104,6 +107,32 @@ public struct RuntimeDefinition: Identifiable, Equatable, Sendable {
 
     public static func visibleRuntimes(canAccessAdminRuntimes: Bool) -> [RuntimeDefinition] {
         all.filter { !$0.requiresAdmin || canAccessAdminRuntimes }
+    }
+
+    public var isTechnicalDashboard: Bool {
+        switch key {
+        case .openclaw, .hermes, .missionControl, .terminal:
+            return true
+        case .openDesign, .liveBrowser, .creativeStudio, .teamChat:
+            return false
+        }
+    }
+
+    public var technicalDashboardTitle: String {
+        switch key {
+        case .openclaw:
+            return "OpenClaw Dashboard"
+        case .hermes:
+            return "Hermes Dashboard"
+        case .missionControl:
+            return "Mission Control"
+        case .terminal:
+            return "Terminal"
+        case .openDesign:
+            return "OpenDesign"
+        case .liveBrowser, .creativeStudio, .teamChat:
+            return title
+        }
     }
 
     public static func isBrokeredRuntime(_ key: RuntimeKey) -> Bool {

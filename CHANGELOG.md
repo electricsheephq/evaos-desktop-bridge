@@ -4,6 +4,16 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Restore the issue #100 visible SMB command-center sidebar split: Workbench
+  now keeps customer workspaces separate from Business Admin and Technical
+  Dashboards, surfaces People & Access and Company Brain as direct admin rows,
+  restores OpenClaw/Hermes/Mission Control/Terminal names for technical users,
+  and keeps non-admin users focused on Business Browser, Design Workspace,
+  Creative Studio, Team Chat, assigned agents, and Today.
+- Prevent passive Workbench evidence refreshes from immediately signing the
+  user out after a fresh desktop login; account-policy, Connected Apps,
+  approvals, usage, and capability-manifest refresh failures now degrade their
+  visible status instead of erasing the local session.
 - Add the issue #245 ClickClack Team Chat binding spike: Workbench now has a
   default-off brokered Team Chat runtime and a versioned
   `evaos.team_chat_binding.v1` contract for one customer workspace, one
