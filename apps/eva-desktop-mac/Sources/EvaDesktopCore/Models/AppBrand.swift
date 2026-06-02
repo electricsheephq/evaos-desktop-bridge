@@ -7,8 +7,8 @@ public enum AppBrand {
     public static let bridgeSectionTitle = "Settings"
     public static let macAndIPhoneTitle = "Mac & iPhone"
     public static let signedOutStatus = "Sign in to open Eva workspaces"
-    public static let version = "0.6.26"
-    public static let buildNumber = "66"
+    public static let version = "0.6.27"
+    public static let buildNumber = "67"
     public static let defaultUpdateManifestURL = "https://www.electricsheephq.com/evaos-workbench/updates.json"
     public static let sparkleAppcastURL = "https://www.electricsheephq.com/evaos-workbench/appcast.xml"
 }
