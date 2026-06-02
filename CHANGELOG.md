@@ -4,6 +4,8 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+## 0.6.27 - 2026-06-02
+
 - Keep Workbench signed in when an individual gateway launch or status refresh
   returns broker `401`; the affected workspace now degrades to account
   permissions unavailable instead of erasing the whole desktop session, which
