@@ -17,9 +17,9 @@ Date: 2026-06-02
 | OpenClaw, Hermes, Mission Control, Terminal | Present as runtime entries with some SMB-renamed labels. | Power-user/admin dashboards became ambiguous or visible to the wrong audience. | Move to Technical Dashboards for owner/admin/technical/support users and restore recognizable names. |
 | OpenDesign | Present as Design Workspace. | It is both a design product surface and a technical dashboard in some contexts. | Keep visible as a customer workspace because assigned/nested users need design access. |
 | Company Brain | Dashboard exists at `/dashboard/company-brain`; Home can route from Today items. | No persistent native Workbench row, so it looked absent. | Add a Company Brain sidebar action for roles with Company Brain read access. |
-| Assigned agents / task launcher | Present as Home preview/cards. | Still preview-like, not a full launcher. | Leave as visible Home value; follow up with task-launcher issue. |
+| Assigned agents / task launcher | Present as Home cards. | The previous card looked like a preview instead of a way to start work. | Make the starter tasks route to Connected Apps, Business Browser, Approvals, and Creative Studio when the user has access. |
 | Gateway/runtime status | Present via runtime status, Home records, and technical activity. | Raw evidence can still feel IT-oriented. | Keep collapsed; do not expand invisible hardening in this slice. |
-| Desktop sign-in resilience | Login callback can save a desktop session, then passive broker refreshes run immediately. | A temporary `401`/permission miss from account policy, Connected Apps, approvals, usage, or capability evidence could erase the fresh session and look like instant sign-out. | Keep the signed-in shell visible and degrade the affected cards/status text; explicit runtime launches still fail closed. |
+| Desktop sign-in resilience | Login callback can save a desktop session, then broker evidence and selected workspace loads run immediately. | A temporary `401`/permission miss from account policy, Connected Apps, approvals, usage, capability evidence, or one gateway launch/status call could erase the fresh session and look like instant sign-out. | Keep the signed-in shell visible and degrade the affected cards/status text; the blocked workspace/action fails closed without clearing the whole login. |
 
 ## Post-Change Navigation Shape
 
@@ -39,7 +39,7 @@ full signed-in acceptance only when cutting or validating a release.
 
 ## Follow-Up Issues To Keep Visible
 
-- #100: Make the assigned-agent/task launcher less preview-like and more directly usable.
+- #100: Continue making assigned-agent/task templates richer after the first actionable launcher slice.
 - #97: Finish normalized Business Browser status and shared guidance across Workbench, dashboard, OpenClaw, and Hermes.
 - #102: Keep Creative Studio hosted-flow acceptance visible in signed-in release screenshots.
 - #144: Continue turning approvals into a plain operator inbox with concrete destination and consequence.

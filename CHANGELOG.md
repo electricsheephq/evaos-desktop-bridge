@@ -4,6 +4,16 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Keep Workbench signed in when an individual gateway launch or status refresh
+  returns broker `401`; the affected workspace now degrades to account
+  permissions unavailable instead of erasing the whole desktop session, which
+  prevents a fresh admin sign-in from bouncing out before visual
+  acceptance can run.
+- Make the issue #100 Home task launcher visibly actionable: the “Start Work
+  With Eva” section now routes starter tasks to Connected Apps, Business
+  Browser, Approvals, and hosted Creative Studio when the surface is available;
+  brokered/action rows require sign-in while hosted Creative Studio stays
+  directly launchable.
 - Add the issue #97 Business Browser Home status slice: Home now uses the
   normalized `evaos.browser_status.v1` evidence to show a customer-readable
   Business Browser card with sign-in/CAPTCHA/unavailable/ready states, room,

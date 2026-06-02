@@ -1136,10 +1136,10 @@ final class WorkbenchModel: ObservableObject {
             updateSessionRecord(for: runtime, status: status, error: nil)
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             guard sanitizedCustomerId == customerSnapshot else { return }
-            clearLocalSessionState(allowKeychainInteraction: false)
-            if runtime == .liveBrowser {
-                sharedBrowserStatusText = "Session expired"
-            }
+            degradeRuntimeAuthorization(
+                runtime,
+                message: "Account permissions unavailable. Refresh or sign out and back in if this persists."
+            )
         } catch {
             guard sanitizedCustomerId == customerSnapshot else { return }
             runtimeErrors[runtime] = error.localizedDescription
@@ -1168,6 +1168,20 @@ final class WorkbenchModel: ObservableObject {
         if sessionCenterStatusText == "Unchecked" {
             sessionCenterStatusText = "Ready"
         }
+    }
+
+    private func degradeRuntimeAuthorization(_ runtime: RuntimeKey, message: String) {
+        runtimeURLs[runtime] = nil
+        runtimeStatuses[runtime] = nil
+        runtimeErrors[runtime] = message
+        if runtime == .liveBrowser {
+            sharedBrowserStatusText = "Account permissions unavailable"
+            sharedBrowserRoomText = "Status unavailable"
+            sharedBrowserCurrentURLText = "Unavailable"
+            sharedBrowserLastActivityText = "Refresh or sign out and back in if this persists"
+            businessBrowserStatus = nil
+        }
+        updateSessionRecord(for: runtime, status: nil, error: message)
     }
 
     private func applyBusinessBrowserStatus(_ status: RuntimeStatusResponse, customerId: String) {
@@ -1207,7 +1221,9 @@ final class WorkbenchModel: ObservableObject {
                 }
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
                 guard sanitizedCustomerId == customerSnapshot else { return }
-                nextErrors[definition.key] = "Account permissions unavailable"
+                let message = "Account permissions unavailable"
+                nextErrors[definition.key] = message
+                degradeRuntimeAuthorization(definition.key, message: message)
                 failures += 1
             } catch {
                 guard sanitizedCustomerId == customerSnapshot else { return }
@@ -2081,8 +2097,10 @@ final class WorkbenchModel: ObservableObject {
 
     private func handleBrokerAuthorizationFailure(_ status: Int, runtime: RuntimeKey) {
         if status == 401 {
-            clearLocalSessionState(allowKeychainInteraction: false)
-            runtimeErrors[runtime] = "Your evaOS Workbench session expired or was revoked. Sign in again to open workspaces."
+            degradeRuntimeAuthorization(
+                runtime,
+                message: "Account permissions unavailable for this workspace. Refresh or sign out and back in if this persists."
+            )
             return
         }
         runtimeURLs[runtime] = nil
