@@ -319,8 +319,25 @@ Repair steps:
      -a desktop-session
    security delete-generic-password \
      -s com.electricsheephq.EvaDesktop.capabilities \
-     -a capability-manifest
+    -a capability-manifest
    ```
+
+## Fast UI Iteration
+
+Do not package, notarize, publish, or rerun full release acceptance for every
+Workbench UI edit.
+
+- Use the local browser or Dashboard dev server for Dashboard, onboarding,
+  provider web pages, and other HTML/WebView surfaces.
+- Use Swift previews, `swift run EvaDesktopCoreSmoke`, and
+  `./script/build_and_run.sh --run-agent-qa` for native SwiftUI shell changes
+  such as Home, sidebar, Settings, and visible Workbench navigation.
+- Use a real signed-in Developer ID or release build only when validating
+  Keychain identity, broker auth, installed-app behavior, Sparkle update flow,
+  or final sprint release acceptance.
+- Treat `swift build --product EvaDesktop` as the normal pre-push compile gate
+  for Swift changes. Treat packaging/notarization/appcast/Swift CodeQL as
+  release, main/tag, nightly, manual, or security gates.
 
 ## UI Regression Checklist
 

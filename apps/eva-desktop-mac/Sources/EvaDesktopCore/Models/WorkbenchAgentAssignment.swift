@@ -313,6 +313,7 @@ public enum WorkbenchAgentAssignmentAccessPolicy {
                 "approvals",
                 "business_browser",
                 "creative_studio",
+                "company_brain",
                 "members",
                 "billing",
                 "technical_dashboards",
@@ -327,6 +328,7 @@ public enum WorkbenchAgentAssignmentAccessPolicy {
                 "approvals",
                 "business_browser",
                 "creative_studio",
+                "company_brain",
                 "technical_dashboards",
                 "terminal",
                 "team_chat",
@@ -334,8 +336,10 @@ public enum WorkbenchAgentAssignmentAccessPolicy {
             ]
         case .billingAdmin:
             return ["today", "billing"]
-        case .manager, .member:
-            return ["today", "business_browser", "creative_studio", "assigned_agent_workspace"]
+        case .manager:
+            return ["today", "approvals", "business_browser", "creative_studio", "company_brain", "assigned_agent_workspace"]
+        case .member:
+            return ["today", "business_browser", "creative_studio", "company_brain", "assigned_agent_workspace"]
         case .agentOnly:
             var surfaces = Set(assignment?.allowedSurfaces ?? [])
             surfaces.insert("assigned_agent_workspace")

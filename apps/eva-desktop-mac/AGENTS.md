@@ -36,6 +36,11 @@ Mission Control, Shared Browser, Terminal, or OpenDesign internals.
   use `./script/build_and_run.sh --run-agent-qa` for visible UI checks or
   `--verify-agent-qa` for process-only smoke. Use a Developer ID-signed app on
   the internal disk for real signed-in acceptance.
+- Passive signed-in refreshes such as account-policy, Connected Apps, Home, and
+  approval-status reads should degrade their cards/status text when a broker
+  endpoint is temporarily unauthorized or unavailable. Do not erase a fresh
+  desktop session from passive evidence refresh alone; explicit runtime launches
+  and user actions may still fail closed on true authorization failure.
 
 ## Agent Control Boundary
 
@@ -73,6 +78,10 @@ Use GitHub Actions for heavier archive/signing validation once it exists.
   an already-built app, or the smallest focused smoke first. Run one
   `swift build`/smoke pass before the first PR push when Swift source changed,
   then let GitHub Actions carry the broader PR matrix.
+- The native SwiftUI shell is not browser-hostable. For faster iteration, use a
+  local browser/dev server only for Dashboard, onboarding, and embedded WebView
+  pages; use the prompt-free Agent QA app or Swift previews/smokes for native
+  sidebar/Home/Settings changes. Package and sign only for release acceptance.
 - For core model, broker contract, app-command wiring, signing, entitlement, or
   packaging changes, run the focused smoke that proves the contract and one
   compile before push.
