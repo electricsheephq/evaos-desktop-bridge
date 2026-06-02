@@ -9,6 +9,9 @@ All notable repo release changes should be recorded here before a release branch
   permissions unavailable instead of erasing the whole desktop session, which
   prevents a fresh admin sign-in from bouncing out before visual
   acceptance can run.
+- Keep Workbench signed in when Business Browser stop, Connected Apps actions,
+  or approval decisions return broker `401`; those surfaces now show account
+  permissions unavailable instead of clearing the desktop session.
 - Make the issue #100 Home task launcher visibly actionable: the “Start Work
   With Eva” section now routes starter tasks to Connected Apps, Business
   Browser, Approvals, and hosted Creative Studio when the surface is available;

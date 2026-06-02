@@ -402,8 +402,10 @@ final class WorkbenchModel: ObservableObject {
             webViewRefreshToken = UUID()
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
             guard sanitizedCustomerId == customerSnapshot else { return }
-            clearLocalSessionState(allowKeychainInteraction: false)
-            sharedBrowserStatusText = "Session expired"
+            degradeRuntimeAuthorization(
+                runtime,
+                message: "Account permissions unavailable. Refresh or sign out and back in if this persists."
+            )
         } catch {
             guard sanitizedCustomerId == customerSnapshot else { return }
             runtimeErrors[runtime] = error.localizedDescription
@@ -827,8 +829,7 @@ final class WorkbenchModel: ObservableObject {
                 )
                 providerHubStatusText = [instruction, targetOpenWarning].compactMap { $0 }.joined(separator: " ")
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-                clearLocalSessionState(allowKeychainInteraction: false)
-                providerHubStatusText = "Session expired. Sign in again."
+                degradeProviderAuthorization()
             } catch RuntimeSessionBrokerError.httpStatus(let status) where [502, 503, 504].contains(status) {
                 if let fallbackURL = providerDashboardURL(providerKey: providerKey) {
                     _ = try? await openProviderAuthHandoff(fallbackURL)
@@ -967,8 +968,7 @@ final class WorkbenchModel: ObservableObject {
                 )
                 await refreshCapabilityManifest(trigger: "provider_action")
             } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-                clearLocalSessionState(allowKeychainInteraction: false)
-                providerHubStatusText = "Session expired. Sign in again."
+                degradeProviderAuthorization()
             } catch {
                 providerHubStatusText = "App update failed: \(error.localizedDescription)"
                 resetCapabilityManifestState(statusText: "Needs refresh", clearCache: false)
@@ -1367,8 +1367,7 @@ final class WorkbenchModel: ObservableObject {
                 approvalCenterStatusText = WorkbenchApprovalCenterSummary.statusText(for: approvalRequests)
             }
         } catch RuntimeSessionBrokerError.httpStatus(let status) where status == 401 {
-            clearLocalSessionState(allowKeychainInteraction: false)
-            approvalCenterStatusText = "Session expired"
+            approvalCenterStatusText = "Account permissions unavailable"
         } catch {
             approvalCenterStatusText = "Decision failed: \(error.localizedDescription)"
         }
@@ -2087,6 +2086,11 @@ final class WorkbenchModel: ObservableObject {
         capabilityManifestStatusText = statusText
         isRefreshingCapabilityManifest = false
         resetUsageDashboardState(statusText: statusText)
+    }
+
+    private func degradeProviderAuthorization() {
+        providerHubStatusText = "Account permissions unavailable. Refresh or sign out and back in if this persists."
+        resetCapabilityManifestState(statusText: "Account permissions unavailable", clearCache: false)
     }
 
     private func budgetAgentID(from notificationID: String) -> String? {
