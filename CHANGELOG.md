@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #97 Business Browser Home status slice: Home now uses the
+  normalized `evaos.browser_status.v1` evidence to show a customer-readable
+  Business Browser card with sign-in/CAPTCHA/unavailable/ready states, room,
+  site, and last-activity summaries instead of a generic shared-browser quick
+  action, and local browser detach clears stale broker evidence before the card
+  re-renders.
 - Restore the issue #100 visible SMB command-center sidebar split: Workbench
   now keeps customer workspaces separate from Business Admin and Technical
   Dashboards, surfaces People & Access and Company Brain as direct admin rows,
