@@ -1606,6 +1606,27 @@ let sessionCenterRefreshStart = workbenchModelSource.range(of: "func refreshSess
 let sessionCenterRefreshEnd = workbenchModelSource.range(of: "func reopenRecentSession")!
 let sessionCenterRefreshSource = String(workbenchModelSource[sessionCenterRefreshStart.lowerBound..<sessionCenterRefreshEnd.lowerBound])
 precondition(sessionCenterRefreshSource.contains("degradeRuntimeAuthorization(definition.key, message: message)"))
+let stopSharedBrowserStart = workbenchModelSource.range(of: "func stopSharedBrowserSession()")!
+let stopSharedBrowserEnd = workbenchModelSource.range(of: "func loadRuntime(_ runtime: RuntimeKey")!
+let stopSharedBrowserSource = String(workbenchModelSource[stopSharedBrowserStart.lowerBound..<stopSharedBrowserEnd.lowerBound])
+precondition(stopSharedBrowserSource.contains("degradeRuntimeAuthorization("))
+precondition(!stopSharedBrowserSource.contains("clearLocalSessionState"))
+let connectProviderStart = workbenchModelSource.range(of: "func connectProvider(_ providerKey: WorkbenchProviderKey)")!
+let connectProviderEnd = workbenchModelSource.range(of: "func openCompanyBrainDashboard()")!
+let connectProviderSource = String(workbenchModelSource[connectProviderStart.lowerBound..<connectProviderEnd.lowerBound])
+precondition(connectProviderSource.contains("degradeProviderAuthorization()"))
+precondition(!connectProviderSource.contains("clearLocalSessionState"))
+let providerActionStart = workbenchModelSource.range(of: "private func runProviderAction(")!
+let providerActionEnd = workbenchModelSource.range(of: "private func visibleProviderProfiles")!
+let providerActionSource = String(workbenchModelSource[providerActionStart.lowerBound..<providerActionEnd.lowerBound])
+precondition(providerActionSource.contains("degradeProviderAuthorization()"))
+precondition(!providerActionSource.contains("clearLocalSessionState"))
+let approvalDecisionStart = workbenchModelSource.range(of: "func decideApprovalRequest(")!
+let approvalDecisionEnd = workbenchModelSource.range(of: "func refreshBridgeStatus()")!
+let approvalDecisionSource = String(workbenchModelSource[approvalDecisionStart.lowerBound..<approvalDecisionEnd.lowerBound])
+precondition(approvalDecisionSource.contains("approvalCenterStatusText = \"Account permissions unavailable\""))
+precondition(!approvalDecisionSource.contains("clearLocalSessionState"))
+precondition(workbenchModelSource.contains("private func degradeProviderAuthorization()"))
 precondition(workbenchModelSource.contains("resetCapabilityManifestState(statusText: \"Account permissions unavailable\", clearCache: false)"))
 precondition(workbenchModelSource.contains("resetUsageDashboardState(statusText: \"Account permissions unavailable\")"))
 precondition(workbenchModelSource.contains("approvalCenterStatusText = \"Account permissions unavailable\""))
