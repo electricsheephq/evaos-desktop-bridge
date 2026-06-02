@@ -23,11 +23,14 @@ already owns:
 - No generic agent prompt runner.
 - No live app-server mutation.
 - No backend execution is started from these cards.
-- Disabled rows stay visible and explain that sign-in/access is required.
+- Disabled rows stay visible and explain whether sign-in or admin-granted
+  access is required.
+- Hosted Creative Studio stays directly launchable because it is an external
+  workspace entry, not a brokered provider/action flow.
 
 ## Sign-In Resilience Fix
 
-During signed-in visual acceptance, `admin@100yen.org` could appear to sign in
+During signed-in visual acceptance, an admin user could appear to sign in
 and immediately sign out. Code inspection found another session-clear path:
 after auth, Workbench may load or refresh the selected brokered workspace. A
 runtime-specific broker `401` previously cleared the whole desktop session.

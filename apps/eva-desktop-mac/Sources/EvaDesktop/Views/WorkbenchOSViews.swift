@@ -410,10 +410,11 @@ struct SessionCenterView: View {
                 capabilitySummary: model.capabilityManifestSummary,
                 todayItems: model.todayItems,
                 pendingApprovalCount: model.approvalRequests.count,
-                canOpenConnectedApps: model.canOpenSurface("connected_apps"),
-                canOpenApprovals: model.canOpenSurface("approvals"),
-                canOpenBusinessBrowser: model.isSignedIn && model.canOpenSurface("business_browser"),
-                canOpenCreativeStudio: model.canOpenSurface("creative_studio"),
+                isSignedIn: model.isSignedIn,
+                hasConnectedAppsAccess: model.canOpenSurface("connected_apps"),
+                hasApprovalsAccess: model.canOpenSurface("approvals"),
+                hasBusinessBrowserAccess: model.canOpenSurface("business_browser"),
+                hasCreativeStudioAccess: model.canOpenSurface("creative_studio"),
                 openConnectedApps: openConnectedApps,
                 openApprovals: openApprovals,
                 openBusinessBrowser: {
@@ -1062,10 +1063,11 @@ private struct AionReferenceSpikeSection: View {
     let capabilitySummary: WorkbenchCapabilityManifestSummary?
     let todayItems: [WorkbenchTodayItem]
     let pendingApprovalCount: Int
-    let canOpenConnectedApps: Bool
-    let canOpenApprovals: Bool
-    let canOpenBusinessBrowser: Bool
-    let canOpenCreativeStudio: Bool
+    let isSignedIn: Bool
+    let hasConnectedAppsAccess: Bool
+    let hasApprovalsAccess: Bool
+    let hasBusinessBrowserAccess: Bool
+    let hasCreativeStudioAccess: Bool
     let openConnectedApps: () -> Void
     let openApprovals: () -> Void
     let openBusinessBrowser: () -> Void
@@ -1084,10 +1086,11 @@ private struct AionReferenceSpikeSection: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
                 AgentTeamPreviewCard(assignment: primaryAssignment)
                 TaskLauncherPreviewCard(
-                    canOpenConnectedApps: canOpenConnectedApps,
-                    canOpenApprovals: canOpenApprovals,
-                    canOpenBusinessBrowser: canOpenBusinessBrowser,
-                    canOpenCreativeStudio: canOpenCreativeStudio,
+                    isSignedIn: isSignedIn,
+                    hasConnectedAppsAccess: hasConnectedAppsAccess,
+                    hasApprovalsAccess: hasApprovalsAccess,
+                    hasBusinessBrowserAccess: hasBusinessBrowserAccess,
+                    hasCreativeStudioAccess: hasCreativeStudioAccess,
                     openConnectedApps: openConnectedApps,
                     openApprovals: openApprovals,
                     openBusinessBrowser: openBusinessBrowser,
@@ -1173,10 +1176,11 @@ private struct AgentTeamPreviewCard: View {
 }
 
 private struct TaskLauncherPreviewCard: View {
-    let canOpenConnectedApps: Bool
-    let canOpenApprovals: Bool
-    let canOpenBusinessBrowser: Bool
-    let canOpenCreativeStudio: Bool
+    let isSignedIn: Bool
+    let hasConnectedAppsAccess: Bool
+    let hasApprovalsAccess: Bool
+    let hasBusinessBrowserAccess: Bool
+    let hasCreativeStudioAccess: Bool
     let openConnectedApps: () -> Void
     let openApprovals: () -> Void
     let openBusinessBrowser: () -> Void
@@ -1188,33 +1192,41 @@ private struct TaskLauncherPreviewCard: View {
                 TaskLauncherActionRow(
                     title: "Email follow-up",
                     detail: "Connect Gmail first",
-                    actionTitle: canOpenConnectedApps ? "Open Apps" : "Sign in first",
+                    enabledTitle: "Open Apps",
                     systemImage: "envelope",
-                    isEnabled: canOpenConnectedApps,
+                    isSignedIn: isSignedIn,
+                    hasAccess: hasConnectedAppsAccess,
+                    requiresSignIn: true,
                     action: openConnectedApps
                 )
                 TaskLauncherActionRow(
                     title: "Sales research",
                     detail: "Use the Business Browser",
-                    actionTitle: canOpenBusinessBrowser ? "Open Browser" : "Sign in first",
+                    enabledTitle: "Open Browser",
                     systemImage: "globe",
-                    isEnabled: canOpenBusinessBrowser,
+                    isSignedIn: isSignedIn,
+                    hasAccess: hasBusinessBrowserAccess,
+                    requiresSignIn: true,
                     action: openBusinessBrowser
                 )
                 TaskLauncherActionRow(
                     title: "Admin inbox",
                     detail: "Review waiting decisions",
-                    actionTitle: canOpenApprovals ? "Review" : "Sign in first",
+                    enabledTitle: "Review",
                     systemImage: "checkmark.shield",
-                    isEnabled: canOpenApprovals,
+                    isSignedIn: isSignedIn,
+                    hasAccess: hasApprovalsAccess,
+                    requiresSignIn: true,
                     action: openApprovals
                 )
                 TaskLauncherActionRow(
                     title: "Creative brief",
                     detail: "Open hosted Creative Studio",
-                    actionTitle: canOpenCreativeStudio ? "Create" : "Sign in first",
+                    enabledTitle: "Create",
                     systemImage: "paintbrush.pointed",
-                    isEnabled: canOpenCreativeStudio,
+                    isSignedIn: isSignedIn,
+                    hasAccess: hasCreativeStudioAccess,
+                    requiresSignIn: false,
                     action: openCreativeStudio
                 )
             }
@@ -1225,9 +1237,11 @@ private struct TaskLauncherPreviewCard: View {
 private struct TaskLauncherActionRow: View {
     let title: String
     let detail: String
-    let actionTitle: String
+    let enabledTitle: String
     let systemImage: String
-    let isEnabled: Bool
+    let isSignedIn: Bool
+    let hasAccess: Bool
+    let requiresSignIn: Bool
     let action: () -> Void
 
     var body: some View {
@@ -1251,10 +1265,34 @@ private struct TaskLauncherActionRow: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(!isEnabled)
-            .help(isEnabled ? detail : "Sign in to use this task.")
+            .help(helpText)
         }
         .padding(.vertical, 2)
         .opacity(isEnabled ? 1 : 0.62)
+    }
+
+    private var isEnabled: Bool {
+        hasAccess && (!requiresSignIn || isSignedIn)
+    }
+
+    private var actionTitle: String {
+        if isEnabled {
+            return enabledTitle
+        }
+        if requiresSignIn && !isSignedIn {
+            return "Sign in first"
+        }
+        return "No access"
+    }
+
+    private var helpText: String {
+        if isEnabled {
+            return detail
+        }
+        if requiresSignIn && !isSignedIn {
+            return "Sign in to use this task."
+        }
+        return "Ask an admin to grant access."
     }
 }
 
