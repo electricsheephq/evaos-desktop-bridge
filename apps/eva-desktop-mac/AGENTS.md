@@ -65,6 +65,29 @@ codesign --verify --deep --strict dist/evaOS.app
 
 Use GitHub Actions for heavier archive/signing validation once it exists.
 
+## Swift PR Flow
+
+- Treat Swift validation as tiered. Do not turn every copy tweak, docs update,
+  review reply, changelog edit, or PR metadata change into a fresh app rebuild.
+- For SwiftUI layout/view edits, use previews, fixture views, screenshots from
+  an already-built app, or the smallest focused smoke first. Run one
+  `swift build`/smoke pass before the first PR push when Swift source changed,
+  then let GitHub Actions carry the broader PR matrix.
+- For core model, broker contract, app-command wiring, signing, entitlement, or
+  packaging changes, run the focused smoke that proves the contract and one
+  compile before push.
+- For Python/plugin/dashboard-only work in this mixed repository, skip local
+  Swift validation unless the changed contract crosses into Workbench.
+- Reserve packaging, notarization, appcast generation, signed-in visual
+  acceptance, and Swift CodeQL for sprint-release, main/tag/release,
+  scheduled/nightly, security-sensitive Swift changes, or explicit
+  release-validation asks.
+- If Swift CodeQL is pending on a PR, treat it as a remote release/security
+  gate, not a reason to keep rebuilding locally or stall unrelated safe work.
+- Prefer CI workflow fixes over repeated local rebuilds when validation is
+  noisy or expensive: path gating, `concurrency.cancel-in-progress`, targeted
+  manual Swift builds, manual release scans, and release/main/nightly CodeQL.
+
 ## Release Notes
 
 - Keep the repository root `CHANGELOG.md` updated for every release-impacting
