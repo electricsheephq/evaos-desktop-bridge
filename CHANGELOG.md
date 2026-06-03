@@ -4,10 +4,9 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
-- Add the issue #240 Business Browser contract-parity slice: the
-  `evaos.browser_status.v1` contract now carries optional `session_id`
-  alongside `room_id`, and the Workbench/OpenClaw/Hermes fixtures and docs use
-  the same sanitized status shape for Business Browser guidance.
+- Add the issue #240 Business Browser contract-parity slice: Business Browser
+  guidance can now include optional `session_id` alongside `room_id` for more
+  precise session tracking while keeping browser URLs sanitized.
 
 - Add the issue #261 Creative Studio hosted-flow polish: hosted Comfy Cloud
   launches are now saved as recent Workbench activity, Home/Today can reopen
