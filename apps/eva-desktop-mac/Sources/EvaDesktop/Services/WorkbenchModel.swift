@@ -2040,7 +2040,7 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private func recordRecentLaunch(runtime: RuntimeKey, customerId: String) {
-        guard RuntimeDefinition.isBrokeredRuntime(runtime) else {
+        guard RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil else {
             return
         }
         let key = WorkbenchRecentLaunchStore.storageKey(customerId: customerId)

@@ -671,7 +671,7 @@ private struct TodayItemCard: View {
             return false
         case .recentWork:
             if let runtime = item.resumeRoute.runtime {
-                return RuntimeDefinition.isBrokeredRuntime(runtime)
+                return RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil
             }
             return item.resumeRoute.kind == .evidenceOnly
         default:
