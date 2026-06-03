@@ -202,7 +202,12 @@ Schema version: `evaos.agent_assignment.v1`
     "daily_tokens": 200000
   },
   "schedule": {
-    "enabled": false
+    "enabled": true,
+    "task_title": "Morning briefing",
+    "cadence_label": "Weekdays at 9:00 AM",
+    "next_run_at": "2026-06-04T09:00:00Z",
+    "due_window": "Tomorrow morning",
+    "timezone": "America/New_York"
   },
   "kill_switch": {
     "enabled": true,
@@ -216,6 +221,11 @@ Schema version: `evaos.agent_assignment.v1`
 V1 must support one assigned agent per user before supporting multi-agent teams.
 The assignment is not just a UI card. It controls allowed apps, approvals,
 budget, pause/stop state, and Today status.
+
+Schedule fields are display-safe hints for Home/Today cards. They should name
+the business task, cadence, next run or due window, and timezone without
+exposing raw cron strings, queue identifiers, scheduler database rows, provider
+tokens, or runtime details.
 
 ## Provider Grant Contract
 
@@ -324,6 +334,7 @@ Initial `kind` values:
 - `agent_blocked`
 - `company_brain_source_needed`
 - `recent_work`
+- `scheduled_work`
 - `system_attention`
 
 Today cards must be written in business language. Raw `provider`, `manifest`,

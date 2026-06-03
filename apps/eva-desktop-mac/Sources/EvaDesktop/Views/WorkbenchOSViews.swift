@@ -476,7 +476,7 @@ struct SessionCenterView: View {
             } else if item.resumeRoute.kind == .evidenceOnly {
                 openConnectedApps()
             }
-        case .agentRunning, .agentDone, .agentBlocked:
+        case .agentRunning, .agentDone, .agentBlocked, .scheduledWork:
             if let runtime = item.resumeRoute.runtime, RuntimeDefinition.isBrokeredRuntime(runtime) {
                 jumpToRuntime(runtime)
             }
@@ -572,7 +572,7 @@ struct SessionCenterView: View {
             if !model.recentSessionRecords.isEmpty {
                 return "Recent workspaces are saved below. Refresh Home to check current status."
             }
-            return "Connect apps, open the business browser, or start from a workspace below."
+            return "Connect apps, open the business browser, or choose a starter task to schedule work like a morning briefing or follow-up."
         }
         let attentionCount = model.sessionRecords.filter { $0.attentionState == .needsAttention }.count
         if attentionCount == 1 {
@@ -692,7 +692,7 @@ private struct TodayItemCard: View {
                 return "Open Apps"
             }
             return "Resume"
-        case .agentRunning, .agentDone, .agentBlocked:
+        case .agentRunning, .agentDone, .agentBlocked, .scheduledWork:
             return "Open Agent"
         case .companyBrainSourceNeeded:
             return "Open Company Brain"
@@ -719,6 +719,8 @@ private struct TodayItemCard: View {
             return "brain"
         case .recentWork:
             return "clock.arrow.circlepath"
+        case .scheduledWork:
+            return "calendar.badge.clock"
         case .systemAttention:
             return "bell.badge"
         }
@@ -732,6 +734,8 @@ private struct TodayItemCard: View {
             return "Active"
         case .done:
             return "Done"
+        case .scheduled:
+            return "Scheduled"
         case .blocked:
             return "Blocked"
         case .idle:
@@ -749,6 +753,8 @@ private struct TodayItemCard: View {
             return "waveform"
         case .done:
             return "checkmark.seal"
+        case .scheduled:
+            return "calendar"
         case .idle:
             return "clock"
         }
@@ -760,6 +766,8 @@ private struct TodayItemCard: View {
             return .electricSheepDanger
         case .active, .done:
             return .electricSheepSuccess
+        case .scheduled:
+            return .electricSheepGoldSoft
         case .idle:
             return .electricSheepMutedText
         case .unavailable:

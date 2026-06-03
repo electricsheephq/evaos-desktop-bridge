@@ -4,6 +4,11 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #262 scheduled-work Home/Today slice: Workbench can now show
+  scheduled assigned-agent work such as a morning briefing with a readable next
+  run window, assigned agent, scheduled status, and an Open Agent path to pause
+  or adjust it without exposing cron or scheduler internals.
+
 - Add the issue #240 Business Browser contract-parity slice: Business Browser
   guidance can now include optional `session_id` alongside `room_id` for more
   precise session tracking while keeping browser URLs sanitized.
