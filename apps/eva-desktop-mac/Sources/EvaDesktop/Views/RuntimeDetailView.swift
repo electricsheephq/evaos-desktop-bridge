@@ -282,6 +282,9 @@ private struct RuntimeLaunchView: View {
         if definition.key == .liveBrowser {
             return "Ready to start or attach to the business browser. Startup can take up to a minute after the browser has been idle."
         }
+        if definition.key == .creativeStudio {
+            return "Ready to open hosted Comfy Cloud. Sign in there if Comfy asks for your account."
+        }
         return "Ready to open this workspace."
     }
 
@@ -312,6 +315,9 @@ private struct RuntimeLoadingView: View {
     private var loadingDetail: String {
         if definition.key == .liveBrowser {
             return "Starting or attaching to the business browser. This can take up to a minute after idle."
+        }
+        if definition.key == .creativeStudio {
+            return "Opening hosted Comfy Cloud; Workbench does not install local ComfyUI."
         }
         return "Opening a fresh workspace session."
     }

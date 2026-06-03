@@ -470,7 +470,8 @@ struct SessionCenterView: View {
         case .browserLoginNeeded:
             jumpToRuntime(.liveBrowser)
         case .recentWork:
-            if let runtime = item.resumeRoute.runtime, RuntimeDefinition.isBrokeredRuntime(runtime) {
+            if let runtime = item.resumeRoute.runtime,
+               RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil {
                 jumpToRuntime(runtime)
             } else if item.resumeRoute.kind == .evidenceOnly {
                 openConnectedApps()

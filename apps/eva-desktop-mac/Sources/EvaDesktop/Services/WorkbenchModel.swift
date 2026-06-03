@@ -421,6 +421,7 @@ final class WorkbenchModel: ObservableObject {
         if let externalURL = RuntimeDefinition.externalURL(for: runtime) {
             runtimeURLs[runtime] = externalURL
             runtimeErrors[runtime] = nil
+            recordRecentLaunch(runtime: runtime, customerId: targetCustomerId)
             webViews.webView(for: runtime, customerId: targetCustomerId).load(URLRequest(url: externalURL))
             return
         }
@@ -504,6 +505,7 @@ final class WorkbenchModel: ObservableObject {
         let targetCustomerId = resolver.sanitizedCustomerId(customerId)
 
         if let externalURL = RuntimeDefinition.externalURL(for: runtime) {
+            recordRecentLaunch(runtime: runtime, customerId: targetCustomerId)
             NSWorkspace.shared.open(externalURL)
             return
         }
@@ -1276,7 +1278,8 @@ final class WorkbenchModel: ObservableObject {
     }
 
     func reopenRecentSession(_ record: WorkbenchSessionRecord) async {
-        guard let runtime = WorkbenchSessionContract.brokerRuntimeToOpen(for: record) else {
+        guard let runtime = record.resumeRoute.runtime ?? record.runtime,
+              RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil else {
             return
         }
         selectedRuntime = runtime
