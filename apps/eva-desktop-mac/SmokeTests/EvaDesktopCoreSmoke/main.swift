@@ -943,7 +943,12 @@ let assignmentJSON = """
     "daily_tokens": 200000
   },
   "schedule": {
-    "enabled": false
+    "enabled": true,
+    "task_title": "Morning briefing",
+    "cadence_label": "Weekdays at 9:00 AM",
+    "next_run_at": "2026-06-04T13:00:00Z",
+    "due_window": "Tomorrow morning",
+    "timezone": "America/New_York"
   },
   "kill_switch": {
     "enabled": true,
@@ -964,6 +969,12 @@ precondition(decodedAssignment.allowedSurfaces == ["today", "business_browser", 
 precondition(decodedAssignment.approvalPolicy.defaultMode == "ask")
 precondition(decodedAssignment.budget.dailyUSD == 5)
 precondition(decodedAssignment.budget.dailyTokens == 200000)
+precondition(decodedAssignment.schedule.enabled)
+precondition(decodedAssignment.schedule.taskTitle == "Morning briefing")
+precondition(decodedAssignment.schedule.cadenceLabel == "Weekdays at 9:00 AM")
+precondition(decodedAssignment.schedule.nextRunAt == "2026-06-04T13:00:00Z")
+precondition(decodedAssignment.schedule.dueWindow == "Tomorrow morning")
+precondition(decodedAssignment.schedule.timezone == "America/New_York")
 precondition(decodedAssignment.killSwitch.state == .running)
 precondition(decodedAssignment.statusText == "Running")
 precondition(decodedAssignment.attentionState == .active)
@@ -1058,11 +1069,25 @@ precondition(assignedAgentCards[0].attentionState == .active)
 precondition(assignedAgentCards[0].sourcePointer == "dashboard:agent_assignment:assign-sales-followup")
 precondition(assignedAgentCards[0].auditId == "audit-assignment-1")
 precondition(assignedAgentCards[0].details.contains("Allowed apps: 1"))
+precondition(assignedAgentCards[0].details.contains("Scheduled work: Morning briefing"))
+precondition(assignedAgentCards[0].details.contains("Schedule: Weekdays at 9:00 AM"))
+precondition(assignedAgentCards[0].details.contains("Next run: Tomorrow morning"))
+precondition(assignedAgentCards[0].details.contains("Pause: Open Agent to pause or adjust this schedule."))
 let assignedAgentRecord = WorkbenchSessionContract.record(from: assignedAgentCards[0], customerId: "acct-1")
 precondition(assignedAgentRecord.surface == .assignedAgent)
 precondition(assignedAgentRecord.resumeRoute.kind == .assignedAgent)
 precondition(assignedAgentRecord.lastActor == "agent_assignment")
 precondition(WorkbenchSessionContract.brokerRuntimeToOpen(for: assignedAgentRecord) == nil)
+let scheduledTodayItems = WorkbenchTodayItemDeriver.items(from: [assignedAgentRecord], recentRecords: [])
+let scheduledTodayItem = scheduledTodayItems.first(where: { $0.kind == .scheduledWork })
+precondition(scheduledTodayItem?.title == "Morning briefing is scheduled")
+precondition(scheduledTodayItem?.status == .scheduled)
+precondition(scheduledTodayItem?.nextAction.contains("Assigned to Sales Follow-up") == true)
+precondition(scheduledTodayItem?.nextAction.contains("Next run: Tomorrow morning") == true)
+precondition(scheduledTodayItem?.nextAction.contains("Open Agent to pause or adjust this schedule.") == true)
+precondition(scheduledTodayItem?.nextAction.lowercased().contains("cron") == false)
+precondition(scheduledTodayItem?.assignedAgentID == "agent_sales_followup")
+precondition(scheduledTodayItem?.assignedUserID == "usr-employee-1")
 let todayItemJSON = """
 {
   "schema_version": "evaos.today_item.v1",
@@ -1128,13 +1153,14 @@ let assignedAgentTodayItems = WorkbenchTodayItemDeriver.items(
     recentRecords: [],
     limit: 10
 )
-precondition(assignedAgentTodayItems.map(\.kind) == [.connectedAppNeeded, .browserLoginNeeded, .agentRunning])
+precondition(assignedAgentTodayItems.map(\.kind) == [.connectedAppNeeded, .browserLoginNeeded, .scheduledWork])
 precondition(assignedAgentTodayItems[0].title == "Connect Google Workspace")
 precondition(assignedAgentTodayItems[0].status == .needsInput)
 precondition(!assignedAgentTodayItems[0].title.lowercased().contains("provider"))
 precondition(!assignedAgentTodayItems[0].title.lowercased().contains("grant"))
 precondition(assignedAgentTodayItems[1].title == "Sign in to Business Browser")
-precondition(assignedAgentTodayItems[2].title == "Sales Follow-up is running")
+precondition(assignedAgentTodayItems[2].title == "Morning briefing is scheduled")
+precondition(assignedAgentTodayItems[2].status == .scheduled)
 precondition(assignedAgentTodayItems[2].assignedAgentID == "agent_sales_followup")
 precondition(assignedAgentTodayItems[2].assignedUserID == "usr-employee-1")
 precondition(assignedAgentTodayItems[2].resumeRoute.kind == .assignedAgent)

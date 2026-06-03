@@ -9,6 +9,7 @@ public enum WorkbenchTodayItemKind: String, Codable, CaseIterable, Sendable {
     case agentBlocked = "agent_blocked"
     case companyBrainSourceNeeded = "company_brain_source_needed"
     case recentWork = "recent_work"
+    case scheduledWork = "scheduled_work"
     case systemAttention = "system_attention"
 }
 
@@ -16,6 +17,7 @@ public enum WorkbenchTodayItemStatus: String, Codable, Sendable {
     case needsInput = "needs_input"
     case active
     case done
+    case scheduled
     case blocked
     case idle
     case unavailable
@@ -183,6 +185,11 @@ public enum WorkbenchTodayItemDeriver {
     }
 
     private static func assignedAgentItem(from record: WorkbenchSessionRecord) -> WorkbenchTodayItem {
+        if record.attentionState == .active,
+           let scheduledWorkTitle = detailValue(prefix: "Scheduled work:", in: record.details) {
+            return scheduledAgentItem(from: record, scheduledWorkTitle: scheduledWorkTitle)
+        }
+
         let kind: WorkbenchTodayItemKind
         let status: WorkbenchTodayItemStatus
         let title: String
@@ -210,6 +217,33 @@ public enum WorkbenchTodayItemDeriver {
             title: title,
             status: status,
             nextAction: record.nextAction,
+            assignedAgentID: detailValue(prefix: "Agent ID:", in: record.details),
+            assignedUserID: detailValue(prefix: "Assigned user:", in: record.details)
+        )
+    }
+
+    private static func scheduledAgentItem(
+        from record: WorkbenchSessionRecord,
+        scheduledWorkTitle: String
+    ) -> WorkbenchTodayItem {
+        let assignedAgent = detailValue(prefix: "Agent display:", in: record.details) ?? record.title
+        let cadence = detailValue(prefix: "Schedule:", in: record.details)
+        let nextRun = detailValue(prefix: "Next run:", in: record.details)
+        let pauseAction = detailValue(prefix: "Pause:", in: record.details) ?? "Open Agent to pause or adjust this schedule."
+        var nextActionParts = ["Assigned to \(assignedAgent)."]
+        if let nextRun {
+            nextActionParts.append("Next run: \(nextRun).")
+        } else if let cadence {
+            nextActionParts.append("Runs \(cadence).")
+        }
+        nextActionParts.append(pauseAction)
+
+        return baseItem(
+            record: record,
+            kind: .scheduledWork,
+            title: "\(scheduledWorkTitle) is scheduled",
+            status: .scheduled,
+            nextAction: nextActionParts.joined(separator: " "),
             assignedAgentID: detailValue(prefix: "Agent ID:", in: record.details),
             assignedUserID: detailValue(prefix: "Assigned user:", in: record.details)
         )

@@ -43,9 +43,55 @@ public struct WorkbenchAgentAssignmentBudget: Codable, Equatable, Sendable {
 
 public struct WorkbenchAgentAssignmentSchedule: Codable, Equatable, Sendable {
     public let enabled: Bool
+    public let taskTitle: String?
+    public let cadenceLabel: String?
+    public let nextRunAt: String?
+    public let dueWindow: String?
+    public let timezone: String?
 
-    public init(enabled: Bool = false) {
+    public init(
+        enabled: Bool = false,
+        taskTitle: String? = nil,
+        cadenceLabel: String? = nil,
+        nextRunAt: String? = nil,
+        dueWindow: String? = nil,
+        timezone: String? = nil
+    ) {
         self.enabled = enabled
+        self.taskTitle = Self.clean(taskTitle)
+        self.cadenceLabel = Self.clean(cadenceLabel)
+        self.nextRunAt = Self.clean(nextRunAt)
+        self.dueWindow = Self.clean(dueWindow)
+        self.timezone = Self.clean(timezone)
+    }
+
+    public var displayCadence: String {
+        guard enabled else { return "Not scheduled" }
+        return cadenceLabel ?? "Scheduled work"
+    }
+
+    public var displayNextRun: String? {
+        guard enabled else { return nil }
+        return dueWindow ?? nextRunAt
+    }
+
+    public var pauseActionText: String? {
+        guard enabled else { return nil }
+        return "Open Agent to pause or adjust this schedule."
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case taskTitle = "task_title"
+        case cadenceLabel = "cadence_label"
+        case nextRunAt = "next_run_at"
+        case dueWindow = "due_window"
+        case timezone
+    }
+
+    private static func clean(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -156,6 +202,11 @@ public struct WorkbenchAgentAssignment: Identifiable, Codable, Equatable, Sendab
     public var nextAction: String {
         switch killSwitch.state {
         case .running:
+            if schedule.enabled {
+                let nextRun = schedule.displayNextRun.map { " Next run: \($0)." } ?? ""
+                let pause = schedule.pauseActionText.map { " \($0)" } ?? ""
+                return "\(agentDisplayName) is scheduled for \(schedule.displayCadence).\(nextRun)\(pause)"
+            }
             return "\(agentDisplayName) is limited to assigned apps, budget, and approval rules."
         case .paused:
             return "Owner or admin can resume \(agentDisplayName) in Dashboard."

@@ -496,12 +496,18 @@ public enum WorkbenchMissionCardDeriver {
 
     private static func assignedAgentDetails(_ assignment: WorkbenchAgentAssignment) -> [String] {
         [
+            "Agent display: \(capped(assignment.agentDisplayName, limit: 80))",
             "Agent ID: \(capped(assignment.agentID, limit: 80))",
             "Assigned user: \(capped(assignment.assignedUserID, limit: 80))",
             "Runtime: \(assignment.runtime.rawValue)",
             "Allowed apps: \(assignment.allowedProviderGrants.count)",
             "Allowed surfaces: \(assignment.allowedSurfaces.joined(separator: ", "))",
             "Approval mode: \(assignment.approvalPolicy.defaultMode)",
+            assignment.schedule.enabled ? "Scheduled work: \(capped(assignment.schedule.taskTitle ?? assignment.agentDisplayName, limit: 80))" : nil,
+            assignment.schedule.enabled ? "Schedule: \(capped(assignment.schedule.displayCadence, limit: 120))" : nil,
+            assignment.schedule.displayNextRun.map { "Next run: \(capped($0, limit: 120))" },
+            assignment.schedule.timezone.map { "Timezone: \(capped($0, limit: 80))" },
+            assignment.schedule.pauseActionText.map { "Pause: \($0)" },
             assignment.budget.dailyUSD.map { String(format: "Daily budget: $%.2f", $0) },
             assignment.budget.dailyTokens.map { "Daily tokens: \($0)" },
             assignment.killSwitch.enabled ? "Kill switch: \(assignment.killSwitch.state.rawValue)" : "Kill switch: disabled",
