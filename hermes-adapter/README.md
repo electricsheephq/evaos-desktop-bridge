@@ -50,6 +50,11 @@ Provider/Auth Hub and Shared Browser guidance commands read optional
 `EVAOS_CUSTOMER_ID` environment values. They return metadata and opaque grant
 handles only, never raw provider credentials.
 
+`EVAOS_SHARED_BROWSER_STATUS_JSON` should use the same
+`evaos.browser_status.v1` shape as Workbench and OpenClaw, including
+`customer_id`, `room_id`, optional `session_id`, sanitized `current_url`,
+auth/CAPTCHA flags, allowed `actions`, `source_pointer`, and `audit_id`.
+
 Provider auth completion uses the dashboard broker endpoint from
 `EVAOS_PROVIDER_DISCOVERY_URL` or `EVAOS_DESKTOP_RUNTIME_SESSION_URL`, signs
 metadata proof with `EVAOS_PROVIDER_AUTH_PROOF_SECRET`, and sends only identity,

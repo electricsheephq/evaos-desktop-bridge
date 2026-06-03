@@ -146,6 +146,7 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
     public let healthSummary: String?
     public let lastCheckedAt: Date?
     public let roomId: String?
+    public let sessionID: String?
     public let currentUrl: String?
     public let owner: String?
     public let authNeeded: Bool?
@@ -171,6 +172,7 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
         case healthSummary = "health_summary"
         case lastCheckedAt = "last_checked_at"
         case roomId = "room_id"
+        case sessionID = "session_id"
         case currentUrl = "current_url"
         case owner
         case authNeeded = "auth_needed"
@@ -207,6 +209,7 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
         healthSummary = try container.decodeIfPresent(String.self, forKey: .healthSummary)
         lastCheckedAt = try container.decodeIfPresent(Date.self, forKey: .lastCheckedAt)
         roomId = try container.decodeIfPresent(String.self, forKey: .roomId)
+        sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
 
         if let rawCurrentURL = try? container.decodeIfPresent(String.self, forKey: .currentUrl) {
             currentUrl = rawCurrentURL
@@ -246,6 +249,7 @@ public struct RuntimeStatusResponse: Codable, Equatable, Sendable {
         try container.encodeIfPresent(healthSummary, forKey: .healthSummary)
         try container.encodeIfPresent(lastCheckedAt, forKey: .lastCheckedAt)
         try container.encodeIfPresent(roomId, forKey: .roomId)
+        try container.encodeIfPresent(sessionID, forKey: .sessionID)
         if let currentURLSummary {
             try container.encode(currentURLSummary, forKey: .currentUrl)
         } else {

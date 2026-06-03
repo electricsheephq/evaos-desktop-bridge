@@ -2058,7 +2058,7 @@ precondition(runtimeMissionCard.details.contains("Owner: golden"))
 precondition(runtimeMissionCard.details.contains("Current URL: example.com/path..."))
 precondition(!runtimeMissionCard.details.joined(separator: " ").contains("token=secret"))
 let browserStatusResponse = """
-{"schema_version":"evaos.browser_status.v1","customer_account_id":"acct-1","customer_id":"david-poku","runtime":"browser","status":"ready","room_id":"shared-browser:david-poku","owner":"david-poku","current_url":{"host":"accounts.google.com","path":"/signin","query_redacted":true},"last_activity_at":"2026-06-01T00:00:00Z","needs_auth":true,"needs_captcha":false,"actions":["start_attach","future_action","refresh_status","stop_browser"],"source_pointer":"broker:runtime_status:browser","audit_id":"audit-browser-1"}
+{"schema_version":"evaos.browser_status.v1","customer_account_id":"acct-1","customer_id":"david-poku","runtime":"browser","status":"ready","room_id":"shared-browser:david-poku","session_id":"browser-session-1","owner":"david-poku","current_url":{"host":"accounts.google.com","path":"/signin","query_redacted":true},"last_activity_at":"2026-06-01T00:00:00Z","needs_auth":true,"needs_captcha":false,"actions":["start_attach","future_action","refresh_status","stop_browser"],"source_pointer":"broker:runtime_status:browser","audit_id":"audit-browser-1"}
 """.data(using: .utf8)!
 let decodedBrowserRuntimeStatus = try EvaDesktopISO8601.decoder().decode(RuntimeStatusResponse.self, from: browserStatusResponse)
 precondition(decodedBrowserRuntimeStatus.schemaVersion == "evaos.browser_status.v1")
@@ -2066,16 +2066,27 @@ precondition(decodedBrowserRuntimeStatus.customerAccountID == "acct-1")
 precondition(decodedBrowserRuntimeStatus.customerID == "david-poku")
 precondition(decodedBrowserRuntimeStatus.runtimeKey == .liveBrowser)
 precondition(decodedBrowserRuntimeStatus.displayLabel == "Business Browser")
+precondition(decodedBrowserRuntimeStatus.roomId == "shared-browser:david-poku")
+precondition(decodedBrowserRuntimeStatus.sessionID == "browser-session-1")
 precondition(decodedBrowserRuntimeStatus.authNeeded == true)
 precondition(decodedBrowserRuntimeStatus.captchaNeeded == false)
 precondition(decodedBrowserRuntimeStatus.currentURLSummary?.displayText == "accounts.google.com/signin...")
 precondition(decodedBrowserRuntimeStatus.actions == ["start_attach", "future_action", "refresh_status", "stop_browser"])
 precondition(decodedBrowserRuntimeStatus.browserActions == [.startAttach, .refreshStatus, .stopBrowser])
+let browserContractEncoder = JSONEncoder()
+browserContractEncoder.dateEncodingStrategy = .iso8601
+let roundTrippedBrowserRuntimeStatus = try EvaDesktopISO8601.decoder().decode(
+    RuntimeStatusResponse.self,
+    from: browserContractEncoder.encode(decodedBrowserRuntimeStatus)
+)
+precondition(roundTrippedBrowserRuntimeStatus.sessionID == "browser-session-1")
 let browserStatusContract = WorkbenchBrowserStatus.from(runtimeStatus: decodedBrowserRuntimeStatus, customerID: "fallback-customer")
 precondition(browserStatusContract.schemaVersion == "evaos.browser_status.v1")
 precondition(browserStatusContract.customerAccountID == "acct-1")
 precondition(browserStatusContract.customerID == "david-poku")
 precondition(browserStatusContract.runtime == .liveBrowser)
+precondition(browserStatusContract.roomID == "shared-browser:david-poku")
+precondition(browserStatusContract.sessionID == "browser-session-1")
 precondition(browserStatusContract.needsAuth == true)
 precondition(browserStatusContract.needsCaptcha == false)
 precondition(browserStatusContract.currentURL?.host == "accounts.google.com")
@@ -2083,6 +2094,11 @@ precondition(browserStatusContract.currentURL?.queryRedacted == true)
 precondition(browserStatusContract.actions == [.startAttach, .refreshStatus, .stopBrowser])
 precondition(browserStatusContract.sourcePointer == "broker:runtime_status:browser")
 precondition(browserStatusContract.auditID == "audit-browser-1")
+let roundTrippedBrowserStatusContract = try EvaDesktopISO8601.decoder().decode(
+    WorkbenchBrowserStatus.self,
+    from: browserContractEncoder.encode(browserStatusContract)
+)
+precondition(roundTrippedBrowserStatusContract.sessionID == "browser-session-1")
 let runtimeSessionRecord = WorkbenchSessionContract.record(from: runtimeMissionCard, customerId: "david-poku")
 precondition(runtimeSessionRecord.schemaVersion == "evaos.session_center.v1")
 precondition(runtimeSessionRecord.surface == .broker)
