@@ -946,7 +946,7 @@ let assignmentJSON = """
     "enabled": true,
     "task_title": "Morning briefing",
     "cadence_label": "Weekdays at 9:00 AM",
-    "next_run_at": "2026-06-04T09:00:00Z",
+    "next_run_at": "2026-06-04T13:00:00Z",
     "due_window": "Tomorrow morning",
     "timezone": "America/New_York"
   },
@@ -972,7 +972,7 @@ precondition(decodedAssignment.budget.dailyTokens == 200000)
 precondition(decodedAssignment.schedule.enabled)
 precondition(decodedAssignment.schedule.taskTitle == "Morning briefing")
 precondition(decodedAssignment.schedule.cadenceLabel == "Weekdays at 9:00 AM")
-precondition(decodedAssignment.schedule.nextRunAt == "2026-06-04T09:00:00Z")
+precondition(decodedAssignment.schedule.nextRunAt == "2026-06-04T13:00:00Z")
 precondition(decodedAssignment.schedule.dueWindow == "Tomorrow morning")
 precondition(decodedAssignment.schedule.timezone == "America/New_York")
 precondition(decodedAssignment.killSwitch.state == .running)

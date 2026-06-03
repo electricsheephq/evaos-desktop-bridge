@@ -205,7 +205,7 @@ Schema version: `evaos.agent_assignment.v1`
     "enabled": true,
     "task_title": "Morning briefing",
     "cadence_label": "Weekdays at 9:00 AM",
-    "next_run_at": "2026-06-04T09:00:00Z",
+    "next_run_at": "2026-06-04T13:00:00Z",
     "due_window": "Tomorrow morning",
     "timezone": "America/New_York"
   },
