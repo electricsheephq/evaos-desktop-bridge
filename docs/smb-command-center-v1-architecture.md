@@ -268,6 +268,7 @@ Business Browser is the customer-facing name for the existing Shared Browser.
   "runtime": "browser",
   "status": "ready",
   "room_id": "shared-browser:david-poku",
+  "session_id": "browser-session-123",
   "owner": "david-poku",
   "current_url": {
     "host": "accounts.google.com",
@@ -287,6 +288,8 @@ Rules:
 
 - No generic browser automation action is added by this contract.
 - Start/attach and stop are named broker actions.
+- `room_id` identifies the shared browser room, and `session_id` identifies the
+  current browser session when the broker can provide it.
 - URL query strings, fragments, cookies, tokens, and form values are redacted.
 - Cross-customer browser evidence must be cleared on customer switch and denied
   at broker/proxy layers.

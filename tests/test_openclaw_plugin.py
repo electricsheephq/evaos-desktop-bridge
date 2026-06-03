@@ -234,7 +234,23 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
             "active_provider_key": "openai_codex",
         }),
         "EVAOS_PROVIDER_GRANTS_JSON": json.dumps({"openclaw": {"grant_handle": "epg_fixture"}}),
-        "EVAOS_SHARED_BROWSER_STATUS_JSON": json.dumps({"status": "ready", "current_url": "https://example.com"}),
+        "EVAOS_SHARED_BROWSER_STATUS_JSON": json.dumps({
+            "schema_version": "evaos.browser_status.v1",
+            "customer_account_id": "acct-1",
+            "customer_id": "cust-1",
+            "runtime": "browser",
+            "status": "ready",
+            "room_id": "shared-browser:cust-1",
+            "session_id": "browser-session-1",
+            "owner": "cust-1",
+            "current_url": {"host": "accounts.google.com", "path": "/signin", "query_redacted": True},
+            "last_activity_at": "2026-06-01T00:00:00Z",
+            "needs_auth": True,
+            "needs_captcha": False,
+            "actions": ["start_attach", "refresh_status", "stop_browser"],
+            "source_pointer": "broker:runtime_status:browser",
+            "audit_id": "audit-browser-1",
+        }),
     }
     completed = subprocess.run(
         ["node", "--input-type=module", "-e", script],
@@ -257,7 +273,17 @@ def test_openclaw_plugin_reports_provider_and_shared_browser_metadata_without_to
     assert payload["browser"]["data"]["schema_version"] == "evaos.browser_status.v1"
     assert payload["browser"]["data"]["business_browser_preferred_for_cloud_web_tasks"] is True
     assert payload["browser"]["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
-    assert payload["browser"]["data"]["status"]["status"] == "ready"
+    browser_status = payload["browser"]["data"]["status"]
+    assert browser_status["schema_version"] == "evaos.browser_status.v1"
+    assert browser_status["customer_id"] == "cust-1"
+    assert browser_status["room_id"] == "shared-browser:cust-1"
+    assert browser_status["session_id"] == "browser-session-1"
+    assert browser_status["current_url"] == {"host": "accounts.google.com", "path": "/signin", "query_redacted": True}
+    assert browser_status["needs_auth"] is True
+    assert browser_status["needs_captcha"] is False
+    assert browser_status["actions"] == ["start_attach", "refresh_status", "stop_browser"]
+    assert browser_status["source_pointer"] == "broker:runtime_status:browser"
+    assert browser_status["audit_id"] == "audit-browser-1"
     serialized = json.dumps(payload)
     assert "should-redact" not in serialized
     assert "nested-should-redact" not in serialized
@@ -1118,7 +1144,23 @@ def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_conn
             "active_provider_key": "openai_codex",
         }),
         "EVAOS_PROVIDER_GRANTS_JSON": json.dumps({"hermes": {"grant_handle": "epg_fixture"}}),
-        "EVAOS_SHARED_BROWSER_STATUS_JSON": json.dumps({"status": "ready"}),
+        "EVAOS_SHARED_BROWSER_STATUS_JSON": json.dumps({
+            "schema_version": "evaos.browser_status.v1",
+            "customer_account_id": "acct-1",
+            "customer_id": "cust-1",
+            "runtime": "browser",
+            "status": "ready",
+            "room_id": "shared-browser:cust-1",
+            "session_id": "browser-session-1",
+            "owner": "cust-1",
+            "current_url": {"host": "accounts.google.com", "path": "/signin", "query_redacted": True},
+            "last_activity_at": "2026-06-01T00:00:00Z",
+            "needs_auth": True,
+            "needs_captcha": False,
+            "actions": ["start_attach", "refresh_status", "stop_browser"],
+            "source_pointer": "broker:runtime_status:browser",
+            "audit_id": "audit-browser-1",
+        }),
     }
     completed = subprocess.run(
         [str(adapter), "evaosProviderActiveProfile"],
@@ -1152,4 +1194,14 @@ def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_conn
     assert browser_payload["data"]["schema_version"] == "evaos.browser_status.v1"
     assert browser_payload["data"]["business_browser_preferred_for_cloud_web_tasks"] is True
     assert browser_payload["data"]["shared_browser_preferred_for_cloud_web_tasks"] is True
-    assert browser_payload["data"]["status"]["status"] == "ready"
+    browser_status = browser_payload["data"]["status"]
+    assert browser_status["schema_version"] == "evaos.browser_status.v1"
+    assert browser_status["customer_id"] == "cust-1"
+    assert browser_status["room_id"] == "shared-browser:cust-1"
+    assert browser_status["session_id"] == "browser-session-1"
+    assert browser_status["current_url"] == {"host": "accounts.google.com", "path": "/signin", "query_redacted": True}
+    assert browser_status["needs_auth"] is True
+    assert browser_status["needs_captcha"] is False
+    assert browser_status["actions"] == ["start_attach", "refresh_status", "stop_browser"]
+    assert browser_status["source_pointer"] == "broker:runtime_status:browser"
+    assert browser_status["audit_id"] == "audit-browser-1"

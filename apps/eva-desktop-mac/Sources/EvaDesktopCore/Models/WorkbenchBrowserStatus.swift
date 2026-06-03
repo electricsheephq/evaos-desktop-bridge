@@ -56,6 +56,7 @@ public struct WorkbenchBrowserStatus: Codable, Equatable, Sendable {
     public let runtime: RuntimeKey
     public let status: String
     public let roomID: String?
+    public let sessionID: String?
     public let owner: String?
     public let currentURL: WorkbenchBrowserURLSummary?
     public let lastActivityAt: Date?
@@ -72,6 +73,7 @@ public struct WorkbenchBrowserStatus: Codable, Equatable, Sendable {
         case runtime
         case status
         case roomID = "room_id"
+        case sessionID = "session_id"
         case owner
         case currentURL = "current_url"
         case lastActivityAt = "last_activity_at"
@@ -89,6 +91,7 @@ public struct WorkbenchBrowserStatus: Codable, Equatable, Sendable {
         runtime: RuntimeKey = .liveBrowser,
         status: String,
         roomID: String? = nil,
+        sessionID: String? = nil,
         owner: String? = nil,
         currentURL: WorkbenchBrowserURLSummary? = nil,
         lastActivityAt: Date? = nil,
@@ -104,6 +107,7 @@ public struct WorkbenchBrowserStatus: Codable, Equatable, Sendable {
         self.runtime = runtime
         self.status = status
         self.roomID = roomID
+        self.sessionID = sessionID
         self.owner = owner
         self.currentURL = currentURL
         self.lastActivityAt = lastActivityAt
@@ -122,6 +126,7 @@ public struct WorkbenchBrowserStatus: Codable, Equatable, Sendable {
             runtime: status.runtimeKey,
             status: status.status,
             roomID: status.roomId,
+            sessionID: status.sessionID,
             owner: status.owner,
             currentURL: status.currentURLSummary ?? WorkbenchBrowserURLSummary.sanitized(from: status.currentUrl),
             lastActivityAt: status.lastActivityAt ?? status.lastCheckedAt,
@@ -133,4 +138,3 @@ public struct WorkbenchBrowserStatus: Codable, Equatable, Sendable {
         )
     }
 }
-

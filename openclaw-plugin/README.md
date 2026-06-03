@@ -129,13 +129,15 @@ export EVAOS_PROVIDER_AUTH_IDENTITY="user@example.com"
 export EVAOS_PROVIDER_GRANT_CACHE_FILE="$HOME/.openclaw/evaos-provider-grants.json"
 export EVAOS_PROVIDER_PROFILES_JSON='{"provider_profiles":[]}'
 export EVAOS_PROVIDER_GRANTS_JSON='[]'
-export EVAOS_SHARED_BROWSER_STATUS_JSON='{"schema_version":"evaos.browser_status.v1","status":"ready","actions":["start_attach","refresh_status","stop_browser"]}'
+export EVAOS_SHARED_BROWSER_STATUS_JSON='{"schema_version":"evaos.browser_status.v1","customer_account_id":"acct_123","customer_id":"david-poku","runtime":"browser","status":"ready","room_id":"shared-browser:david-poku","session_id":"browser-session-123","owner":"david-poku","current_url":{"host":"accounts.google.com","path":"/signin","query_redacted":true},"last_activity_at":"2026-06-01T00:00:00Z","needs_auth":true,"needs_captcha":false,"actions":["start_attach","refresh_status","stop_browser"],"source_pointer":"broker:runtime_status:browser","audit_id":"audit_123"}'
 ```
 
 `evaos_shared_browser_guidance` returns the same `evaos.browser_status.v1`
 metadata shape that Workbench uses for Business Browser status. It is guidance
 only: agents may prefer the brokered browser for auth/CAPTCHA and cloud web
 tasks, but this does not add generic browser automation or raw cookie access.
+`room_id` identifies the shared browser room; `session_id` identifies the
+current browser session when broker evidence includes it.
 
 `evaos_provider_complete_auth` posts signed metadata proof for the VM-side
 Codex/OpenAI readiness check. The proof includes identity, scopes, expiry, and a
