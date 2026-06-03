@@ -1462,6 +1462,7 @@ precondition(osViewsSource.contains("requiresSignIn: false"))
 precondition(osViewsSource.contains("Ask an admin to grant access."))
 precondition(osViewsSource.contains("jumpToRuntime(.liveBrowser)"))
 precondition(osViewsSource.contains("jumpToRuntime(.creativeStudio)"))
+precondition(osViewsSource.contains("RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil"))
 precondition(osViewsSource.contains("Open hosted Creative Studio"))
 precondition(!osViewsSource.contains("Agent Workspace Preview"))
 precondition(osViewsSource.contains("Assistant Catalog"))
@@ -1538,6 +1539,8 @@ precondition(runtimeDetailSource.contains("Stop Browser"))
 precondition(!runtimeDetailSource.contains("Business Browser status"))
 precondition(runtimeDetailSource.contains("Start / Attach Business Browser"))
 precondition(runtimeDetailSource.contains("Startup can take up to a minute"))
+precondition(runtimeDetailSource.contains("Ready to open hosted Comfy Cloud. Sign in there if Comfy asks for your account."))
+precondition(runtimeDetailSource.contains("Opening hosted Comfy Cloud; Workbench does not install local ComfyUI."))
 precondition(runtimeDetailSource.contains("!RuntimeDefinition.isBrokeredRuntime(definition.key)"))
 precondition(runtimeDetailSource.contains("definition.key == .liveBrowser && model.isRefreshingSharedBrowserStatus"))
 let runtimeWebViewSource = try String(contentsOfFile: "Sources/EvaDesktop/Views/RuntimeWebView.swift", encoding: .utf8)
@@ -2320,6 +2323,23 @@ precondition(!normalizedLegacyRecentLaunch[0].details.joined(separator: " ").con
 let normalizedLegacySessionRecord = WorkbenchRecentLaunchStore.sessionRecord(from: normalizedLegacyRecentLaunch[0])
 precondition(normalizedLegacySessionRecord.title == "Business Browser")
 precondition(!normalizedLegacySessionRecord.details.joined(separator: " ").contains("Shared Browser"))
+let recentCreativeLaunch = WorkbenchRecentLaunchRecord(
+    runtime: .creativeStudio,
+    customerId: "golden",
+    openedAt: "2026-06-01T10:10:00Z"
+)
+let storedCreativeLaunchData = try JSONEncoder().encode([recentCreativeLaunch])
+let scopedCreativeLaunches = WorkbenchRecentLaunchStore.records(from: storedCreativeLaunchData, customerId: "golden")
+precondition(scopedCreativeLaunches.count == 1)
+precondition(scopedCreativeLaunches[0].title == "Creative Studio")
+precondition(scopedCreativeLaunches[0].sourcePointer == "workbench:external_runtime:creative_studio")
+let creativeRecentSessionRecord = WorkbenchRecentLaunchStore.sessionRecord(from: scopedCreativeLaunches[0])
+precondition(creativeRecentSessionRecord.resumeRoute.kind == .brokerRuntime)
+precondition(creativeRecentSessionRecord.resumeRoute.runtime == .creativeStudio)
+let creativeRecentTodayItems = WorkbenchTodayItemDeriver.items(from: [], recentRecords: [creativeRecentSessionRecord])
+precondition(creativeRecentTodayItems.count == 1)
+precondition(creativeRecentTodayItems[0].title == "Resume Creative Studio")
+precondition(!String(data: storedCreativeLaunchData, encoding: .utf8)!.lowercased().contains("token"))
 let mixedPrecisionRecentLaunches = WorkbenchRecentLaunchStore.merged(
     WorkbenchRecentLaunchRecord(runtime: .terminal, customerId: "golden", openedAt: "2026-06-01T09:00:00.123Z"),
     into: [
@@ -2352,6 +2372,7 @@ precondition(workbenchModelSource.contains("@Published var sessionRecords: [Work
 precondition(workbenchModelSource.contains("@Published var recentSessionRecords: [WorkbenchSessionRecord]"))
 precondition(workbenchModelSource.contains("sessionRecords = WorkbenchSessionContract.records"))
 precondition(workbenchModelSource.contains("recordRecentLaunch(runtime: runtime"))
+precondition(workbenchModelSource.contains("RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil"))
 precondition(workbenchModelSource.contains("func reopenRecentSession"))
 precondition(workbenchModelSource.contains("loadRecentSessionRecords()"))
 precondition(workbenchModelSource.contains("sessionRecords.removeAll()"))

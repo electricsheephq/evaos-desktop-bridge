@@ -4,6 +4,12 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+- Add the issue #261 Creative Studio hosted-flow polish: hosted Comfy Cloud
+  launches are now saved as recent Workbench activity, Home/Today can reopen
+  the Creative Studio path in business language, and the launch/loading copy
+  explicitly says Workbench opens hosted Comfy Cloud instead of installing
+  local ComfyUI.
+
 ## 0.6.27 - 2026-06-02
 
 - Keep Workbench signed in when an individual gateway launch or status refresh

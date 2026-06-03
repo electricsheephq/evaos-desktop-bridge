@@ -25,13 +25,23 @@ public struct WorkbenchRecentLaunchRecord: Identifiable, Codable, Equatable, Sen
         self.title = definition.title
         self.status = "Restorable"
         self.openedAt = timestamp
-        self.nextAction = "Open this workspace again."
-        self.details = [
-            "Saved shortcut",
-            definition.subtitle,
-            "Uses a fresh secure workspace session"
-        ]
-        self.sourcePointer = "broker:runtime_status:\(runtime.rawValue)"
+        if RuntimeDefinition.externalURL(for: runtime) != nil {
+            self.nextAction = "Open hosted \(definition.title) again."
+            self.details = [
+                "Saved shortcut",
+                definition.subtitle,
+                "Hosted web workspace; no local ComfyUI install"
+            ]
+            self.sourcePointer = "workbench:external_runtime:\(runtime.rawValue)"
+        } else {
+            self.nextAction = "Open this workspace again."
+            self.details = [
+                "Saved shortcut",
+                definition.subtitle,
+                "Uses a fresh secure workspace session"
+            ]
+            self.sourcePointer = "broker:runtime_status:\(runtime.rawValue)"
+        }
     }
 
     enum CodingKeys: String, CodingKey {
@@ -76,7 +86,7 @@ public enum WorkbenchRecentLaunchStore {
         let scopedCustomerId = sanitizedCustomerId(customerId)
         return Array(decoded
             .filter { sanitizedCustomerId($0.customerId) == scopedCustomerId }
-            .filter { RuntimeDefinition.isBrokeredRuntime($0.runtime) }
+            .filter { isRecentWorkRuntime($0.runtime) }
             .map(normalized)
             .sorted(by: isNewer)
             .prefix(maxRecords))
@@ -134,6 +144,10 @@ public enum WorkbenchRecentLaunchStore {
             customerId: record.customerId,
             openedAt: record.openedAt
         )
+    }
+
+    private static func isRecentWorkRuntime(_ runtime: RuntimeKey) -> Bool {
+        RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil
     }
 
     private static func isNewer(

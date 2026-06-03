@@ -298,7 +298,9 @@ public enum WorkbenchTodayItemDeriver {
     }
 
     private static func recentWorkItem(from record: WorkbenchSessionRecord) -> WorkbenchTodayItem? {
-        guard let runtime = WorkbenchSessionContract.brokerRuntimeToOpen(for: record), runtime != .terminal else {
+        guard let runtime = record.resumeRoute.runtime ?? record.runtime,
+              runtime != .terminal,
+              RuntimeDefinition.isBrokeredRuntime(runtime) || RuntimeDefinition.externalURL(for: runtime) != nil else {
             return nil
         }
         return baseItem(
