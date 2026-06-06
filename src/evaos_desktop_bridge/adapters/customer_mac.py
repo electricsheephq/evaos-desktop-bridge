@@ -18,6 +18,7 @@ from typing import Any, Callable, Protocol
 from urllib.parse import urlparse
 
 from ..audit import append_audit, default_state_dir
+from ..bundled_tools import bundled_bridge_bin_candidates
 from ..helper_ipc import helper_client_from_environment
 from ..redaction import cap_text, redact_value
 from ..schema import make_error, timestamp_utc
@@ -1493,7 +1494,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
 
     def _peekaboo_status(self) -> dict[str, Any]:
         path: str | None = None
-        for candidate in PEEKABOO_BIN_CANDIDATES:
+        for candidate in (*bundled_bridge_bin_candidates(("evaos-connector-helper", "peekaboo")), *PEEKABOO_BIN_CANDIDATES):
             if "/" in candidate:
                 if Path(candidate).exists():
                     path = candidate

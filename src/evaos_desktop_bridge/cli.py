@@ -18,6 +18,7 @@ from .adapters.codex_app_server import CodexAppServerObserver
 from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.customer_mac import CustomerMacObserver
 from .audit import append_audit, default_state_dir
+from .bundled_tools import bundled_bridge_bin_candidates
 from .connector_server import read_token, run_connector_server
 from .helper_ipc import HelperIpcError, UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
 from .policy import PolicyError, command_metadata, ensure_allowed
@@ -1465,7 +1466,7 @@ def _prime_permission(permission: str) -> CommandResult:
 
 
 def _peekaboo_binary_path() -> str | None:
-    for candidate in PEEKABOO_BIN_CANDIDATES:
+    for candidate in (*bundled_bridge_bin_candidates(("evaos-connector-helper", "peekaboo")), *PEEKABOO_BIN_CANDIDATES):
         if "/" in candidate:
             if Path(candidate).exists():
                 return candidate
