@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -487,6 +488,7 @@ def write_reports(
     markdown_path = artifact_dir / "qa-report.md"
     json_path.write_text(json.dumps(redact_for_report(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     markdown_path.write_text(_markdown_report(redact_for_report(report)), encoding="utf-8")
+    _sanitize_artifact_files(artifact_dir)
     return {"json": json_path, "markdown": markdown_path}
 
 
@@ -527,6 +529,29 @@ def redact_connector_url(raw_url: str) -> str:
     if parsed.port:
         netloc += f":{parsed.port}"
     return urllib.parse.urlunparse((parsed.scheme, netloc, "", "", "", ""))
+
+
+def _sanitize_artifact_files(artifact_dir: Path) -> None:
+    secrets = [secret for secret in _secret_values() if secret]
+    if not artifact_dir.exists():
+        return
+    for path in artifact_dir.rglob("*"):
+        if not path.is_file() or path.stat().st_size > 5 * 1024 * 1024:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        redacted = text
+        for secret in secrets:
+            redacted = redacted.replace(secret, "[redacted]")
+        redacted = re.sub(
+            r"(?im)^((?:export\s+)?[A-Z0-9_]*(?:TOKEN|SECRET|AUTHORIZATION|API_KEY)[A-Z0-9_]*=).+$",
+            r"\1[redacted]",
+            redacted,
+        )
+        if redacted != text:
+            path.write_text(redacted, encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:

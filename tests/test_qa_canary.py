@@ -239,6 +239,29 @@ def test_report_redacts_tokens_contacts_and_real_world_text(tmp_path: Path, monk
     assert "http://100.64." in report_paths["markdown"].read_text(encoding="utf-8")
 
 
+def test_write_reports_sanitizes_existing_artifact_files(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.setenv("QA_CONNECTOR_TOKEN", "artifact-secret-token")
+    env_file = tmp_path / "env.sh"
+    env_file.write_text(
+        "export EVAOS_DESKTOP_BRIDGE_TOKEN=artifact-secret-token\n"
+        "export EVAOS_CONNECTOR_URL=http://100.64.10.12:8765\n",
+        encoding="utf-8",
+    )
+
+    write_reports(
+        artifact_dir=tmp_path,
+        run_id="qa-test",
+        started_at="2026-05-23T00:00:00Z",
+        version_under_test="candidate-version",
+        surface="connector",
+        connector_url="http://100.64.10.12:8765",
+        results=[],
+    )
+
+    assert "artifact-secret-token" not in env_file.read_text(encoding="utf-8")
+    assert "[redacted]" in env_file.read_text(encoding="utf-8")
+
+
 def test_openclaw_surface_calls_runbridge_helper(monkeypatch: Any, tmp_path: Path) -> None:
     captured: dict[str, Any] = {}
 
