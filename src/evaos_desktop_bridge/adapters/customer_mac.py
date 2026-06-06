@@ -1216,7 +1216,21 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
             result = self.runner(["osascript", "-e", 'tell application "System Events" to key code 36'], 5.0)
             if result.returncode != 0:
                 return CommandResult(ok=False, data={"performed": False, "action": action, "app_name": app_name}, errors=[make_error(code="iphone_open_app_failed", message="macOS refused the iPhone Mirroring app launch keystroke.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
-            return CommandResult(ok=True, data={"performed": True, "action": action, "app_name": app_name}, provenance={"source": "iphone_mirroring"})
+            return CommandResult(
+                ok=True,
+                data={
+                    "performed": True,
+                    "action": action,
+                    "app_name": app_name,
+                    "verification_required": True,
+                    "postcondition": "target_app_visible",
+                    "postcondition_verified": False,
+                },
+                warnings=[
+                    "The app launch keystroke was sent; run a settled visual iPhone Mirroring check to verify the target app is visible."
+                ],
+                provenance={"source": "iphone_mirroring", "postcondition": "target_app_visible", "postcondition_verified": False},
+            )
         if action == "tap_named_target":
             return self._press_iphone_target(target_label=target_label)
         if action in GUARDED_GESTURE_KEYS:
