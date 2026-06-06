@@ -125,6 +125,36 @@ def test_status_reports_screen_recording_preflight(tmp_path: Path) -> None:
     assert result.data["safety"]["sensitive_apps_blocked"] is True
 
 
+def test_control_status_prefers_bundled_connector_helper_before_path_peekaboo(monkeypatch, tmp_path: Path) -> None:
+    bridge_executable = tmp_path / "Bridge" / "evaos-desktop-bridge"
+    bundled_helper = bridge_executable.parent / "bin" / "evaos-connector-helper"
+    bundled_helper.parent.mkdir(parents=True)
+    bridge_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    bundled_helper.write_text("#!/bin/sh\n", encoding="utf-8")
+    bridge_executable.chmod(0o755)
+    bundled_helper.chmod(0o755)
+
+    monkeypatch.setattr(customer_mac.sys, "executable", str(bridge_executable))
+    monkeypatch.setattr(customer_mac.sys, "argv", [str(bridge_executable)])
+    monkeypatch.setattr(customer_mac, "PEEKABOO_BIN_CANDIDATES", ("peekaboo",))
+    monkeypatch.setattr(customer_mac.shutil, "which", lambda name: "/opt/homebrew/bin/peekaboo" if name == "peekaboo" else None)
+
+    runner = FakeRunner(
+        {
+            (str(bundled_helper), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2 bundled\n", stderr=""),
+            ("/opt/homebrew/bin/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2 homebrew\n", stderr=""),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
+
+    status = observer.control_status()
+
+    assert status.data["peekaboo"]["available"] is True
+    assert status.data["peekaboo"]["path"] == str(bundled_helper)
+    assert (str(bundled_helper), "--version") in runner.commands
+    assert ("/opt/homebrew/bin/peekaboo", "--version") not in runner.commands
+
+
 def test_control_session_start_stop_and_kill_switch(tmp_path: Path) -> None:
     observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
 
