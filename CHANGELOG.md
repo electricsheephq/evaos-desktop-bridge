@@ -4,6 +4,14 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
+No unreleased changes.
+
+## 0.6.28 - 2026-06-06
+
+- Prefer the signed Workbench-bundled `evaos-connector-helper` / Peekaboo path
+  for native Mac control status and permission priming before falling back to
+  PATH or Homebrew, so the AionUi/evaOS RC native proof can distinguish
+  app-owned control from local developer tooling.
 - Add the issue #262 scheduled-work Home/Today slice: Workbench can now show
   scheduled assigned-agent work such as a morning briefing with a readable next
   run window, assigned agent, scheduled status, and an Open Agent path to pause
