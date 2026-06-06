@@ -1817,6 +1817,52 @@ def test_iphone_safe_open_app_dry_run_stays_named_and_non_mutating(monkeypatch, 
     assert_no_mutation_commands(observer.runner.commands)
 
 
+def test_iphone_open_app_live_marks_visual_postcondition_unverified(monkeypatch, tmp_path: Path) -> None:
+    installed_mirroring(monkeypatch, tmp_path)
+    runner = FakeRunner(
+        {
+            ("osascript", "-e", 'tell application "System Events" to key code 36'): RunnerResult(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        }
+    )
+    observer = CustomerMacObserver(
+        runner=runner,
+        state_dir=tmp_path,
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+    )
+    monkeypatch.setattr(observer, "iphone_mirroring_status", lambda: CommandResult(ok=True, data={"installed": True}))
+    monkeypatch.setattr(
+        observer,
+        "iphone_mirroring_focus",
+        lambda dry_run=False: CommandResult(ok=True, data={"focused": True, "frontmost": True}),
+    )
+    monkeypatch.setattr(
+        observer,
+        "_iphone_keyboard_action",
+        lambda action, key_code: CommandResult(ok=True, data={"performed": True, "action": action, "key_code": key_code}),
+    )
+    monkeypatch.setattr(
+        observer,
+        "_keystroke_text",
+        lambda text: CommandResult(ok=True, data={"typed": True, "text_preview": text}),
+    )
+
+    result = observer.iphone_mirroring_action(action="open_app", app_name="Calculator", dry_run=False)
+
+    assert result.ok is True
+    assert result.data["performed"] is True
+    assert result.data["action"] == "open_app"
+    assert result.data["app_name"] == "Calculator"
+    assert result.data["verification_required"] is True
+    assert result.data["postcondition"] == "target_app_visible"
+    assert result.data["postcondition_verified"] is False
+    assert any("settled visual" in warning.lower() for warning in result.warnings)
+
+
 def test_safe_ax_node_exports_redacted_bounds_for_visual_grounding(tmp_path: Path) -> None:
     observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
 
