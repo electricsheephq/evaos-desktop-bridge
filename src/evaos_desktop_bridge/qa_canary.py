@@ -93,6 +93,7 @@ class CanaryStep:
     visual_assert_retries: int = 0
     visual_retry_delay_seconds: float = 1.0
     assert_from_step: str | None = None
+    delay_before_seconds: float = 0.0
 
 
 @dataclass
@@ -316,6 +317,8 @@ def run_steps(steps: list[CanaryStep], surface: CanarySurface) -> list[CanaryRes
             results.append(result)
             context[step.id] = result
             continue
+        if step.delay_before_seconds > 0:
+            time.sleep(step.delay_before_seconds)
         started = time.monotonic()
         try:
             response = surface.run(step.command, params)
@@ -655,7 +658,7 @@ def _full_access_steps() -> list[CanaryStep]:
     return [
         CanaryStep(id="full.start", suite="full_access", command="desktop_control_start", params={"mode": "full-access", "agent_label": "evaOS QA Canary"}),
         CanaryStep(id="full.status", suite="full_access", command="desktop_control_status"),
-        CanaryStep(id="full.scroll_no_approval", suite="full_access", command="desktop_scroll", params={"direction": "down", "amount": 200, "dry_run": False}),
+        CanaryStep(id="full.scroll_no_approval", suite="full_access", command="desktop_scroll", params={"direction": "down", "amount": 200, "dry_run": False}, delay_before_seconds=10.5),
         CanaryStep(id="full.hotkey_no_approval", suite="full_access", command="desktop_hotkey", params={"keys": "escape", "dry_run": False}),
     ]
 
@@ -671,7 +674,7 @@ def _primitive_steps() -> list[CanaryStep]:
             params={"snapshot_id": "${primitive.desktop_see.snapshot_id}", "element_id": "${primitive.desktop_see.first_element_id}", "dry_run": False},
             skip_on_unavailable=True,
         ),
-        CanaryStep(id="primitive.desktop_click_coordinates", suite="primitive", lane="primitive", command="desktop_click", params={"snapshot_id": "${primitive.desktop_see.snapshot_id}", "x": 100, "y": 100, "dry_run": False}),
+        CanaryStep(id="primitive.desktop_click_coordinates", suite="primitive", lane="primitive", command="desktop_click", params={"snapshot_id": "${primitive.desktop_see.snapshot_id}", "x": 700, "y": 15, "dry_run": False}),
         CanaryStep(id="primitive.desktop_type", suite="primitive", lane="primitive", command="desktop_type", params={"text": "evaOS QA smoke", "dry_run": False}),
         CanaryStep(id="primitive.desktop_scroll", suite="primitive", lane="primitive", command="desktop_scroll", params={"direction": "down", "amount": 400, "dry_run": False}),
         CanaryStep(id="primitive.desktop_drag", suite="primitive", lane="primitive", command="desktop_drag", params={"from_x": 180, "from_y": 180, "to_x": 260, "to_y": 260, "dry_run": False}),
@@ -712,7 +715,7 @@ def _iphone_scenario_steps() -> list[CanaryStep]:
 def _ask_permission_steps() -> list[CanaryStep]:
     return [
         CanaryStep(id="ask.start", suite="ask_permission", command="desktop_control_start", params={"mode": "ask-permission", "agent_label": "evaOS QA Canary"}),
-        CanaryStep(id="ask.high_impact_denied", suite="ask_permission", command="desktop_type", params={"text": "evaOS QA ask permission", "dry_run": False}, expect_error_code="approval_audit_required"),
+        CanaryStep(id="ask.high_impact_denied", suite="ask_permission", command="desktop_type", params={"text": "evaOS QA ask permission", "dry_run": False}, expect_error_code="approval_audit_required", delay_before_seconds=10.5),
         CanaryStep(id="ask.high_impact_dry_run", suite="ask_permission", command="desktop_type", params={"text": "evaOS QA ask permission", "dry_run": True}),
         CanaryStep(id="ask.high_impact_approved", suite="ask_permission", command="desktop_type", params={"text": "evaOS QA ask permission", "dry_run": False, "approval_audit_id": "${ask.high_impact_dry_run.audit_id}"}, skip_if_unresolved=True),
     ]
