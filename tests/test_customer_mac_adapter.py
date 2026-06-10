@@ -1195,7 +1195,7 @@ def test_desktop_type_prefers_peekaboo_paste_for_exact_text(monkeypatch, tmp_pat
     runner = FakeRunner(
         {
             (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
-            (str(peekaboo), "paste", "--text", "Calculator", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+            (str(peekaboo), "paste", "--text", "Hello?", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
         }
     )
     observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
