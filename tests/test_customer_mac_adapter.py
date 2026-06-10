@@ -1195,7 +1195,7 @@ def test_desktop_type_prefers_peekaboo_paste_for_exact_text(monkeypatch, tmp_pat
     runner = FakeRunner(
         {
             (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
-            (str(peekaboo), "paste", "--text", "Hello?", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
+            (str(peekaboo), "paste", "--text", "Calculator", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
         }
     )
     observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
@@ -1209,24 +1209,41 @@ def test_desktop_type_prefers_peekaboo_paste_for_exact_text(monkeypatch, tmp_pat
     assert not any(command[:2] == (str(peekaboo), "type") for command in runner.commands)
 
 
-def test_iphone_type_prefers_system_events_for_exact_mirrored_text(monkeypatch, tmp_path: Path) -> None:
+def test_iphone_type_spotlight_prefers_targeted_peekaboo_type_for_layout_stable_text(monkeypatch, tmp_path: Path) -> None:
     installed_mirroring(monkeypatch, tmp_path)
+    peekaboo = tmp_path / "peekaboo"
+    peekaboo.write_text("#!/bin/sh\n", encoding="utf-8")
+    peekaboo.chmod(0o755)
+    monkeypatch.setattr(customer_mac, "PEEKABOO_BIN_CANDIDATES", (str(peekaboo),))
     runner = FakeRunner(
         {
+            (str(peekaboo), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2\n", stderr=""),
+            (str(peekaboo), "type", "--text", "Calculator", "--app", "iPhone Mirroring", "--profile", "linear", "--json", "--no-remote"): RunnerResult(returncode=0, stdout='{"success":true}', stderr=""),
             ("pgrep", "-x", "iPhone Mirroring"): RunnerResult(returncode=0, stdout="123\n", stderr=""),
             ("osascript", "-e", 'tell application "iPhone Mirroring" to activate'): RunnerResult(returncode=0, stdout="", stderr=""),
             ("osascript", "-e", 'tell application "System Events" to get name of first application process whose frontmost is true'): RunnerResult(returncode=0, stdout="iPhone Mirroring\n", stderr=""),
-            ("osascript", "-e", 'tell application "System Events" to keystroke "Hello?"'): RunnerResult(returncode=0, stdout="", stderr=""),
         }
     )
     observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin", accessibility_checker=lambda: True)
+    monkeypatch.setattr(observer, "iphone_mirroring_status", lambda: CommandResult(ok=True, data={"installed": True}))
+    monkeypatch.setattr(
+        observer,
+        "iphone_mirroring_focus",
+        lambda dry_run=False: CommandResult(ok=True, data={"focused": True, "frontmost": True}),
+    )
+    monkeypatch.setattr(
+        observer,
+        "_iphone_keyboard_action",
+        lambda action, key_code: CommandResult(ok=True, data={"performed": True, "action": action, "key_code": key_code}),
+    )
 
-    result = observer.iphone_type(text="Hello?")
+    result = observer.iphone_mirroring_action(action="type_spotlight", text="Calculator", dry_run=False)
 
     assert result.ok is True
-    assert result.data["engine"] == "system_events"
-    assert result.provenance == {"source": "system_events", "customer_control": True, "reason": "iphone_mirroring_exact_text"}
-    assert ("osascript", "-e", 'tell application "System Events" to keystroke "Hello?"') in runner.commands
+    assert result.data["action"] == "type_spotlight"
+    assert result.data["text_preview"] == "Calculator"
+    assert (str(peekaboo), "type", "--text", "Calculator", "--app", "iPhone Mirroring", "--profile", "linear", "--json", "--no-remote") in runner.commands
+    assert ("osascript", "-e", 'tell application "System Events" to keystroke "Calculator"') not in runner.commands
 
 
 def test_desktop_hotkey_accepts_multi_character_keys(tmp_path: Path) -> None:
@@ -1834,6 +1851,7 @@ def test_iphone_open_app_live_marks_visual_postcondition_unverified(monkeypatch,
         platform_name="Darwin",
         accessibility_checker=lambda: True,
     )
+    iphone_actions: list[str] = []
     monkeypatch.setattr(observer, "iphone_mirroring_status", lambda: CommandResult(ok=True, data={"installed": True}))
     monkeypatch.setattr(
         observer,
@@ -1843,7 +1861,7 @@ def test_iphone_open_app_live_marks_visual_postcondition_unverified(monkeypatch,
     monkeypatch.setattr(
         observer,
         "_iphone_keyboard_action",
-        lambda action, key_code: CommandResult(ok=True, data={"performed": True, "action": action, "key_code": key_code}),
+        lambda action, key_code: iphone_actions.append(action) or CommandResult(ok=True, data={"performed": True, "action": action, "key_code": key_code}),
     )
     monkeypatch.setattr(
         observer,
@@ -1860,6 +1878,7 @@ def test_iphone_open_app_live_marks_visual_postcondition_unverified(monkeypatch,
     assert result.data["verification_required"] is True
     assert result.data["postcondition"] == "target_app_visible"
     assert result.data["postcondition_verified"] is False
+    assert iphone_actions == ["home", "spotlight"]
     assert any("settled visual" in warning.lower() for warning in result.warnings)
 
 
