@@ -1207,9 +1207,14 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
                 return typed
             return CommandResult(ok=True, data={"performed": True, "action": action, "text_preview": self._safe_preview(text)}, provenance={"source": "iphone_mirroring"})
         if action == "open_app":
+            home = self._iphone_keyboard_action("home", "18")
+            if not home.ok:
+                return home
+            time.sleep(0.5)
             spotlight = self._iphone_keyboard_action("spotlight", "20")
             if not spotlight.ok:
                 return spotlight
+            time.sleep(0.5)
             typed = self._keystroke_text(app_name)
             if not typed.ok:
                 return typed
@@ -1963,20 +1968,43 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
     def _keystroke_text(self, text: str) -> CommandResult:
         if not SAFE_TEXT_RE.match(text):
             return self._unsafe_text_error("keystroke_text", dry_run=False)
+        typed = self._peekaboo_type_text(text)
+        if typed is not None:
+            return typed
         script = f'tell application "System Events" to keystroke "{self._escape_applescript(text)}"'
         result = self.runner(["osascript", "-e", script], 5.0)
         if result.returncode != 0:
             return CommandResult(ok=False, data={"typed": False, "text_preview": self._safe_preview(text)}, errors=[make_error(code="safe_text_entry_failed", message="macOS refused safe text entry.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
-        return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text)})
+        return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text), "engine": "system_events", "input_method": "keystroke"}, provenance={"source": "system_events", "customer_control": True, "reason": "iphone_mirroring_exact_text"})
 
     def _keystroke_approved_text(self, text: str) -> CommandResult:
         if not APPROVED_TEXT_RE.match(text):
             return self._approved_text_error("keystroke_approved_text", dry_run=False)
+        typed = self._peekaboo_type_text(text, approved=True)
+        if typed is not None:
+            return typed
         script = f'tell application "System Events" to keystroke "{self._escape_applescript(text)}"'
         result = self.runner(["osascript", "-e", script], 5.0)
         if result.returncode != 0:
             return CommandResult(ok=False, data={"typed": False, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)}, errors=[make_error(code="approved_text_entry_failed", message="macOS refused approved text entry.", guidance=ACCESSIBILITY_GUIDANCE, permission="accessibility")], warnings=self._stderr_warning(result))
-        return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text)})
+        return CommandResult(ok=True, data={"typed": True, "text_preview": self._safe_preview(text), "text_sha256": self._text_hash(text), "engine": "system_events", "input_method": "keystroke"}, provenance={"source": "system_events", "customer_control": True, "reason": "iphone_mirroring_approved_text"})
+
+    def _peekaboo_type_text(self, text: str, *, approved: bool = False) -> CommandResult | None:
+        peekaboo = self._peekaboo_status()
+        if not peekaboo.get("available"):
+            return None
+        result = self.runner([str(peekaboo["path"]), "type", "--text", text, "--app", "iPhone Mirroring", "--profile", "linear", "--json", "--no-remote"], 20.0)
+        if result.returncode != 0:
+            return None
+        data: dict[str, Any] = {
+            "typed": True,
+            "text_preview": self._safe_preview(text),
+            "engine": "peekaboo",
+            "input_method": "targeted_type",
+        }
+        if approved:
+            data["text_sha256"] = self._text_hash(text)
+        return CommandResult(ok=True, data=data, warnings=self._stderr_warning(result), provenance={"source": "peekaboo_type", "customer_control": True, "reason": "iphone_mirroring_approved_text" if approved else "iphone_mirroring_exact_text"})
 
     def _ax_snapshot(self, *, pid: int, max_nodes: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
         result = self.runner([sys.executable, "-c", self.AX_TREE_SCRIPT, str(pid), str(max_nodes)], 20.0)

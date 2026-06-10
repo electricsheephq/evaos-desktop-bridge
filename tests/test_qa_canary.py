@@ -370,12 +370,16 @@ def test_hermes_adapter_materializes_visual_evidence_against_fake_connector(tmp_
 def test_scenario_catalog_is_explicit_and_real_world_config_is_local_only() -> None:
     all_steps = build_scenarios("all", allow_real_world_actions=False)
     suites = {step.suite for step in all_steps}
+    steps_by_id = {step.id: step for step in all_steps}
 
     assert {"readiness", "codex", "primitive", "desktop_scenario", "iphone_scenario", "full_access", "ask_permission"}.issubset(suites)
     assert "kill_switch" not in suites
     assert "real_world_optional" not in suites
     assert any(step.lane == "primitive" for step in all_steps)
     assert any(step.lane == "scenario" for step in all_steps)
+    assert steps_by_id["primitive.desktop_click_coordinates"].params["y"] <= 20
+    assert steps_by_id["full.scroll_no_approval"].delay_before_seconds >= 10.0
+    assert steps_by_id["ask.high_impact_denied"].delay_before_seconds >= 10.0
     assert all(step.id and step.command for step in all_steps)
     for step in all_steps:
         if step.lane == "scenario" and step.command in {
