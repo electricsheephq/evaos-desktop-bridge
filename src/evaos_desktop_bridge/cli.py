@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable, TextIO
+from typing import Any, Callable, TextIO
 
 from .adapters.codex_app_server import CodexAppServerObserver
 from .adapters.codex_macos import MacOSCodexObserver
@@ -56,6 +56,11 @@ LATEST_OBSERVATION_COMMANDS = frozenset(
         "customer_mac.iphone_mirroring_status",
         "customer_mac.screen_sharing_status",
     }
+)
+
+INLINE_SCREENSHOT_BYTES_OMITTED_REASON = (
+    "inline screenshot bytes omitted from CLI JSON by default; "
+    "rerun the visual command with --include-screenshot-bytes to include them"
 )
 
 GUARDED_APPROVAL_FIELDS: dict[str, tuple[str, ...]] = {
@@ -426,6 +431,11 @@ def build_parser() -> argparse.ArgumentParser:
     desktop_see_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     desktop_see_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum visible text chars.")
     desktop_see_parser.add_argument("--max-nodes", type=_positive_int, default=200, help="Maximum AX nodes.")
+    desktop_see_parser.add_argument(
+        "--include-screenshot-bytes",
+        action="store_true",
+        help="Opt in to inline screenshot bytes in JSON output.",
+    )
     desktop_see_parser.set_defaults(command_id="customer_mac.desktop_see", target="customer_mac")
 
     desktop_click_parser = desktop_subparsers.add_parser("click", help="Click a visible target label or x/y point.")
@@ -557,6 +567,11 @@ def build_parser() -> argparse.ArgumentParser:
     iphone_see_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     iphone_see_parser.add_argument("--max-chars", type=_positive_int, default=4000, help="Maximum visible text chars.")
     iphone_see_parser.add_argument("--max-nodes", type=_positive_int, default=200, help="Maximum AX nodes.")
+    iphone_see_parser.add_argument(
+        "--include-screenshot-bytes",
+        action="store_true",
+        help="Opt in to inline screenshot bytes in JSON output.",
+    )
     iphone_see_parser.set_defaults(command_id="customer_mac.iphone_see", target="customer_mac")
 
     iphone_tap_v2_parser = iphone_subparsers.add_parser("tap", help="Tap/click a visible iPhone label or fallback point.")
@@ -767,6 +782,8 @@ def main(
         errors=result.errors,
         audit_id=audit_id,
     )
+    if not getattr(args, "include_screenshot_bytes", False):
+        envelope = _omit_inline_screenshot_bytes(envelope)
     if command_id in LATEST_OBSERVATION_COMMANDS:
         write_latest(envelope, state_dir=state_dir)
     stdout.write(json.dumps(envelope, sort_keys=True) + "\n")
@@ -787,6 +804,32 @@ def _run_bridge_argv(argv: list[str], *, state_dir: Path | None = None) -> tuple
 
 def _short_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _omit_inline_screenshot_bytes(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        omitted = False
+        omitted_reason: str | None = None
+        for key, item in value.items():
+            if key == "bytes_base64":
+                omitted = True
+                continue
+            if key == "bytes_base64_omitted":
+                omitted = omitted or bool(item)
+                continue
+            if key == "bytes_base64_omitted_reason":
+                if isinstance(item, str) and item.strip():
+                    omitted_reason = item
+                continue
+            sanitized[key] = _omit_inline_screenshot_bytes(item)
+        if omitted:
+            sanitized["inline_screenshot_bytes_omitted"] = True
+            sanitized["inline_screenshot_bytes_omitted_reason"] = omitted_reason or INLINE_SCREENSHOT_BYTES_OMITTED_REASON
+        return sanitized
+    if isinstance(value, list):
+        return [_omit_inline_screenshot_bytes(item) for item in value]
+    return value
 
 
 def _message_preview(value: str, *, limit: int = 240) -> str:

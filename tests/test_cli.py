@@ -236,7 +236,29 @@ class FakeCustomerMac:
         return CommandResult(ok=True, data={"killed": True, "session": {"active": False, "kill_switch": True}})
 
     def desktop_see(self, *, max_chars: int, max_nodes: int) -> CommandResult:
-        return CommandResult(ok=True, data={"engine": "fallback", "frontmost_app": "Safari", "max_chars": max_chars, "max_nodes": max_nodes})
+        return CommandResult(
+            ok=True,
+            data={
+                "engine": "fallback",
+                "frontmost_app": "Safari",
+                "max_chars": max_chars,
+                "max_nodes": max_nodes,
+                "snapshot_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "screenshot": {
+                    "screenshot": {
+                        "artifact_id": "snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "artifact_url": "/v1/artifacts/snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                        "artifact_path": "~/Library/Application Support/evaos-desktop-bridge/artifacts/snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                        "mime_type": "image/png",
+                        "sha256": "0" * 64,
+                        "byte_count": 3,
+                        "width": 1,
+                        "height": 1,
+                        "bytes_base64": "Zm9v",
+                    }
+                },
+            },
+        )
 
     def desktop_click(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, snapshot_id: str | None = None, element_id: str | None = None, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"clicked": not dry_run, "would_click": dry_run, "target_label": target_label, "snapshot_id": snapshot_id, "element_id": element_id, "point": {"x": x, "y": y} if x is not None and y is not None else None})
@@ -292,7 +314,28 @@ class FakeCustomerMac:
         return CommandResult(ok=True, data={"installed": True, "running": True, "supported_actions": ["home", "spotlight"], "disabled_actions": ["scroll"]})
 
     def iphone_see(self, *, max_chars: int, max_nodes: int) -> CommandResult:
-        return CommandResult(ok=True, data={"target": "iphone_mirroring", "max_chars": max_chars, "max_nodes": max_nodes})
+        return CommandResult(
+            ok=True,
+            data={
+                "target": "iphone_mirroring",
+                "max_chars": max_chars,
+                "max_nodes": max_nodes,
+                "snapshot_id": "snap-iphone-mirroring-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "screenshot": {
+                    "screenshot": {
+                        "artifact_id": "snap-iphone-mirroring-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "artifact_url": "/v1/artifacts/snap-iphone-mirroring-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+                        "artifact_path": "~/Library/Application Support/evaos-desktop-bridge/artifacts/snap-iphone-mirroring-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png",
+                        "mime_type": "image/png",
+                        "sha256": "1" * 64,
+                        "byte_count": 3,
+                        "width": 1,
+                        "height": 1,
+                        "bytes_base64": "YmFy",
+                    }
+                },
+            },
+        )
 
     def iphone_tap(self, *, target_label: str | None = None, x: int | None = None, y: int | None = None, snapshot_id: str | None = None, element_id: str | None = None, dry_run: bool = False) -> CommandResult:
         return CommandResult(ok=True, data={"performed": not dry_run, "would_tap": dry_run, "target_label": target_label, "snapshot_id": snapshot_id, "element_id": element_id})
@@ -902,6 +945,43 @@ def test_customer_mac_snapshot_is_latest_observation(tmp_path: Path) -> None:
     assert snapshot_payload["_exit_code"] == 0
     assert snapshot_payload["command"] == "customer_mac.snapshot"
     assert latest_payload["data"]["latest"]["command"] == "customer_mac.snapshot"
+
+
+def test_customer_mac_visual_json_omits_screenshot_bytes_by_default(tmp_path: Path) -> None:
+    desktop_payload = run_cli(["customer-mac", "desktop", "see", "--json"], FakeObserver(), tmp_path)
+    iphone_payload = run_cli(["customer-mac", "iphone-mirroring", "see", "--json"], FakeObserver(), tmp_path)
+
+    serialized = json.dumps({"desktop": desktop_payload, "iphone": iphone_payload})
+    assert desktop_payload["_exit_code"] == 0
+    assert iphone_payload["_exit_code"] == 0
+    assert "bytes_base64" not in serialized
+    desktop_screenshot = desktop_payload["data"]["screenshot"]["screenshot"]
+    iphone_screenshot = iphone_payload["data"]["screenshot"]["screenshot"]
+    assert desktop_screenshot["artifact_url"] == "/v1/artifacts/snap-desktop-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"
+    assert iphone_screenshot["artifact_url"] == "/v1/artifacts/snap-iphone-mirroring-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png"
+    assert desktop_screenshot["inline_screenshot_bytes_omitted"] is True
+    assert iphone_screenshot["inline_screenshot_bytes_omitted"] is True
+
+
+def test_customer_mac_visual_json_can_include_screenshot_bytes_explicitly(tmp_path: Path) -> None:
+    payload = run_cli(["customer-mac", "desktop", "see", "--json", "--include-screenshot-bytes"], FakeObserver(), tmp_path)
+
+    assert payload["_exit_code"] == 0
+    screenshot = payload["data"]["screenshot"]["screenshot"]
+    assert screenshot["bytes_base64"] == "Zm9v"
+    assert "bytes_base64_omitted" not in screenshot
+
+
+def test_latest_keeps_visual_screenshot_bytes_omitted(tmp_path: Path) -> None:
+    desktop_payload = run_cli(["customer-mac", "desktop", "see", "--json"], FakeObserver(), tmp_path)
+    latest_payload = run_cli(["latest", "--json"], FakeObserver(), tmp_path)
+
+    serialized = json.dumps(latest_payload)
+    assert desktop_payload["_exit_code"] == 0
+    assert latest_payload["_exit_code"] == 0
+    assert latest_payload["data"]["latest"]["audit_id"] == desktop_payload["audit_id"]
+    assert "bytes_base64" not in serialized
+    assert latest_payload["data"]["latest"]["data"]["screenshot"]["screenshot"]["inline_screenshot_bytes_omitted"] is True
 
 
 def test_customer_mac_app_focus_defaults_to_dry_run(tmp_path: Path) -> None:

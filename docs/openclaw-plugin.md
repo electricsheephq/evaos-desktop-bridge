@@ -28,7 +28,7 @@ Read-only tools:
 - `customer_mac_status`: paired Mac, permission, iPhone Mirroring, and Screen Sharing readiness.
 - `customer_mac_capabilities`: supported customer Mac targets and forbidden actions.
 - `desktop_control_status`: current Full Access / Ask Permission session state.
-- `desktop_see`: desktop observation through Peekaboo or built-in screen/AX fallback, with visual artifact metadata, screenshot bytes when small enough, element bounds, and a `snapshot_id`.
+- `desktop_see`: desktop observation through Peekaboo or built-in screen/AX fallback, with visual artifact metadata, element bounds, and a `snapshot_id`.
 - `iphone_see`: iPhone Mirroring observation through the same visible Mac surface, with the same visual artifact and element contract.
 - `customer_mac_snapshot`: safe screenshot path for the frontmost non-sensitive app.
 - `customer_mac_ax_tree`: capped Accessibility tree for the frontmost non-sensitive app.
@@ -104,12 +104,13 @@ Permission permits navigation actions and requires approval evidence only for
 risky clicks, taps, hotkeys, typing, sends, and other high-impact actions. The
 kill switch blocks future live commands.
 
-For visual commands, the OpenClaw wrapper materializes screenshot evidence under
-`/root/agent-files/downloads/desktop-bridge/` by default and removes inline
-base64 from the tool response after writing the file. If the screenshot is too
-large to inline, the wrapper fetches the short-lived connector artifact over the
-same authenticated `/v1/artifacts/...` route and writes that file instead. Set
-`EVAOS_DESKTOP_BRIDGE_ARTIFACT_DIR` to override the VM-side artifact path.
+For visual commands, CLI and connector JSON omit inline screenshot bytes by
+default and return artifact metadata plus the authenticated `/v1/artifacts/...`
+route instead. The OpenClaw wrapper materializes screenshot evidence under
+`/root/agent-files/downloads/desktop-bridge/` by fetching that artifact route.
+Only local operator debugging should opt in to inline bytes with
+`--include-screenshot-bytes`. Set `EVAOS_DESKTOP_BRIDGE_ARTIFACT_DIR` to override
+the VM-side artifact path.
 
 ## Firewall Hook
 
