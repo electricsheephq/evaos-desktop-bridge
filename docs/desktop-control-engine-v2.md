@@ -67,9 +67,12 @@ OpenClaw exposes these first-class tools:
 
 `desktop_see` and `iphone_see` return Codex-style visual grounding:
 `snapshot_id`, screenshot metadata, short-lived connector artifact URL, image
-bytes when small enough, active app/window context, and clickable elements with
-labels and bounds. `desktop_click` and `iphone_tap` can target an `element_id`
-from that latest snapshot, a unique `target_label`, or explicit coordinates.
+byte count and dimensions, active app/window context, and clickable elements
+with labels and bounds. CLI JSON omits inline screenshot bytes by default; pass
+`--include-screenshot-bytes` only for local operator debugging that deliberately
+needs inline image bytes. `desktop_click` and `iphone_tap` can target an
+`element_id` from that latest snapshot, a unique `target_label`, or explicit
+coordinates.
 `desktop_see` refuses sensitive frontmost apps before invoking Peekaboo or
 fallback screenshot/AX capture. `desktop_set_value` is narrower than generic
 typing: it requires a fresh AX-backed `snapshot_id`/`element_id`, blocks secure
