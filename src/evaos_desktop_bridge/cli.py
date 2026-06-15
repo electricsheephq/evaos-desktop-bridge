@@ -19,7 +19,7 @@ from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.customer_mac import CustomerMacObserver
 from .audit import append_audit, default_state_dir
 from .bundled_tools import bundled_bridge_bin_candidates
-from .connector_server import read_token, run_connector_server
+from .connector_server import complete_enrollment_via_control, read_token, run_connector_server
 from .helper_ipc import HelperIpcError, UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
@@ -270,6 +270,16 @@ def build_parser() -> argparse.ArgumentParser:
         service_action = service_subparsers.add_parser(service_command, help=help_text)
         service_action.add_argument("--json", action="store_true", help="Emit JSON.")
         service_action.set_defaults(command_id=f"connector_service.{service_command}", target="connector")
+
+    service_complete_parser = service_subparsers.add_parser(
+        "complete-enrollment",
+        help="Privately register the local connector with the broker for a Workbench pairing code.",
+    )
+    service_complete_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    service_complete_parser.add_argument("--enrollment-code", required=True, help="Short-lived Workbench pairing code.")
+    service_complete_parser.add_argument("--customer-id", required=True, help="Customer id for the selected Workbench customer.")
+    service_complete_parser.add_argument("--device-name", default=None, help="Friendly Mac device name.")
+    service_complete_parser.set_defaults(command_id="connector_service.complete_enrollment", target="connector")
 
     queue_parser = subparsers.add_parser("queue", help="Eva/OpenClaw announcement queue commands.")
     queue_subparsers = queue_parser.add_subparsers(dest="queue_command")
@@ -722,6 +732,11 @@ def main(
             token=token,
         )
         return 0
+
+    if command_id == "connector_service.complete_enrollment":
+        result = _complete_connector_service_enrollment(args, state_dir=state_dir)
+        stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
+        return 0 if result.get("ok") is True else 2
 
     if command_id.startswith("connector_service."):
         result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
@@ -1610,6 +1625,73 @@ PEEKABOO_BIN_CANDIDATES = (
     "/opt/homebrew/bin/peekaboo",
     "/usr/local/bin/peekaboo",
 )
+
+
+def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_dir: Path | None = None) -> dict[str, object]:
+    enrollment_code = str(getattr(args, "enrollment_code", "") or "").strip()
+    customer_id = str(getattr(args, "customer_id", "") or "").strip()
+    device_name = str(getattr(args, "device_name", "") or "").strip() or socket.gethostname() or "Customer Mac"
+    if not enrollment_code or not customer_id:
+        return {
+            "ok": False,
+            "action": "complete-enrollment",
+            "error": "enrollment_code_and_customer_id_required",
+        }
+
+    status = _connector_service_status(state_dir=state_dir)
+    health = status.get("health") if isinstance(status.get("health"), dict) else {}
+    host = str(health.get("host") or status.get("tailnet_ip") or "").strip()
+    if status.get("ok") is not True or not host:
+        return {
+            "ok": False,
+            "action": "complete-enrollment",
+            "error": "connector_service_not_ready",
+            "status": status,
+        }
+
+    try:
+        connector_token = read_token(None, state_dir=state_dir, auto_create=False)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "action": "complete-enrollment",
+            "error": "connector_token_unavailable",
+            "message": str(exc),
+        }
+    if not connector_token:
+        return {
+            "ok": False,
+            "action": "complete-enrollment",
+            "error": "connector_token_unavailable",
+        }
+
+    try:
+        result = complete_enrollment_via_control(
+            enrollment_code=enrollment_code,
+            connector_url=f"http://{host}:{CONNECTOR_PORT}",
+            connector_token=connector_token,
+            device_name=device_name,
+            device_identifier=socket.gethostname(),
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "action": "complete-enrollment",
+            "error": "broker_complete_enrollment_failed",
+            "message": str(exc),
+        }
+
+    device = result.get("device") if isinstance(result.get("device"), dict) else {}
+    return {
+        "ok": bool(device.get("id")) or result.get("ok") is True,
+        "action": "complete-enrollment",
+        "customer_id": customer_id,
+        "device_id": device.get("id"),
+        "connector_registered": True,
+        "connector_token_last4": connector_token[-4:],
+        "headscale": result.get("headscale"),
+        "raw_secrets_returned": False,
+    }
 
 
 def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:

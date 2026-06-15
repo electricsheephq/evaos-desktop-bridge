@@ -177,15 +177,11 @@ function readOnlyTools() {
         }),
         tool("desktop_control_stop", "Stop the active customer-granted agent control session.", "customerMacControlStop"),
         tool("desktop_kill_switch", "Immediately stop and block future customer Mac control commands until the customer starts a new session.", "customerMacControlKillSwitch"),
-        tool("customer_mac_complete_pairing", "Complete customer Mac pairing by posting a one-time enrollment code directly to the pre-token Mac connector endpoint.", "customerMacCompletePairing", {
+        tool("customer_mac_complete_pairing", "Complete customer Mac pairing with a short-lived Workbench pairing code. Do not ask for connector URLs or secrets.", "customerMacCompletePairing", {
             type: "object",
             additionalProperties: false,
-            required: ["connector_url", "enrollment_code"],
+            required: ["enrollment_code"],
             properties: {
-                connector_url: {
-                    type: "string",
-                    description: "Base http:// private/tailnet Mac connector URL on port 8765, with no path.",
-                },
                 enrollment_code: { type: "string", minLength: 1, maxLength: 160 },
                 customer_id: { type: "string", minLength: 1, maxLength: 160 },
                 device_name: { type: "string", minLength: 1, maxLength: 160 },

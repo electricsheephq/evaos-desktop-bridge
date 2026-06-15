@@ -17,17 +17,18 @@ export EVAOS_DESKTOP_BRIDGE_URL="http://<mac-headscale-ip>:8765"
 export EVAOS_DESKTOP_BRIDGE_TOKEN="<connector-token>"
 ```
 
-Before the VM has a connector token, Hermes can complete enrollment by posting
-the one-time code directly to the Mac connector:
+Before the VM has a connector token, Hermes can complete enrollment with the
+short-lived Workbench pairing code. The adapter claims connector material from
+the broker, writes it to `/root/.openclaw/evaos-desktop-bridge.env`, and returns
+only redacted status, token last4, and audit IDs:
 
 ```bash
-hermes-adapter/bin/evaos-desktop-bridge-command completeEnrollment '{"connector_url":"http://100.64.1.10:8765","enrollment_code":"PAIR123","device_name":"Customer Mac"}'
+hermes-adapter/bin/evaos-desktop-bridge-command completeEnrollment '{"enrollment_code":"PAIR123","customer_id":"david-poku","device_name":"Customer Mac"}'
 ```
 
-That pre-pairing mode calls `/v1/enrollment/complete`, requires an `http://`
-base connector URL on port `8765`, and only allows private/tailnet-shaped hosts
-or local `.local` names. It does not require or send
-`EVAOS_DESKTOP_BRIDGE_TOKEN`.
+The command uses the same provider-proof secret as the OpenClaw plugin. Direct
+connector URL pairing is support-only during the transition and is disabled
+unless `EVAOS_ALLOW_LEGACY_CONNECTOR_URL_PAIRING` is set explicitly.
 
 Hermes tools should call `bin/evaos-desktop-bridge-command` with one of the
 fixed connector command names supported by `/v1/commands`, for example:
