@@ -589,8 +589,6 @@ def run_connector_server(
 
 def read_token(path: str | None, *, state_dir: Path | None = None, auto_create: bool = False) -> str | None:
     if not path:
-        if not auto_create:
-            return None
         token_path = (state_dir or default_state_dir()) / "connector.token"
     else:
         token_path = Path(path).expanduser()

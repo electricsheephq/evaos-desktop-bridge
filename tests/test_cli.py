@@ -817,7 +817,11 @@ def test_connector_service_complete_enrollment_registers_privately(monkeypatch, 
         return {
             "ok": True,
             "device": {"id": "device-1"},
-            "headscale": {"ok": True, "node": "benjamin-mac"},
+            "headscale": {
+                "ok": True,
+                "node": "benjamin-mac",
+                "preauth_key": "cf2e354d8f1598b4b30abdb191b43be174735d51f6dd00be",
+            },
         }
 
     monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
@@ -852,9 +856,15 @@ def test_connector_service_complete_enrollment_registers_privately(monkeypatch, 
     assert payload["device_id"] == "device-1"
     assert payload["connector_registered"] is True
     assert payload["connector_token_last4"] == "7890"
+    assert payload["headscale"] == {
+        "ok": True,
+        "node": "benjamin-mac",
+        "secret_material_returned": False,
+    }
     assert payload["raw_secrets_returned"] is False
     assert "100.64.1.10" not in output.getvalue()
     assert "secret-token" not in output.getvalue()
+    assert "cf2e354d8" not in output.getvalue()
 
 
 def test_focus_permission_error_is_graceful_json(tmp_path: Path) -> None:
