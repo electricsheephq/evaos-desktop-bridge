@@ -31,9 +31,11 @@ import base64
 import datetime
 import hashlib
 import hmac
+import http.client
 import json
 import os
 import pathlib
+import socket
 import sys
 import urllib.parse
 import urllib.request
@@ -204,6 +206,11 @@ def materialize_visual_evidence(payload):
 
 def timeout_for_command(command):
     if command in {
+        "customerMacControlStart",
+        "desktop_control_start",
+    }:
+        return 30
+    if command in {
         "desktopSee",
         "desktop_see",
         "iphoneSee",
@@ -264,6 +271,63 @@ def timeout_for_command(command):
     }:
         return 15
     return 10
+
+
+def normalize_control_mode(value):
+    text = str(value or "").strip().lower().replace("-", "_")
+    if text in {"full_access", "fullaccess"}:
+        return "full_access"
+    if text in {"ask_permission", "askpermission"}:
+        return "ask_permission"
+    return text
+
+
+def requested_control_mode(params):
+    return normalize_control_mode(params.get("mode") or "full-access")
+
+
+def status_matches_control_start(payload, mode):
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return False
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return False
+    session = data.get("session") if isinstance(data.get("session"), dict) else {}
+    active = data.get("active")
+    kill_switch = data.get("kill_switch")
+    actual_mode = data.get("mode")
+    if active is None:
+        active = session.get("active")
+    if kill_switch is None:
+        kill_switch = session.get("kill_switch")
+    if actual_mode is None:
+        actual_mode = session.get("mode")
+    return active is True and kill_switch is False and normalize_control_mode(actual_mode) == mode
+
+
+def reconcile_control_start_after_abort(original_error):
+    if command not in {"customerMacControlStart", "desktop_control_start"}:
+        return None
+    status_body = json.dumps({"command": "customerMacControlStatus", "params": {}}, separators=(",", ":")).encode()
+    status_request = urllib.request.Request(url, data=status_body, method="POST", headers=headers)
+    with urllib.request.urlopen(status_request, timeout=15) as response:
+        status_payload = json.loads(response.read().decode())
+    mode = requested_control_mode(params)
+    if not status_matches_control_start(status_payload, mode):
+        return None
+    warnings = status_payload.get("warnings") if isinstance(status_payload.get("warnings"), list) else []
+    data = status_payload.get("data") if isinstance(status_payload.get("data"), dict) else {}
+    data["control_start_reconciled"] = True
+    data["control_start_original_error"] = type(original_error).__name__
+    status_payload["data"] = data
+    status_payload["warnings"] = [
+        {
+            "code": "control_start_response_reconciled_after_abort",
+            "message": "Control start response was interrupted after the local session became active; reconciled from control status.",
+        },
+        *warnings,
+    ]
+    return status_payload
 
 
 def read_json_env(name):
@@ -811,4 +875,10 @@ except urllib.error.HTTPError as exc:
         raise SystemExit(0) from exc
     sys.stderr.write(error_body + "\n")
     raise SystemExit(exc.code) from exc
+except (TimeoutError, socket.timeout, urllib.error.URLError, ConnectionError, http.client.HTTPException, OSError) as exc:
+    reconciled = reconcile_control_start_after_abort(exc)
+    if reconciled is not None:
+        sys.stdout.write(json.dumps(scrub_secrets(materialize_visual_evidence(reconciled)), separators=(",", ":")) + "\n")
+        raise SystemExit(0) from exc
+    raise
 PY
