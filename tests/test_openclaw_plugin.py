@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import socket
 import subprocess
 import threading
 import hmac
@@ -1110,6 +1111,113 @@ def test_customer_mac_control_start_does_not_reconcile_wrong_mode_after_abort() 
     assert result["ok"] is False
     assert result["errors"][0]["code"] == "bridge_connector_failed"
     assert "control_start_reconciled" not in json.dumps(result)
+
+
+def _run_hermes_adapter_against_fake_connector(status_mode: str) -> dict:
+    calls: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            calls.append(body.get("command"))
+            if body.get("command") == "customerMacControlStart":
+                self.connection.shutdown(socket.SHUT_RDWR)
+                self.connection.close()
+                return
+            if body.get("command") == "customerMacControlStatus":
+                payload = {
+                    "ok": True,
+                    "audit_id": "audit-status",
+                    "data": {
+                        "active": True,
+                        "kill_switch": False,
+                        "ready": True,
+                        "mode": status_mode,
+                        "session": {
+                            "active": True,
+                            "kill_switch": False,
+                            "ready": True,
+                            "mode": status_mode,
+                        },
+                    },
+                    "warnings": [],
+                    "errors": [],
+                }
+                raw = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            raise AssertionError(f"unexpected command {body.get('command')}")
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        env = {
+            **os.environ,
+            "EVAOS_DESKTOP_BRIDGE_URL": f"http://127.0.0.1:{server.server_port}",
+            "EVAOS_DESKTOP_BRIDGE_TOKEN": "connector-token",
+        }
+        completed = subprocess.run(
+            [
+                str(ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command"),
+                "customerMacControlStart",
+                '{"mode":"full-access","agent_label":"Hermes Proof"}',
+            ],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        payload = json.loads(completed.stdout) if completed.stdout.strip().startswith("{") else {}
+        return {
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "payload": payload,
+            "calls": calls,
+        }
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_hermes_adapter_control_start_has_takeover_safe_timeout() -> None:
+    adapter = (ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command").read_text(encoding="utf-8")
+
+    assert '"customerMacControlStart"' in adapter
+    assert '"desktop_control_start"' in adapter
+    assert "return 30" in adapter
+
+
+def test_hermes_adapter_control_start_reconciles_abort_after_active_status() -> None:
+    result = _run_hermes_adapter_against_fake_connector("full_access")
+
+    assert result["calls"] == ["customerMacControlStart", "customerMacControlStatus"]
+    assert result["returncode"] == 0, result
+    payload = result["payload"]
+    assert payload["ok"] is True
+    assert payload["data"]["active"] is True
+    assert payload["data"]["kill_switch"] is False
+    assert payload["data"]["control_start_reconciled"] is True
+    assert payload["warnings"][0]["code"] == "control_start_response_reconciled_after_abort"
+
+
+def test_hermes_adapter_control_start_does_not_reconcile_wrong_mode_after_abort() -> None:
+    result = _run_hermes_adapter_against_fake_connector("ask_permission")
+
+    assert result["calls"] == ["customerMacControlStart", "customerMacControlStatus"]
+    assert result["returncode"] != 0
+    assert "control_start_reconciled" not in result["stdout"]
 
 
 def test_remote_visual_artifact_is_materialized_on_vm(tmp_path: Path) -> None:
