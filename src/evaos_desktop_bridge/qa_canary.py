@@ -420,6 +420,8 @@ def _has_visual_assertion_failure(errors: list[dict[str, Any]]) -> bool:
 
 def timeout_for_command(command: str) -> int:
     """Per-primitive timeout in seconds. Scenario suites may run many primitives."""
+    if command == "desktop_control_start":
+        return 30
     if command in {"desktop_see", "iphone_see", "customer_mac_snapshot", "customer_mac_ax_tree"}:
         return 60
     if command in {"desktop_click", "iphone_tap"}:

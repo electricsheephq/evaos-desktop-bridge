@@ -970,6 +970,148 @@ def test_customer_mac_complete_pairing_claims_broker_and_writes_private_env(tmp_
     assert payload["envHasToken"] is True
 
 
+def test_customer_mac_control_start_has_takeover_safe_timeout() -> None:
+    source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
+    dist = (PLUGIN / "dist" / "src" / "bridge.js").read_text(encoding="utf-8")
+
+    for text in [source, dist]:
+        assert 'command === "customerMacControlStart"' in text
+        assert "return 30_000" in text
+
+
+def test_customer_mac_control_start_reconciles_abort_after_active_status() -> None:
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+          const body = JSON.parse(options.body);
+          calls.push({ url: String(url), command: body.command });
+          if (body.command === 'customerMacControlStart') {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          }
+          if (body.command === 'customerMacControlStatus') {
+            return {
+              ok: true,
+              status: 200,
+              async text() {
+                return JSON.stringify({
+                  ok: true,
+                  audit_id: 'audit-status',
+                  data: {
+                    active: true,
+                    kill_switch: false,
+                    ready: true,
+                    mode: 'full_access',
+                    session: {
+                      active: true,
+                      kill_switch: false,
+                      ready: true,
+                      mode: 'full_access'
+                    }
+                  },
+                  warnings: [],
+                  errors: []
+                });
+              },
+            };
+          }
+          throw new Error('unexpected command ' + body.command);
+        };
+
+        const result = await runBridge('customerMacControlStart', { mode: 'full-access', agent_label: 'Proof' });
+        console.log(JSON.stringify({ calls, result }));
+    """
+    env = {
+        **os.environ,
+        "EVAOS_DESKTOP_BRIDGE_URL": "http://100.64.1.10:8765",
+        "EVAOS_DESKTOP_BRIDGE_TOKEN": "connector-token",
+    }
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert [call["command"] for call in payload["calls"]] == ["customerMacControlStart", "customerMacControlStatus"]
+    assert payload["result"]["ok"] is True
+    assert payload["result"]["data"]["active"] is True
+    assert payload["result"]["data"]["kill_switch"] is False
+    assert payload["result"]["data"]["control_start_reconciled"] is True
+    assert payload["result"]["warnings"][0]["code"] == "control_start_response_reconciled_after_abort"
+
+
+def test_customer_mac_control_start_does_not_reconcile_wrong_mode_after_abort() -> None:
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+
+        globalThis.fetch = async (url, options) => {
+          const body = JSON.parse(options.body);
+          if (body.command === 'customerMacControlStart') {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          }
+          if (body.command === 'customerMacControlStatus') {
+            return {
+              ok: true,
+              status: 200,
+              async text() {
+                return JSON.stringify({
+                  ok: true,
+                  audit_id: 'audit-status',
+                  data: {
+                    active: true,
+                    kill_switch: false,
+                    ready: true,
+                    mode: 'ask_permission',
+                    session: {
+                      active: true,
+                      kill_switch: false,
+                      ready: true,
+                      mode: 'ask_permission'
+                    }
+                  },
+                  warnings: [],
+                  errors: []
+                });
+              },
+            };
+          }
+          throw new Error('unexpected command ' + body.command);
+        };
+
+        const result = await runBridge('customerMacControlStart', { mode: 'full-access', agent_label: 'Proof' });
+        console.log(JSON.stringify(result));
+    """
+    env = {
+        **os.environ,
+        "EVAOS_DESKTOP_BRIDGE_URL": "http://100.64.1.10:8765",
+        "EVAOS_DESKTOP_BRIDGE_TOKEN": "connector-token",
+    }
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    result = json.loads(completed.stdout)
+
+    assert result["ok"] is False
+    assert result["errors"][0]["code"] == "bridge_connector_failed"
+    assert "control_start_reconciled" not in json.dumps(result)
+
+
 def test_remote_visual_artifact_is_materialized_on_vm(tmp_path: Path) -> None:
     script = """
         import { runBridge } from './openclaw-plugin/dist/src/bridge.js';

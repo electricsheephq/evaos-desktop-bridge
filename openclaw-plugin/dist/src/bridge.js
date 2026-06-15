@@ -1215,8 +1215,6 @@ async function claimEnrollmentFromBroker(params, enrollmentCode) {
 }
 async function runRemoteBridge(remoteURL, command, params) {
     const endpoint = new URL("/v1/commands", remoteURL);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutForCommand(command));
     const headers = {
         "Content-Type": "application/json",
     };
@@ -1224,6 +1222,32 @@ async function runRemoteBridge(remoteURL, command, params) {
     if (token) {
         headers.Authorization = `Bearer ${token}`;
     }
+    try {
+        return await postRemoteBridgeCommand(endpoint, headers, remoteURL, command, params, timeoutForCommand(command));
+    }
+    catch (error) {
+        if (command === "customerMacControlStart" && isAbortLikeError(error)) {
+            const reconciled = await reconcileControlStartAfterAbort(endpoint, headers, remoteURL, params);
+            if (reconciled) {
+                return reconciled;
+            }
+        }
+        const err = error;
+        return {
+            ok: false,
+            errors: [
+                {
+                    code: "bridge_connector_failed",
+                    message: err.message || "evaos-desktop-bridge connector request failed",
+                    guidance: "Verify Headscale reachability, EVAOS_DESKTOP_BRIDGE_URL, and EVAOS_DESKTOP_BRIDGE_TOKEN.",
+                },
+            ],
+        };
+    }
+}
+async function postRemoteBridgeCommand(endpoint, headers, remoteURL, command, params, timeoutMs) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const response = await fetch(endpoint, {
             method: "POST",
@@ -1248,26 +1272,74 @@ async function runRemoteBridge(remoteURL, command, params) {
             };
         }
     }
-    catch (error) {
-        const err = error;
-        return {
-            ok: false,
-            errors: [
-                {
-                    code: "bridge_connector_failed",
-                    message: err.message || "evaos-desktop-bridge connector request failed",
-                    guidance: "Verify Headscale reachability, EVAOS_DESKTOP_BRIDGE_URL, and EVAOS_DESKTOP_BRIDGE_TOKEN.",
-                },
-            ],
-        };
-    }
     finally {
         clearTimeout(timeout);
     }
 }
+async function reconcileControlStartAfterAbort(endpoint, headers, remoteURL, params) {
+    try {
+        const status = await postRemoteBridgeCommand(endpoint, headers, remoteURL, "customerMacControlStatus", {}, 15_000);
+        if (!isControlSessionActive(status, params)) {
+            return null;
+        }
+        const payload = isRecord(status) ? { ...status } : { ok: true };
+        const data = isRecord(payload.data) ? { ...payload.data } : {};
+        payload.ok = true;
+        payload.data = {
+            ...data,
+            control_start_reconciled: true,
+        };
+        payload.warnings = [
+            ...(Array.isArray(payload.warnings) ? payload.warnings : []),
+            {
+                code: "control_start_response_reconciled_after_abort",
+                message: "Mac control start timed out after the connector activated the control session; status was reconciled from the paired Mac.",
+                guidance: "Continue with desktop_control_status and desktop_see before running live Mac-control actions.",
+            },
+        ];
+        return payload;
+    }
+    catch {
+        return null;
+    }
+}
+function isAbortLikeError(error) {
+    const err = error;
+    return err.name === "AbortError" || /abort/i.test(err.message || "");
+}
+function isControlSessionActive(status, params) {
+    if (!isRecord(status) || status.ok !== true || !isRecord(status.data)) {
+        return false;
+    }
+    const data = status.data;
+    const session = isRecord(data.session) ? data.session : {};
+    const active = data.active === true || session.active === true;
+    const killSwitch = data.kill_switch === true || data.killSwitch === true || session.kill_switch === true || session.killSwitch === true;
+    const mode = controlModeFromStatus(data.mode) ?? controlModeFromStatus(session.mode);
+    return active && !killSwitch && mode === requestedControlMode(params.mode);
+}
+function requestedControlMode(mode) {
+    return controlModeFromStatus(mode) ?? "full_access";
+}
+function controlModeFromStatus(mode) {
+    if (typeof mode !== "string") {
+        return undefined;
+    }
+    const normalized = mode.trim().toLowerCase().replace(/-/g, "_");
+    if (normalized === "ask_permission") {
+        return "ask_permission";
+    }
+    if (normalized === "full_access") {
+        return "full_access";
+    }
+    return undefined;
+}
 function timeoutForCommand(command) {
     if (command === "codexLiveStatus") {
         return 35_000;
+    }
+    if (command === "customerMacControlStart") {
+        return 30_000;
     }
     if (command === "desktopSee" || command === "iphoneSee" || command === "customerMacSnapshot" || command === "customerMacAxTree") {
         return 60_000;

@@ -416,6 +416,7 @@ def test_timeout_mapping_separates_command_and_scenario_budgets() -> None:
     assert timeout_for_command("desktop_see") == 60
     assert timeout_for_command("iphone_see") == 60
     assert timeout_for_command("desktop_click") == 30
+    assert timeout_for_command("desktop_control_start") == 30
     assert timeout_for_command("iphone_tap") == 30
     assert timeout_for_command("iphone_swipe") == 20
     assert timeout_for_command("desktop_type") == 15
