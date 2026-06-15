@@ -148,11 +148,23 @@ that opaque grant handle in `EVAOS_PROVIDER_GRANT_CACHE_FILE` or
 `~/.openclaw/evaos-provider-grants.json` so later discovery works without a
 human manually injecting environment variables.
 
-Before a VM has a connector token, `customer_mac_complete_pairing` posts the
-one-time enrollment code directly to the Mac connector's
-`/v1/enrollment/complete` endpoint. Its `connector_url` must be an `http://`
-base URL on port `8765` with a private/tailnet host such as `100.64.x.y`,
-`10.x.y.z`, `172.16-31.x.y`, `192.168.x.y`, or a local `.local` hostname.
+Before a VM has a connector token, `customer_mac_complete_pairing` uses the
+short-lived Workbench pairing code to claim connector material from the broker.
+The normal tool input is code-only:
+
+```json
+{
+  "enrollment_code": "PAIR123",
+  "customer_id": "david-poku",
+  "device_name": "Customer Mac"
+}
+```
+
+The plugin writes the private connector URL/token to
+`/root/.openclaw/evaos-desktop-bridge.env` and returns only redacted status,
+token last4, and audit IDs. Direct connector URL pairing is support-only during
+the transition and is disabled unless `EVAOS_ALLOW_LEGACY_CONNECTOR_URL_PAIRING`
+is set explicitly.
 
 ## Safety Notes
 

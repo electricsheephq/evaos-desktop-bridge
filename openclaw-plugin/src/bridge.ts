@@ -662,6 +662,7 @@ export async function runBridge(command: BridgeCommandKey, params: BridgeParams 
     return runEnrollmentBridge(params);
   }
 
+  loadDesktopBridgeEnvFile();
   const remoteURL = process.env.EVAOS_DESKTOP_BRIDGE_URL;
   if (remoteURL) {
     return runRemoteBridge(remoteURL, command, params);
@@ -1035,6 +1036,91 @@ function providerDiscoveryEndpoint(): string | null {
   return null;
 }
 
+function customerMacControlEndpoint(): string | null {
+  const explicit = process.env.EVAOS_CUSTOMER_MAC_CONTROL_URL?.trim();
+  if (explicit) return explicit;
+  const providerEndpoint = providerDiscoveryEndpoint();
+  if (providerEndpoint) {
+    return providerEndpoint.replace(/\/desktop-runtime-session\/?$/, "/customer-mac-control");
+  }
+  return "https://rhfojelkgtwcxnrfhtlj.supabase.co/functions/v1/customer-mac-control";
+}
+
+function desktopBridgeEnvPath(): string | null {
+  const explicit = process.env.EVAOS_DESKTOP_BRIDGE_ENV_FILE?.trim();
+  if (explicit) return explicit;
+  const home = process.env.HOME?.trim();
+  if (!home) return null;
+  return path.join(home, ".openclaw", "evaos-desktop-bridge.env");
+}
+
+function displayDesktopBridgeEnvPath(envPath: string | null): string | null {
+  if (!envPath) return null;
+  const home = process.env.HOME?.trim();
+  return home && envPath.startsWith(home) ? envPath.replace(home, "~") : envPath;
+}
+
+function parseShellEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).replace(/'"'"'/g, "'");
+  }
+  if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+    return trimmed.slice(1, -1).replace(/\\"/g, "\"").replace(/\\\\/g, "\\");
+  }
+  return trimmed;
+}
+
+function loadDesktopBridgeEnvFile(): void {
+  if (process.env.EVAOS_DESKTOP_BRIDGE_URL && process.env.EVAOS_DESKTOP_BRIDGE_TOKEN) return;
+  const envPath = desktopBridgeEnvPath();
+  if (!envPath) return;
+  let text: string;
+  try {
+    text = fs.readFileSync(envPath, "utf8");
+  } catch {
+    return;
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Z0-9_]+)=(.*)$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (!key.startsWith("EVAOS_")) continue;
+    if (process.env[key]) continue;
+    process.env[key] = parseShellEnvValue(rawValue);
+  }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+async function writeDesktopBridgeEnv(input: {
+  connectorURL: string;
+  connectorToken: string;
+  customerID: string;
+  deviceID?: string;
+}): Promise<string | null> {
+  const envPath = desktopBridgeEnvPath();
+  if (!envPath) return null;
+  const lines = [
+    `export EVAOS_DESKTOP_BRIDGE_URL=${shellQuote(input.connectorURL)}`,
+    `export EVAOS_DESKTOP_BRIDGE_TOKEN=${shellQuote(input.connectorToken)}`,
+    `export EVAOS_CUSTOMER_ID=${shellQuote(input.customerID)}`,
+  ];
+  if (input.deviceID) {
+    lines.push(`export EVAOS_MAC_CONNECTOR_DEVICE_ID=${shellQuote(input.deviceID)}`);
+  }
+  await mkdir(path.dirname(envPath), { recursive: true });
+  await writeFile(envPath, `${lines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+  try {
+    fsCompat.chmodSync(envPath, 0o600);
+  } catch {
+    // Best effort on platforms that do not support chmod.
+  }
+  return envPath;
+}
+
 function providerGrantHandleFor(agentRuntime: "openclaw" | "hermes"): string | null {
   const direct = process.env.EVAOS_PROVIDER_GRANT_HANDLE?.trim();
   if (direct) return direct;
@@ -1125,13 +1211,34 @@ function readJSONEnv(name: string): unknown {
 }
 
 async function runEnrollmentBridge(params: BridgeParams): Promise<unknown> {
-  const connectorURLString = requiredEnrollmentString(params.connector_url, "connector_url");
   const enrollmentCode = requiredEnrollmentString(params.enrollment_code, "enrollment_code");
-  if (!connectorURLString.ok) {
-    return connectorURLString.error;
-  }
   if (!enrollmentCode.ok) {
     return enrollmentCode.error;
+  }
+
+  if (typeof params.connector_url === "string" && params.connector_url.trim() !== "") {
+    if (process.env.EVAOS_ALLOW_LEGACY_CONNECTOR_URL_PAIRING === "true") {
+      return runLegacyEnrollmentBridge(params, enrollmentCode.value);
+    }
+    return {
+      ok: false,
+      errors: [
+        {
+          code: "bridge_connector_url_support_only",
+          message: "connector_url pairing is disabled for normal agent tools.",
+          guidance: "Use the Workbench pairing prompt code with enrollment_code and customer_id only.",
+        },
+      ],
+    };
+  }
+
+  return claimEnrollmentFromBroker(params, enrollmentCode.value);
+}
+
+async function runLegacyEnrollmentBridge(params: BridgeParams, enrollmentCode: string): Promise<unknown> {
+  const connectorURLString = requiredEnrollmentString(params.connector_url, "connector_url");
+  if (!connectorURLString.ok) {
+    return connectorURLString.error;
   }
 
   const connectorURLResult = validateEnrollmentConnectorURL(connectorURLString.value);
@@ -1140,7 +1247,7 @@ async function runEnrollmentBridge(params: BridgeParams): Promise<unknown> {
   }
 
   const body: Record<string, string> = {
-    enrollment_code: enrollmentCode.value,
+    enrollment_code: enrollmentCode,
   };
   if (typeof params.customer_id === "string" && params.customer_id.trim() !== "") {
     body.customer_id = params.customer_id.trim();
@@ -1187,7 +1294,138 @@ async function runEnrollmentBridge(params: BridgeParams): Promise<unknown> {
         {
           code: "bridge_connector_failed",
           message: err.message || "evaos-desktop-bridge enrollment request failed",
-          guidance: "Verify the connector URL, secure network reachability, and enrollment code.",
+          guidance: "Use the code-only Workbench pairing prompt unless support explicitly enabled legacy connector URL pairing.",
+        },
+      ],
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function claimEnrollmentFromBroker(params: BridgeParams, enrollmentCode: string): Promise<unknown> {
+  const endpoint = customerMacControlEndpoint();
+  const customerID = typeof params.customer_id === "string" && params.customer_id.trim()
+    ? params.customer_id.trim()
+    : process.env.EVAOS_CUSTOMER_ID?.trim();
+  const proofSecret = process.env.EVAOS_PROVIDER_AUTH_PROOF_SECRET?.trim() || process.env.EVAOS_PROVIDER_PROOF_SECRET?.trim();
+  if (!endpoint || !customerID || !proofSecret) {
+    return {
+      ok: false,
+      errors: [
+        {
+          code: "mac_pairing_proof_not_configured",
+          message: "Code-only Mac pairing requires broker endpoint, customer id, and provider proof secret.",
+          guidance:
+            "Set EVAOS_CUSTOMER_MAC_CONTROL_URL or EVAOS_PROVIDER_DISCOVERY_URL, EVAOS_CUSTOMER_ID, and EVAOS_PROVIDER_AUTH_PROOF_SECRET on the VM.",
+        },
+      ],
+    };
+  }
+
+  const expiresAt = normalizeProviderProofExpiry(params.expires_at);
+  const proofID = `emp_${randomUUID().replace(/-/g, "")}`;
+  const proofPayload = {
+    customer_id: customerID,
+    enrollment_code: enrollmentCode,
+    purpose: "customer_mac_pairing_claim",
+    agent_runtime: "openclaw",
+    proof_id: proofID,
+    expires_at: expiresAt,
+  };
+  const signature = createHmac("sha256", proofSecret)
+    .update(JSON.stringify(proofPayload))
+    .digest("hex");
+  const requestBody = {
+    action: "claim_enrollment",
+    customer_id: customerID,
+    enrollment_code: enrollmentCode,
+    agent_runtime: "openclaw",
+    device_name: typeof params.device_name === "string" ? params.device_name.trim() : undefined,
+    mac_pairing_proof: {
+      purpose: "customer_mac_pairing_claim",
+      agent_runtime: "openclaw",
+      proof_id: proofID,
+      expires_at: expiresAt,
+      signature,
+    },
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Evaos-Mac-Pairing-Proof": "signed-v1",
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const payload = JSON.parse(text || "{}");
+    if (!response.ok || !isRecord(payload)) {
+      return {
+        ok: false,
+        errors: [
+          {
+            code: "mac_pairing_claim_failed",
+            message: isRecord(payload) && typeof payload.error === "string" ? payload.error : `Broker returned HTTP ${response.status}`,
+            guidance: "Confirm the Workbench pairing code is fresh and the VM has provider proof configuration.",
+          },
+        ],
+      };
+    }
+    const connector = isRecord(payload.connector) ? payload.connector : null;
+    const connectorURL = connector && typeof connector.url === "string" ? connector.url.trim() : "";
+    const connectorToken = connector && typeof connector.token === "string" ? connector.token.trim() : "";
+    if (!connectorURL || !connectorToken) {
+      return {
+        ok: false,
+        errors: [
+          {
+            code: "mac_pairing_claim_missing_connector",
+            message: "Broker accepted the claim but did not return connector material.",
+            guidance: "Create a fresh Workbench pairing code after the Mac connector shows ready.",
+          },
+        ],
+      };
+    }
+    const envPath = await writeDesktopBridgeEnv({
+      connectorURL,
+      connectorToken,
+      customerID,
+      deviceID: typeof payload.device_id === "string" ? payload.device_id : undefined,
+    });
+    process.env.EVAOS_DESKTOP_BRIDGE_URL = connectorURL;
+    process.env.EVAOS_DESKTOP_BRIDGE_TOKEN = connectorToken;
+    process.env.EVAOS_CUSTOMER_ID = customerID;
+    const connectorTokenLast4 = connector && typeof connector.token_last4 === "string" ? connector.token_last4 : connectorToken.slice(-4);
+    return {
+      ok: true,
+      audit_id: typeof payload.audit_id === "string" ? payload.audit_id : undefined,
+      data: {
+        paired: true,
+        customer_id: customerID,
+        device_id: typeof payload.device_id === "string" ? payload.device_id : null,
+        grant_id: typeof payload.grant_id === "string" ? payload.grant_id : null,
+        audit_id: typeof payload.audit_id === "string" ? payload.audit_id : null,
+        connector_token_last4: connectorTokenLast4,
+        env_path: displayDesktopBridgeEnvPath(envPath),
+        raw_secrets_returned: false,
+      },
+    };
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return {
+      ok: false,
+      errors: [
+        {
+          code: "mac_pairing_claim_failed",
+          message: err.message || "evaOS Mac pairing broker claim failed",
+          guidance: "Confirm Supabase customer-mac-control is reachable and the Workbench pairing code is fresh.",
         },
       ],
     };
@@ -1484,7 +1722,7 @@ function requiredEnrollmentString(value: unknown, name: string): EnrollmentStrin
           {
             code: "bridge_enrollment_missing_field",
             message: `${name} is required`,
-            guidance: "Use the pairing prompt from Workbench and pass the connector_url plus enrollment_code exactly.",
+            guidance: "Use the pairing prompt from Workbench and pass only the enrollment_code, customer_id, and optional device_name.",
           },
         ],
       },

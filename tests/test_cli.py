@@ -795,6 +795,68 @@ def test_connector_service_json_output_is_redacted(monkeypatch, tmp_path: Path) 
     assert str(Path.home()) not in output.getvalue()
 
 
+def test_connector_service_complete_enrollment_registers_privately(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_connector_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "tailnet_ip": "100.64.1.10",
+            "health": {"host": "100.64.1.10", "reachable": True},
+        }
+
+    def fake_read_token(token_file: str | None, *, state_dir: Path | None = None, auto_create: bool = False) -> str:
+        assert token_file is None
+        assert state_dir == tmp_path
+        assert auto_create is False
+        return "secret-token-abcdef1234567890"
+
+    def fake_complete_enrollment_via_control(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "ok": True,
+            "device": {"id": "device-1"},
+            "headscale": {"ok": True, "node": "benjamin-mac"},
+        }
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
+    monkeypatch.setattr(bridge_cli, "read_token", fake_read_token)
+    monkeypatch.setattr(bridge_cli, "complete_enrollment_via_control", fake_complete_enrollment_via_control)
+
+    output = io.StringIO()
+    exit_code = main(
+        [
+            "connector-service",
+            "complete-enrollment",
+            "--json",
+            "--enrollment-code",
+            "PAIR123",
+            "--customer-id",
+            "benjamin-kennedy",
+            "--device-name",
+            "Benjamin Mac",
+        ],
+        stdout=output,
+        state_dir=tmp_path,
+    )
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert captured["enrollment_code"] == "PAIR123"
+    assert captured["connector_url"] == "http://100.64.1.10:8765"
+    assert captured["connector_token"] == "secret-token-abcdef1234567890"
+    assert captured["device_name"] == "Benjamin Mac"
+    assert payload["ok"] is True
+    assert payload["customer_id"] == "benjamin-kennedy"
+    assert payload["device_id"] == "device-1"
+    assert payload["connector_registered"] is True
+    assert payload["connector_token_last4"] == "7890"
+    assert payload["raw_secrets_returned"] is False
+    assert "100.64.1.10" not in output.getvalue()
+    assert "secret-token" not in output.getvalue()
+
+
 def test_focus_permission_error_is_graceful_json(tmp_path: Path) -> None:
     payload = run_cli(
         ["codex", "focus", "--json"],

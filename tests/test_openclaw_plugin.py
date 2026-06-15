@@ -817,25 +817,14 @@ def test_hermes_adapter_caches_minted_provider_grant_after_signed_auth(tmp_path:
     assert profiles_payload["data"]["source"] == "broker"
 
 
-def test_customer_mac_complete_pairing_validates_connector_urls() -> None:
+def test_customer_mac_complete_pairing_rejects_connector_url_by_default() -> None:
     script = """
         import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
-        const cases = [
-          'https://100.64.1.10:8765',
-          'http://100.64.1.10',
-          'http://127.0.0.1:8765',
-          'http://localhost:8765',
-          'http://8.8.8.8:8765',
-          'http://100.64.1.10:8765/v1/commands',
-        ];
-        const results = [];
-        for (const connector_url of cases) {
-          results.push(await runBridge('customerMacCompletePairing', {
-            connector_url,
-            enrollment_code: 'PAIR123',
-          }));
-        }
-        console.log(JSON.stringify(results));
+        const result = await runBridge('customerMacCompletePairing', {
+          connector_url: 'http://100.64.1.10:8765',
+          enrollment_code: 'PAIR123',
+        });
+        console.log(JSON.stringify(result));
     """
     completed = subprocess.run(
         ["node", "--input-type=module", "-e", script],
@@ -845,20 +834,16 @@ def test_customer_mac_complete_pairing_validates_connector_urls() -> None:
         stderr=subprocess.PIPE,
         check=True,
     )
-    results = json.loads(completed.stdout)
+    result = json.loads(completed.stdout)
 
-    assert len(results) == 6
-    for result in results:
-        assert result["ok"] is False
-        assert result["errors"][0]["code"] == "bridge_connector_url_forbidden"
+    assert result["ok"] is False
+    assert result["errors"][0]["code"] == "bridge_connector_url_support_only"
 
 
 def test_customer_mac_complete_pairing_requires_enrollment_code() -> None:
     script = """
         import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
-        const result = await runBridge('customerMacCompletePairing', {
-          connector_url: 'http://100.64.1.10:8765',
-        });
+        const result = await runBridge('customerMacCompletePairing', {});
         console.log(JSON.stringify(result));
     """
     completed = subprocess.run(
@@ -876,42 +861,66 @@ def test_customer_mac_complete_pairing_requires_enrollment_code() -> None:
     assert "enrollment_code" in result["errors"][0]["message"]
 
 
-def test_customer_mac_complete_pairing_posts_to_enrollment_endpoint_without_token() -> None:
+def test_customer_mac_complete_pairing_claims_broker_and_writes_private_env(tmp_path: Path) -> None:
     source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
     dist = (PLUGIN / "dist" / "src" / "bridge.js").read_text(encoding="utf-8")
 
     for text in [source, dist]:
         assert "customerMacCompletePairing" in text
-        assert "/v1/enrollment/complete" in text
+        assert "claim_enrollment" in text
         assert "enrollment_code" in text
-        assert "connector_token" not in text
 
     assert 'new URL("/v1/commands", remoteURL)' in source
-    assert 'new URL("/v1/enrollment/complete", connectorURL)' in source
 
+    env_file = tmp_path / "evaos-desktop-bridge.env"
     script = """
         import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        import { readFileSync } from 'node:fs';
         let captured = null;
+        process.env.EVAOS_CUSTOMER_MAC_CONTROL_URL = 'https://broker.example/functions/v1/customer-mac-control';
+        process.env.EVAOS_CUSTOMER_ID = 'david-poku';
+        process.env.EVAOS_PROVIDER_AUTH_PROOF_SECRET = 'proof-secret';
+        process.env.EVAOS_DESKTOP_BRIDGE_ENV_FILE = __ENV_FILE__;
         globalThis.fetch = async (url, options) => {
           captured = {
             url: String(url),
+            headers: options.headers,
             body: JSON.parse(options.body),
             hasAuthorization: Boolean(options.headers.Authorization || options.headers.authorization),
           };
           return {
+            ok: true,
+            status: 200,
             async text() {
-              return JSON.stringify({ ok: true, data: { connector_token: 'secret', device_id: 'device-1' } });
+              return JSON.stringify({
+                ok: true,
+                audit_id: 'audit-pair',
+                customer_id: 'david-poku',
+                device_id: 'device-1',
+                grant_id: 'grant-1',
+                connector: {
+                  url: 'http://100.64.1.10:8765',
+                  token: 'secret-token-abcdef1234567890',
+                  token_last4: '7890'
+                }
+              });
             },
           };
         };
         const result = await runBridge('customerMacCompletePairing', {
-          connector_url: 'http://100.64.1.10:8765',
           enrollment_code: 'PAIR123',
           customer_id: 'david-poku',
           device_name: 'Customer Mac',
         });
-        console.log(JSON.stringify({ captured, result }));
+        const envText = readFileSync(process.env.EVAOS_DESKTOP_BRIDGE_ENV_FILE, 'utf8');
+        console.log(JSON.stringify({
+          captured,
+          result,
+          envHasUrl: envText.includes('100.64.1.10'),
+          envHasToken: envText.includes('secret-token-abcdef1234567890')
+        }));
     """
+    script = script.replace("__ENV_FILE__", json.dumps(str(env_file)))
     completed = subprocess.run(
         ["node", "--input-type=module", "-e", script],
         cwd=ROOT,
@@ -922,15 +931,31 @@ def test_customer_mac_complete_pairing_posts_to_enrollment_endpoint_without_toke
     )
     payload = json.loads(completed.stdout)
 
-    assert payload["captured"]["url"] == "http://100.64.1.10:8765/v1/enrollment/complete"
-    assert payload["captured"]["body"] == {
-        "enrollment_code": "PAIR123",
-        "customer_id": "david-poku",
-        "device_name": "Customer Mac",
-    }
+    assert payload["captured"]["url"] == "https://broker.example/functions/v1/customer-mac-control"
+    assert payload["captured"]["headers"]["X-Evaos-Mac-Pairing-Proof"] == "signed-v1"
+    assert payload["captured"]["body"]["action"] == "claim_enrollment"
+    assert payload["captured"]["body"]["customer_id"] == "david-poku"
+    assert payload["captured"]["body"]["enrollment_code"] == "PAIR123"
+    assert payload["captured"]["body"]["agent_runtime"] == "openclaw"
+    assert payload["captured"]["body"]["device_name"] == "Customer Mac"
+    assert payload["captured"]["body"]["mac_pairing_proof"]["purpose"] == "customer_mac_pairing_claim"
+    assert "connector_url" not in payload["captured"]["body"]
     assert payload["captured"]["hasAuthorization"] is False
     assert payload["result"]["ok"] is True
-    assert payload["result"]["data"]["connector_token"] == "[redacted]"
+    assert payload["result"]["data"] == {
+        "paired": True,
+        "customer_id": "david-poku",
+        "device_id": "device-1",
+        "grant_id": "grant-1",
+        "audit_id": "audit-pair",
+        "connector_token_last4": "7890",
+        "env_path": str(env_file),
+        "raw_secrets_returned": False,
+    }
+    assert "100.64.1.10" not in json.dumps(payload["result"])
+    assert "secret-token" not in json.dumps(payload["result"])
+    assert payload["envHasUrl"] is True
+    assert payload["envHasToken"] is True
 
 
 def test_remote_visual_artifact_is_materialized_on_vm(tmp_path: Path) -> None:
@@ -1107,18 +1132,21 @@ def test_hermes_adapter_uses_same_connector_contract() -> None:
     assert "generic shell" in readme
 
 
-def test_hermes_adapter_supports_pre_token_complete_enrollment() -> None:
+def test_hermes_adapter_supports_code_only_complete_enrollment() -> None:
     adapter = (ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command").read_text(encoding="utf-8")
     readme = (ROOT / "hermes-adapter" / "README.md").read_text(encoding="utf-8")
 
     assert "completeEnrollment" in adapter
+    assert "claim_enrollment" in adapter
+    assert "X-Evaos-Mac-Pairing-Proof" in adapter
+    assert "EVAOS_ALLOW_LEGACY_CONNECTOR_URL_PAIRING" in adapter
     assert "/v1/enrollment/complete" in adapter
     assert "EVAOS_DESKTOP_BRIDGE_TOKEN is required" in adapter
-    assert "connector_url" in adapter
     assert "enrollment_code" in adapter
-    assert "connector_token" not in adapter
+    assert "connector_token_last4" in adapter
     assert "completeEnrollment" in readme
-    assert "/v1/enrollment/complete" in readme
+    assert "enrollment_code" in readme
+    assert "connector_url" not in readme
 
 
 def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_connector_token() -> None:
