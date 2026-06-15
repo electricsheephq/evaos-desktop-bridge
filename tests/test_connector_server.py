@@ -668,6 +668,13 @@ def test_connector_token_autocreates_per_user_default(tmp_path: Path) -> None:
     assert read_token(None, state_dir=tmp_path, auto_create=True) == token
 
 
+def test_connector_token_reads_existing_per_user_default(tmp_path: Path) -> None:
+    token_path = tmp_path / "connector.token"
+    token_path.write_text("secret-token\n", encoding="utf-8")
+
+    assert read_token(None, state_dir=tmp_path, auto_create=False) == "secret-token"
+
+
 def test_connector_token_autocreates_empty_configured_file(tmp_path: Path) -> None:
     token_path = tmp_path / "connector.token"
     token_path.write_text("\n", encoding="utf-8")

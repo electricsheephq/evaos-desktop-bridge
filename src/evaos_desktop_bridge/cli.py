@@ -1682,6 +1682,16 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
         }
 
     device = result.get("device") if isinstance(result.get("device"), dict) else {}
+    headscale = result.get("headscale") if isinstance(result.get("headscale"), dict) else None
+    public_headscale = None
+    if headscale is not None:
+        public_headscale = {
+            key: value
+            for key, value in headscale.items()
+            if key not in {"preauth_key", "auth_key", "token", "secret"}
+        }
+        if any(key in headscale for key in ("preauth_key", "auth_key", "token", "secret")):
+            public_headscale["secret_material_returned"] = False
     return {
         "ok": bool(device.get("id")) or result.get("ok") is True,
         "action": "complete-enrollment",
@@ -1689,7 +1699,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
         "device_id": device.get("id"),
         "connector_registered": True,
         "connector_token_last4": connector_token[-4:],
-        "headscale": result.get("headscale"),
+        "headscale": public_headscale,
         "raw_secrets_returned": False,
     }
 
