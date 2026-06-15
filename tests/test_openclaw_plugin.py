@@ -879,7 +879,8 @@ def test_customer_mac_complete_pairing_claims_broker_and_writes_private_env(tmp_
         let captured = null;
         process.env.EVAOS_CUSTOMER_MAC_CONTROL_URL = 'https://broker.example/functions/v1/customer-mac-control';
         process.env.EVAOS_CUSTOMER_ID = 'david-poku';
-        process.env.EVAOS_PROVIDER_AUTH_PROOF_SECRET = 'proof-secret';
+        process.env.EVAOS_PROVIDER_AUTH_PROOF_SECRET = 'wrong-provider-secret';
+        process.env.EVAOS_MAC_PAIRING_PROOF_SECRET = 'proof-secret';
         process.env.EVAOS_DESKTOP_BRIDGE_ENV_FILE = __ENV_FILE__;
         globalThis.fetch = async (url, options) => {
           captured = {
@@ -938,7 +939,18 @@ def test_customer_mac_complete_pairing_claims_broker_and_writes_private_env(tmp_
     assert payload["captured"]["body"]["enrollment_code"] == "PAIR123"
     assert payload["captured"]["body"]["agent_runtime"] == "openclaw"
     assert payload["captured"]["body"]["device_name"] == "Customer Mac"
-    assert payload["captured"]["body"]["mac_pairing_proof"]["purpose"] == "customer_mac_pairing_claim"
+    proof = payload["captured"]["body"]["mac_pairing_proof"]
+    assert proof["purpose"] == "customer_mac_pairing_claim"
+    signed_payload = json.dumps({
+        "customer_id": "david-poku",
+        "enrollment_code": "PAIR123",
+        "purpose": "customer_mac_pairing_claim",
+        "agent_runtime": "openclaw",
+        "proof_id": proof["proof_id"],
+        "expires_at": proof["expires_at"],
+    }, separators=(",", ":"))
+    expected_signature = hmac.new(b"proof-secret", signed_payload.encode(), hashlib.sha256).hexdigest()
+    assert proof["signature"] == expected_signature
     assert "connector_url" not in payload["captured"]["body"]
     assert payload["captured"]["hasAuthorization"] is False
     assert payload["result"]["ok"] is True
@@ -1139,6 +1151,7 @@ def test_hermes_adapter_supports_code_only_complete_enrollment() -> None:
     assert "completeEnrollment" in adapter
     assert "claim_enrollment" in adapter
     assert "X-Evaos-Mac-Pairing-Proof" in adapter
+    assert "EVAOS_MAC_PAIRING_PROOF_SECRET" in adapter
     assert "EVAOS_ALLOW_LEGACY_CONNECTOR_URL_PAIRING" in adapter
     assert "/v1/enrollment/complete" in adapter
     assert "EVAOS_DESKTOP_BRIDGE_TOKEN is required" in adapter
@@ -1147,6 +1160,90 @@ def test_hermes_adapter_supports_code_only_complete_enrollment() -> None:
     assert "completeEnrollment" in readme
     assert "enrollment_code" in readme
     assert "connector_url" not in readme
+
+
+def test_hermes_complete_enrollment_uses_mac_pairing_secret(tmp_path: Path) -> None:
+    adapter = ROOT / "hermes-adapter" / "bin" / "evaos-desktop-bridge-command"
+    captured: dict[str, object] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib callback name
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0") or "0"))
+            parsed = json.loads(body or b"{}")
+            captured["body"] = parsed
+            captured["proof_header"] = self.headers.get("X-Evaos-Mac-Pairing-Proof")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "ok": True,
+                "audit_id": "audit-hermes-pair",
+                "customer_id": parsed["customer_id"],
+                "device_id": "device-1",
+                "grant_id": "grant-1",
+                "connector": {
+                    "url": "http://100.64.1.10:8765",
+                    "token": "secret-token-abcdef1234567890",
+                    "token_last4": "7890",
+                },
+            }).encode("utf-8"))
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        env_file = tmp_path / "evaos-desktop-bridge.env"
+        env = {
+            **os.environ,
+            "EVAOS_CUSTOMER_ID": "benjamin-kennedy",
+            "EVAOS_CUSTOMER_MAC_CONTROL_URL": f"http://127.0.0.1:{server.server_port}/functions/v1/customer-mac-control",
+            "EVAOS_PROVIDER_AUTH_PROOF_SECRET": "wrong-provider-secret",
+            "EVAOS_MAC_PAIRING_PROOF_SECRET": "proof-secret",
+            "EVAOS_DESKTOP_BRIDGE_ENV_FILE": str(env_file),
+        }
+        completed = subprocess.run(
+            [str(adapter), "completeEnrollment", json.dumps({
+                "enrollment_code": "PAIR123",
+                "customer_id": "benjamin-kennedy",
+                "device_name": "Benjamin Mac",
+            })],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    payload = json.loads(completed.stdout)
+    body = captured["body"]
+    proof = body["mac_pairing_proof"]
+    signed_payload = json.dumps({
+        "customer_id": "benjamin-kennedy",
+        "enrollment_code": "PAIR123",
+        "purpose": "customer_mac_pairing_claim",
+        "agent_runtime": "hermes",
+        "proof_id": proof["proof_id"],
+        "expires_at": proof["expires_at"],
+    }, separators=(",", ":"))
+    expected_signature = hmac.new(b"proof-secret", signed_payload.encode(), hashlib.sha256).hexdigest()
+
+    assert captured["proof_header"] == "signed-v1"
+    assert body["action"] == "claim_enrollment"
+    assert body["agent_runtime"] == "hermes"
+    assert proof["purpose"] == "customer_mac_pairing_claim"
+    assert proof["signature"] == expected_signature
+    assert payload["ok"] is True
+    assert payload["data"]["paired"] is True
+    assert payload["data"]["connector_token_last4"] == "7890"
+    assert "secret-token" not in json.dumps(payload)
+    assert env_file.read_text(encoding="utf-8").count("EVAOS_DESKTOP_BRIDGE_TOKEN") == 1
 
 
 def test_hermes_adapter_reports_provider_and_shared_browser_metadata_before_connector_token() -> None:

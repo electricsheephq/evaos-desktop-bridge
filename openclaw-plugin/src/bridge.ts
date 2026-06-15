@@ -1308,7 +1308,9 @@ async function claimEnrollmentFromBroker(params: BridgeParams, enrollmentCode: s
   const customerID = typeof params.customer_id === "string" && params.customer_id.trim()
     ? params.customer_id.trim()
     : process.env.EVAOS_CUSTOMER_ID?.trim();
-  const proofSecret = process.env.EVAOS_PROVIDER_AUTH_PROOF_SECRET?.trim() || process.env.EVAOS_PROVIDER_PROOF_SECRET?.trim();
+  const proofSecret = process.env.EVAOS_MAC_PAIRING_PROOF_SECRET?.trim() ||
+    process.env.EVAOS_PROVIDER_AUTH_PROOF_SECRET?.trim() ||
+    process.env.EVAOS_PROVIDER_PROOF_SECRET?.trim();
   if (!endpoint || !customerID || !proofSecret) {
     return {
       ok: false,
@@ -1317,7 +1319,7 @@ async function claimEnrollmentFromBroker(params: BridgeParams, enrollmentCode: s
           code: "mac_pairing_proof_not_configured",
           message: "Code-only Mac pairing requires broker endpoint, customer id, and provider proof secret.",
           guidance:
-            "Set EVAOS_CUSTOMER_MAC_CONTROL_URL or EVAOS_PROVIDER_DISCOVERY_URL, EVAOS_CUSTOMER_ID, and EVAOS_PROVIDER_AUTH_PROOF_SECRET on the VM.",
+            "Set EVAOS_CUSTOMER_MAC_CONTROL_URL or EVAOS_PROVIDER_DISCOVERY_URL, EVAOS_CUSTOMER_ID, and EVAOS_MAC_PAIRING_PROOF_SECRET on the VM.",
         },
       ],
     };

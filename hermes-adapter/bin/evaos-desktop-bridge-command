@@ -647,7 +647,8 @@ def complete_enrollment_claim_payload():
     endpoint = customer_mac_control_endpoint()
     customer_id = str(params.get("customer_id") or os.environ.get("EVAOS_CUSTOMER_ID") or "").strip()
     enrollment_code = str(params.get("enrollment_code") or "").strip()
-    proof_secret = (os.environ.get("EVAOS_PROVIDER_AUTH_PROOF_SECRET", "").strip()
+    proof_secret = (os.environ.get("EVAOS_MAC_PAIRING_PROOF_SECRET", "").strip()
+                    or os.environ.get("EVAOS_PROVIDER_AUTH_PROOF_SECRET", "").strip()
                     or os.environ.get("EVAOS_PROVIDER_PROOF_SECRET", "").strip())
     if not endpoint or not customer_id or not enrollment_code or not proof_secret:
         return {
@@ -655,7 +656,7 @@ def complete_enrollment_claim_payload():
             "errors": [{
                 "code": "mac_pairing_proof_not_configured",
                 "message": "Code-only Mac pairing requires broker endpoint, customer id, enrollment code, and provider proof secret.",
-                "guidance": "Set EVAOS_CUSTOMER_ID and EVAOS_PROVIDER_AUTH_PROOF_SECRET on the VM, then use the Workbench pairing code.",
+                "guidance": "Set EVAOS_CUSTOMER_ID and EVAOS_MAC_PAIRING_PROOF_SECRET on the VM, then use the Workbench pairing code.",
             }],
         }
 
