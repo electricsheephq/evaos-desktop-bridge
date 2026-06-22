@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import plistlib
@@ -1640,13 +1641,27 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
 
     status = _connector_service_status(state_dir=state_dir)
     health = status.get("health") if isinstance(status.get("health"), dict) else {}
-    host = str(health.get("host") or status.get("tailnet_ip") or "").strip()
-    if status.get("ok") is not True or not host:
+    host_result = _connector_registration_host(status)
+    host = str(host_result.get("host") or "").strip()
+    if status.get("ok") is not True:
         return {
             "ok": False,
             "action": "complete-enrollment",
             "error": "connector_service_not_ready",
             "status": status,
+        }
+    if not host:
+        return {
+            "ok": False,
+            "action": "complete-enrollment",
+            "error": str(host_result.get("error") or "secure_network_link_required"),
+            "message": str(
+                host_result.get("message")
+                or "A secure tailnet or private connector host is required before pairing an agent to this Mac."
+            ),
+            "tailnet_available": bool(status.get("tailnet_ip")),
+            "health_reachable": bool(health.get("reachable")),
+            "health_host_kind": _connector_host_kind(str(health.get("host") or "")),
         }
 
     try:
@@ -1668,7 +1683,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
     try:
         result = complete_enrollment_via_control(
             enrollment_code=enrollment_code,
-            connector_url=f"http://{host}:{CONNECTOR_PORT}",
+            connector_url=f"http://{_connector_url_host(host)}:{CONNECTOR_PORT}",
             connector_token=connector_token,
             device_name=device_name,
             device_identifier=socket.gethostname(),
@@ -1702,6 +1717,92 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
         "headscale": public_headscale,
         "raw_secrets_returned": False,
     }
+
+
+def _connector_registration_host(status: dict[str, object]) -> dict[str, object]:
+    tailnet_ip = str(status.get("tailnet_ip") or "").strip()
+    if _is_safe_connector_registration_host(tailnet_ip):
+        return {"ok": True, "host": tailnet_ip, "source": "tailnet_ip"}
+
+    health = status.get("health") if isinstance(status.get("health"), dict) else {}
+    health_host = str(health.get("host") or "").strip()
+    if health.get("reachable") is True and _is_safe_connector_registration_host(health_host):
+        return {"ok": True, "host": health_host, "source": "health_host"}
+
+    return {
+        "ok": False,
+        "error": "tailnet_ip_required" if not tailnet_ip else "secure_network_link_required",
+        "message": (
+            "A secure tailnet or private connector host is required before pairing an agent to this Mac. "
+            "Loopback, reserved, public, or unreachable connector health hosts are not registered with evaOS."
+        ),
+    }
+
+
+def _is_safe_connector_registration_host(value: str) -> bool:
+    host = _normalized_connector_host(value)
+    if not host:
+        return False
+    lowered = host.lower()
+    if lowered in {"localhost", "localhost.localdomain"}:
+        return False
+    if lowered.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local:
+        return False
+    return _looks_like_tailnet_ipv4(host) or ip.is_private
+
+
+def _connector_host_kind(value: str) -> str:
+    host = _normalized_connector_host(value)
+    if not host:
+        return "missing"
+    if host.lower() in {"localhost", "localhost.localdomain"}:
+        return "loopback"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        if host.lower().endswith(".local"):
+            return "local"
+        return "hostname"
+    if ip.is_loopback:
+        return "loopback"
+    if ip.is_unspecified:
+        return "unspecified"
+    if _looks_like_tailnet_ipv4(host):
+        return "tailnet"
+    if ip.is_private:
+        return "private"
+    return "public"
+
+
+def _normalized_connector_host(value: str) -> str:
+    raw_host = str(value or "").strip()
+    if not raw_host or any(separator in raw_host for separator in ("/", "?", "#", "@")):
+        return ""
+    bracketed_host = raw_host.startswith("[") and raw_host.endswith("]")
+    host = raw_host[1:-1] if bracketed_host else raw_host
+    if not host:
+        return ""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if ":" in host:
+            return ""
+    return host
+
+
+def _connector_url_host(host: str) -> str:
+    normalized = _normalized_connector_host(host)
+    try:
+        ip = ipaddress.ip_address(normalized)
+    except ValueError:
+        return normalized
+    return f"[{normalized}]" if ip.version == 6 else normalized
 
 
 def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
