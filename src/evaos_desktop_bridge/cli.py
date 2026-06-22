@@ -1616,10 +1616,24 @@ def _target_for_command(command: str) -> str:
     return "desktop"
 
 
-CONNECTOR_LABEL = "com.electricsheep.evaos-desktop-bridge"
+DEFAULT_CONNECTOR_LABEL = "com.electricsheep.evaos-desktop-bridge"
+
+
+def _connector_label_from_env(env: dict[str, str] | None = None) -> str:
+    env = env if env is not None else os.environ
+    raw_label = str(env.get("EVAOS_DESKTOP_BRIDGE_CONNECTOR_LABEL") or DEFAULT_CONNECTOR_LABEL).strip()
+    if not raw_label:
+        return DEFAULT_CONNECTOR_LABEL
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")
+    if any(char not in allowed for char in raw_label) or "/" in raw_label:
+        return DEFAULT_CONNECTOR_LABEL
+    return raw_label
+
+
+CONNECTOR_LABEL = _connector_label_from_env()
 CONNECTOR_PORT = 8765
-CONNECTOR_SYSTEM_PLIST = Path("/Library/LaunchAgents/com.electricsheep.evaos-desktop-bridge.plist")
-CONNECTOR_USER_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
+CONNECTOR_SYSTEM_PLIST = Path(f"/Library/LaunchAgents/{CONNECTOR_LABEL}.plist")
+CONNECTOR_USER_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{CONNECTOR_LABEL}.plist"
 PEEKABOO_BIN_CANDIDATES = (
     "evaos-connector-helper",
     "peekaboo",
