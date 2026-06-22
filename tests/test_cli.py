@@ -867,6 +867,148 @@ def test_connector_service_complete_enrollment_registers_privately(monkeypatch, 
     assert "cf2e354d8" not in output.getvalue()
 
 
+def test_connector_service_complete_enrollment_prefers_tailnet_over_loopback_health(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_connector_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "tailnet_ip": "100.64.1.10",
+            "health": {"host": "127.0.0.1", "reachable": True},
+        }
+
+    def fake_read_token(token_file: str | None, *, state_dir: Path | None = None, auto_create: bool = False) -> str:
+        assert token_file is None
+        assert state_dir == tmp_path
+        assert auto_create is False
+        return "secret-token-abcdef1234567890"
+
+    def fake_complete_enrollment_via_control(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "device": {"id": "device-1"}}
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
+    monkeypatch.setattr(bridge_cli, "read_token", fake_read_token)
+    monkeypatch.setattr(bridge_cli, "complete_enrollment_via_control", fake_complete_enrollment_via_control)
+
+    output = io.StringIO()
+    exit_code = main(
+        [
+            "connector-service",
+            "complete-enrollment",
+            "--json",
+            "--enrollment-code",
+            "PAIR123",
+            "--customer-id",
+            "benjamin-kennedy",
+        ],
+        stdout=output,
+        state_dir=tmp_path,
+    )
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert captured["connector_url"] == "http://100.64.1.10:8765"
+    assert payload["ok"] is True
+    assert "100.64.1.10" not in output.getvalue()
+    assert "127.0.0.1" not in output.getvalue()
+
+
+def test_connector_service_complete_enrollment_rejects_loopback_without_tailnet(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fake_connector_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "tailnet_ip": None,
+            "health": {"host": "127.0.0.1", "reachable": True},
+        }
+
+    def fail_read_token(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("connector token must not be read when no secure connector host exists")
+
+    def fail_complete_enrollment(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("broker complete_enrollment must not run with loopback-only host")
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
+    monkeypatch.setattr(bridge_cli, "read_token", fail_read_token)
+    monkeypatch.setattr(bridge_cli, "complete_enrollment_via_control", fail_complete_enrollment)
+
+    output = io.StringIO()
+    exit_code = main(
+        [
+            "connector-service",
+            "complete-enrollment",
+            "--json",
+            "--enrollment-code",
+            "PAIR123",
+            "--customer-id",
+            "benjamin-kennedy",
+        ],
+        stdout=output,
+        state_dir=tmp_path,
+    )
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["error"] == "tailnet_ip_required"
+    assert payload["health_host_kind"] == "loopback"
+    assert payload["health_reachable"] is True
+    assert "127.0.0.1" not in output.getvalue()
+
+
+def test_connector_service_complete_enrollment_allows_private_health_host(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_connector_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "tailnet_ip": None,
+            "health": {"host": "192.168.40.12", "reachable": True},
+        }
+
+    def fake_read_token(token_file: str | None, *, state_dir: Path | None = None, auto_create: bool = False) -> str:
+        return "secret-token-abcdef1234567890"
+
+    def fake_complete_enrollment_via_control(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "device": {"id": "device-1"}}
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
+    monkeypatch.setattr(bridge_cli, "read_token", fake_read_token)
+    monkeypatch.setattr(bridge_cli, "complete_enrollment_via_control", fake_complete_enrollment_via_control)
+
+    output = io.StringIO()
+    exit_code = main(
+        [
+            "connector-service",
+            "complete-enrollment",
+            "--json",
+            "--enrollment-code",
+            "PAIR123",
+            "--customer-id",
+            "benjamin-kennedy",
+        ],
+        stdout=output,
+        state_dir=tmp_path,
+    )
+
+    assert exit_code == 0
+    assert captured["connector_url"] == "http://192.168.40.12:8765"
+    assert "192.168.40.12" not in output.getvalue()
+
+
 def test_focus_permission_error_is_graceful_json(tmp_path: Path) -> None:
     payload = run_cli(
         ["codex", "focus", "--json"],
