@@ -1683,7 +1683,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
     try:
         result = complete_enrollment_via_control(
             enrollment_code=enrollment_code,
-            connector_url=f"http://{host}:{CONNECTOR_PORT}",
+            connector_url=f"http://{_connector_url_host(host)}:{CONNECTOR_PORT}",
             connector_token=connector_token,
             device_name=device_name,
             device_identifier=socket.gethostname(),
@@ -1734,7 +1734,7 @@ def _connector_registration_host(status: dict[str, object]) -> dict[str, object]
         "error": "tailnet_ip_required" if not tailnet_ip else "secure_network_link_required",
         "message": (
             "A secure tailnet or private connector host is required before pairing an agent to this Mac. "
-            "Loopback, wildcard, public, or stale connector health hosts are not registered with evaOS."
+            "Loopback, reserved, public, or unreachable connector health hosts are not registered with evaOS."
         ),
     }
 
@@ -1752,7 +1752,7 @@ def _is_safe_connector_registration_host(value: str) -> bool:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False
-    if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved:
+    if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local:
         return False
     return _looks_like_tailnet_ipv4(host) or ip.is_private
 
@@ -1781,12 +1781,28 @@ def _connector_host_kind(value: str) -> str:
 
 
 def _normalized_connector_host(value: str) -> str:
-    host = str(value or "").strip().strip("[]")
-    if not host or any(separator in host for separator in ("/", "?", "#", "@")):
+    raw_host = str(value or "").strip()
+    if not raw_host or any(separator in raw_host for separator in ("/", "?", "#", "@")):
         return ""
-    if ":" in host:
+    bracketed_host = raw_host.startswith("[") and raw_host.endswith("]")
+    host = raw_host[1:-1] if bracketed_host else raw_host
+    if not host:
         return ""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        if ":" in host:
+            return ""
     return host
+
+
+def _connector_url_host(host: str) -> str:
+    normalized = _normalized_connector_host(host)
+    try:
+        ip = ipaddress.ip_address(normalized)
+    except ValueError:
+        return normalized
+    return f"[{normalized}]" if ip.version == 6 else normalized
 
 
 def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:

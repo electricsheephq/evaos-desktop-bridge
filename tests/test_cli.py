@@ -918,6 +918,57 @@ def test_connector_service_complete_enrollment_prefers_tailnet_over_loopback_hea
     assert "127.0.0.1" not in output.getvalue()
 
 
+def test_connector_service_complete_enrollment_formats_ipv6_tailnet_host(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_connector_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "tailnet_ip": "fd7a:115c:a1e0::42",
+            "health": {"host": "127.0.0.1", "reachable": True},
+        }
+
+    def fake_read_token(token_file: str | None, *, state_dir: Path | None = None, auto_create: bool = False) -> str:
+        assert token_file is None
+        assert state_dir == tmp_path
+        assert auto_create is False
+        return "secret-token-abcdef1234567890"
+
+    def fake_complete_enrollment_via_control(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"ok": True, "device": {"id": "device-1"}}
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
+    monkeypatch.setattr(bridge_cli, "read_token", fake_read_token)
+    monkeypatch.setattr(bridge_cli, "complete_enrollment_via_control", fake_complete_enrollment_via_control)
+
+    output = io.StringIO()
+    exit_code = main(
+        [
+            "connector-service",
+            "complete-enrollment",
+            "--json",
+            "--enrollment-code",
+            "PAIR123",
+            "--customer-id",
+            "benjamin-kennedy",
+        ],
+        stdout=output,
+        state_dir=tmp_path,
+    )
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert captured["connector_url"] == "http://[fd7a:115c:a1e0::42]:8765"
+    assert payload["ok"] is True
+    assert "fd7a:115c:a1e0::42" not in output.getvalue()
+    assert "secret-token" not in output.getvalue()
+
+
 def test_connector_service_complete_enrollment_rejects_loopback_without_tailnet(
     monkeypatch,
     tmp_path: Path,
