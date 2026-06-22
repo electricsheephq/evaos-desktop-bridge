@@ -1542,6 +1542,23 @@ def test_connector_start_autoinstalls_user_launchagent(monkeypatch, tmp_path: Pa
     assert ["kickstart", "-k", "gui/501/com.electricsheep.evaos-desktop-bridge"] in launchctl_calls
 
 
+def test_connector_label_can_be_overridden_for_staging_without_path_injection() -> None:
+    assert (
+        bridge_cli._connector_label_from_env(
+            {"EVAOS_DESKTOP_BRIDGE_CONNECTOR_LABEL": "com.electricsheep.evaos-desktop-bridge.staging-097f6d2"}
+        )
+        == "com.electricsheep.evaos-desktop-bridge.staging-097f6d2"
+    )
+    assert (
+        bridge_cli._connector_label_from_env({"EVAOS_DESKTOP_BRIDGE_CONNECTOR_LABEL": "../bad-label"})
+        == bridge_cli.DEFAULT_CONNECTOR_LABEL
+    )
+    assert (
+        bridge_cli._connector_label_from_env({"EVAOS_DESKTOP_BRIDGE_CONNECTOR_LABEL": ""})
+        == bridge_cli.DEFAULT_CONNECTOR_LABEL
+    )
+
+
 def test_tailscale_ip_uses_homebrew_path_when_gui_path_is_minimal(monkeypatch) -> None:
     calls: list[list[str]] = []
 
