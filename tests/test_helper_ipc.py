@@ -394,6 +394,47 @@ def test_helper_permission_preflight_reports_workbench_identity_and_grants() -> 
     assert helper_permission_preflight_errors(preflight) == []
 
 
+def test_helper_permission_preflight_accepts_stable_workbench_identity() -> None:
+    preflight = helper_permission_preflight(
+        env={
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.evaos.workbench",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS Workbench.app",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+        },
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+        parent_process_path="/Applications/evaOS Workbench.app/Contents/MacOS/evaOS Workbench",
+    )
+
+    assert preflight["ok"] is True
+    assert preflight["identity"]["status"] == "workbench_signed_app"
+    assert preflight["identity"]["responsible_bundle_id"] == "com.evaos.workbench"
+    assert "com.evaos.workbench" in preflight["identity"]["expected_bundle_ids"]
+    assert "com.evaos.workbench.beta" not in preflight["identity"]["expected_bundle_ids"]
+    assert "expected_bundle_id" not in preflight["identity"]
+    assert helper_permission_preflight_errors(preflight) == []
+
+
+def test_helper_permission_preflight_rejects_beta_workbench_identity() -> None:
+    preflight = helper_permission_preflight(
+        env={
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID": "com.evaos.workbench.beta",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH": "/Applications/evaOS Workbench Beta.app",
+            "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS": "1",
+        },
+        platform_name="Darwin",
+        accessibility_checker=lambda: True,
+        screen_recording_checker=lambda: True,
+        parent_process_path="/Applications/evaOS Workbench Beta.app/Contents/MacOS/evaOS Workbench Beta",
+    )
+
+    assert preflight["ok"] is False
+    assert preflight["identity"]["status"] == "mismatch"
+    assert "com.evaos.workbench.beta" not in preflight["identity"]["expected_bundle_ids"]
+    assert [error["code"] for error in helper_permission_preflight_errors(preflight)] == ["helper_identity_unverified"]
+
+
 def test_helper_permission_preflight_fails_closed_for_missing_grants() -> None:
     preflight = helper_permission_preflight(
         env={
