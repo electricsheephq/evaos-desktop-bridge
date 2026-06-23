@@ -31,7 +31,15 @@ HELPER_TOKEN_FILE_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_TOKEN_FILE"
 HELPER_RESPONSIBLE_BUNDLE_ID_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUNDLE_ID"
 HELPER_RESPONSIBLE_APP_PATH_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH"
 HELPER_ENFORCE_PERMISSIONS_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS"
-EVAOS_WORKBENCH_BUNDLE_ID = "com.electricsheephq.EvaDesktop"
+LEGACY_EVAOS_WORKBENCH_BUNDLE_ID = "com.electricsheephq.EvaDesktop"
+EVAOS_WORKBENCH_BUNDLE_ID = LEGACY_EVAOS_WORKBENCH_BUNDLE_ID
+EVAOS_WORKBENCH_BUNDLE_IDS = frozenset(
+    {
+        LEGACY_EVAOS_WORKBENCH_BUNDLE_ID,
+        "com.evaos.workbench",
+        "com.evaos.workbench.beta",
+    }
+)
 ACCESSIBILITY_DEEP_LINK = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 SCREEN_RECORDING_DEEP_LINK = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
 
@@ -867,15 +875,16 @@ def helper_permission_preflight(
     current_platform = platform_name or platform.system()
     expected_bundle_id = EVAOS_WORKBENCH_BUNDLE_ID
     responsible_bundle_id = environment.get(HELPER_RESPONSIBLE_BUNDLE_ID_ENV) or None
+    responsible_bundle_allowed = responsible_bundle_id in EVAOS_WORKBENCH_BUNDLE_IDS
     responsible_app_path = environment.get(HELPER_RESPONSIBLE_APP_PATH_ENV) or None
     enforced = environment.get(HELPER_ENFORCE_PERMISSIONS_ENV) in {"1", "true", "TRUE", "yes", "YES"}
     parent_pid = os.getppid()
     resolved_parent_process_path = parent_process_path if parent_process_path is not None else _parent_process_path(parent_pid)
     parent_status = _parent_process_status(responsible_app_path, resolved_parent_process_path)
 
-    if responsible_bundle_id == expected_bundle_id and responsible_app_path and parent_status == "matched_responsible_app":
+    if responsible_bundle_allowed and responsible_app_path and parent_status == "matched_responsible_app":
         identity_status = "workbench_signed_app"
-    elif responsible_bundle_id == expected_bundle_id and responsible_app_path:
+    elif responsible_bundle_allowed and responsible_app_path:
         identity_status = "parent_unverified"
     elif responsible_bundle_id:
         identity_status = "mismatch"
@@ -899,6 +908,7 @@ def helper_permission_preflight(
         "platform": current_platform,
         "identity": {
             "expected_bundle_id": expected_bundle_id,
+            "expected_bundle_ids": sorted(EVAOS_WORKBENCH_BUNDLE_IDS),
             "responsible_bundle_id": responsible_bundle_id,
             "responsible_app_path": responsible_app_path,
             "process_executable": sys.executable,
