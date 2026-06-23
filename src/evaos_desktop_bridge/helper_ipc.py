@@ -32,12 +32,10 @@ HELPER_RESPONSIBLE_BUNDLE_ID_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_BUND
 HELPER_RESPONSIBLE_APP_PATH_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_RESPONSIBLE_APP_PATH"
 HELPER_ENFORCE_PERMISSIONS_ENV = "EVAOS_DESKTOP_BRIDGE_HELPER_ENFORCE_PERMISSIONS"
 LEGACY_EVAOS_WORKBENCH_BUNDLE_ID = "com.electricsheephq.EvaDesktop"
-EVAOS_WORKBENCH_BUNDLE_ID = LEGACY_EVAOS_WORKBENCH_BUNDLE_ID
 EVAOS_WORKBENCH_BUNDLE_IDS = frozenset(
     {
         LEGACY_EVAOS_WORKBENCH_BUNDLE_ID,
         "com.evaos.workbench",
-        "com.evaos.workbench.beta",
     }
 )
 ACCESSIBILITY_DEEP_LINK = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
@@ -873,7 +871,6 @@ def helper_permission_preflight(
 ) -> dict[str, Any]:
     environment = os.environ if env is None else env
     current_platform = platform_name or platform.system()
-    expected_bundle_id = EVAOS_WORKBENCH_BUNDLE_ID
     responsible_bundle_id = environment.get(HELPER_RESPONSIBLE_BUNDLE_ID_ENV) or None
     responsible_bundle_allowed = responsible_bundle_id in EVAOS_WORKBENCH_BUNDLE_IDS
     responsible_app_path = environment.get(HELPER_RESPONSIBLE_APP_PATH_ENV) or None
@@ -907,7 +904,6 @@ def helper_permission_preflight(
         "enforced": enforced,
         "platform": current_platform,
         "identity": {
-            "expected_bundle_id": expected_bundle_id,
             "expected_bundle_ids": sorted(EVAOS_WORKBENCH_BUNDLE_IDS),
             "responsible_bundle_id": responsible_bundle_id,
             "responsible_app_path": responsible_app_path,

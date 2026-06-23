@@ -69,7 +69,11 @@ Example response:
       "ok": true,
       "enforced": true,
       "identity": {
-        "expected_bundle_id": "com.electricsheephq.EvaDesktop",
+        "expected_bundle_ids": [
+          "com.electricsheephq.EvaDesktop",
+          "com.evaos.workbench"
+        ],
+        "responsible_bundle_id": "com.evaos.workbench",
         "status": "workbench_signed_app"
       },
       "permissions": {
