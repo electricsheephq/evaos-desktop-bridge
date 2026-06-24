@@ -125,14 +125,17 @@ def test_status_reports_screen_recording_preflight(tmp_path: Path) -> None:
     assert result.data["safety"]["sensitive_apps_blocked"] is True
 
 
-def test_control_status_prefers_bundled_connector_helper_before_path_peekaboo(monkeypatch, tmp_path: Path) -> None:
+def test_control_status_prefers_bundled_peekaboo_before_connector_helper_alias(monkeypatch, tmp_path: Path) -> None:
     bridge_executable = tmp_path / "Bridge" / "evaos-desktop-bridge"
     bundled_helper = bridge_executable.parent / "bin" / "evaos-connector-helper"
+    bundled_peekaboo = bridge_executable.parent / "bin" / "peekaboo"
     bundled_helper.parent.mkdir(parents=True)
     bridge_executable.write_text("#!/bin/sh\n", encoding="utf-8")
     bundled_helper.write_text("#!/bin/sh\n", encoding="utf-8")
+    bundled_peekaboo.write_text("#!/bin/sh\n", encoding="utf-8")
     bridge_executable.chmod(0o755)
     bundled_helper.chmod(0o755)
+    bundled_peekaboo.chmod(0o755)
 
     monkeypatch.setattr(customer_mac.sys, "executable", str(bridge_executable))
     monkeypatch.setattr(customer_mac.sys, "argv", [str(bridge_executable)])
@@ -141,6 +144,7 @@ def test_control_status_prefers_bundled_connector_helper_before_path_peekaboo(mo
 
     runner = FakeRunner(
         {
+            (str(bundled_peekaboo), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2 bundled\n", stderr=""),
             (str(bundled_helper), "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2 bundled\n", stderr=""),
             ("/opt/homebrew/bin/peekaboo", "--version"): RunnerResult(returncode=0, stdout="Peekaboo 3.2.2 homebrew\n", stderr=""),
         }
@@ -150,8 +154,9 @@ def test_control_status_prefers_bundled_connector_helper_before_path_peekaboo(mo
     status = observer.control_status()
 
     assert status.data["peekaboo"]["available"] is True
-    assert status.data["peekaboo"]["path"] == str(bundled_helper)
-    assert (str(bundled_helper), "--version") in runner.commands
+    assert status.data["peekaboo"]["path"] == str(bundled_peekaboo)
+    assert (str(bundled_peekaboo), "--version") in runner.commands
+    assert (str(bundled_helper), "--version") not in runner.commands
     assert ("/opt/homebrew/bin/peekaboo", "--version") not in runner.commands
 
 

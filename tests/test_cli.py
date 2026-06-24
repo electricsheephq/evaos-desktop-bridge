@@ -1588,15 +1588,18 @@ def test_permission_prime_uses_peekaboo_not_python_tcc(monkeypatch, tmp_path: Pa
     assert all(command[0] == "/test/peekaboo" for command in calls)
 
 
-def test_permission_prime_prefers_bundled_connector_helper_before_path_peekaboo(monkeypatch, tmp_path: Path) -> None:
+def test_permission_prime_prefers_bundled_peekaboo_before_connector_helper_alias(monkeypatch, tmp_path: Path) -> None:
     calls: list[list[str]] = []
     bridge_executable = tmp_path / "Bridge" / "evaos-desktop-bridge"
     bundled_helper = bridge_executable.parent / "bin" / "evaos-connector-helper"
+    bundled_peekaboo = bridge_executable.parent / "bin" / "peekaboo"
     bundled_helper.parent.mkdir(parents=True)
     bridge_executable.write_text("#!/bin/sh\n", encoding="utf-8")
     bundled_helper.write_text("#!/bin/sh\n", encoding="utf-8")
+    bundled_peekaboo.write_text("#!/bin/sh\n", encoding="utf-8")
     bridge_executable.chmod(0o755)
     bundled_helper.chmod(0o755)
+    bundled_peekaboo.chmod(0o755)
 
     monkeypatch.setattr(bridge_cli.sys, "platform", "darwin")
     monkeypatch.setattr(bridge_cli.sys, "executable", str(bridge_executable))
@@ -1607,8 +1610,8 @@ def test_permission_prime_prefers_bundled_connector_helper_before_path_peekaboo(
 
     def fake_run(command: list[str], **kwargs: object):
         calls.append(command)
-        if command[0] != str(bundled_helper):
-            return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected helper path")
+        if command[0] != str(bundled_peekaboo):
+            return bridge_cli.subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected peekaboo path")
         if command[1:3] == ["permissions", "grant"]:
             return bridge_cli.subprocess.CompletedProcess(
                 command,
@@ -1643,6 +1646,6 @@ def test_permission_prime_prefers_bundled_connector_helper_before_path_peekaboo(
     payload = run_cli(["permissions", "prime", "--json", "--permission", "accessibility"], FakeObserver(), tmp_path)
 
     assert payload["_exit_code"] == 0
-    assert payload["data"]["executable"] == str(bundled_helper)
+    assert payload["data"]["executable"] == str(bundled_peekaboo)
     assert payload["data"]["permission_holder"] == "Peekaboo local"
-    assert all(command[0] == str(bundled_helper) for command in calls)
+    assert all(command[0] == str(bundled_peekaboo) for command in calls)
