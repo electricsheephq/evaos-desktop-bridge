@@ -1513,7 +1513,7 @@ print(json.dumps({"ok": True, "matches": safe_matches, "count": len(safe_matches
 
     def _peekaboo_status(self) -> dict[str, Any]:
         path: str | None = None
-        for candidate in (*bundled_bridge_bin_candidates(("evaos-connector-helper", "peekaboo")), *PEEKABOO_BIN_CANDIDATES):
+        for candidate in (*bundled_bridge_bin_candidates(("peekaboo", "evaos-connector-helper")), *PEEKABOO_BIN_CANDIDATES):
             if "/" in candidate:
                 if Path(candidate).exists():
                     path = candidate
