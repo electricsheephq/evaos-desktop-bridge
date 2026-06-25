@@ -160,6 +160,38 @@ def test_control_status_prefers_bundled_peekaboo_before_connector_helper_alias(m
     assert ("/opt/homebrew/bin/peekaboo", "--version") not in runner.commands
 
 
+def test_control_status_prefers_path_peekaboo_before_connector_helper_alias(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(customer_mac, "PEEKABOO_BIN_CANDIDATES", ("peekaboo", "evaos-connector-helper"))
+    monkeypatch.setattr(
+        customer_mac.shutil,
+        "which",
+        lambda name: f"/opt/homebrew/bin/{name}" if name in {"peekaboo", "evaos-connector-helper"} else None,
+    )
+
+    runner = FakeRunner(
+        {
+            ("/opt/homebrew/bin/peekaboo", "--version"): RunnerResult(
+                returncode=0,
+                stdout="Peekaboo 3.2.2 homebrew\n",
+                stderr="",
+            ),
+            ("/opt/homebrew/bin/evaos-connector-helper", "--version"): RunnerResult(
+                returncode=0,
+                stdout="Peekaboo 3.2.2 helper alias\n",
+                stderr="",
+            ),
+        }
+    )
+    observer = CustomerMacObserver(runner=runner, state_dir=tmp_path, platform_name="Darwin")
+
+    status = observer.control_status()
+
+    assert status.data["peekaboo"]["available"] is True
+    assert status.data["peekaboo"]["path"] == "/opt/homebrew/bin/peekaboo"
+    assert ("/opt/homebrew/bin/peekaboo", "--version") in runner.commands
+    assert ("/opt/homebrew/bin/evaos-connector-helper", "--version") not in runner.commands
+
+
 def test_control_session_start_stop_and_kill_switch(tmp_path: Path) -> None:
     observer = CustomerMacObserver(runner=FakeRunner(), state_dir=tmp_path, platform_name="Darwin")
 
