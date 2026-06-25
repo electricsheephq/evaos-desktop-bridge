@@ -1,5 +1,14 @@
 when:
-  - event: [push, pull_request, manual]
+  - event: manual
+  - event: [push, pull_request]
+    path:
+      include:
+        - ".woodpecker/bridge-python.yml"
+        - "pyproject.toml"
+        - "src/**"
+        - "tests/**"
+        - "openclaw-plugin/**"
+        - "hermes-adapter/**"
 
 steps:
   - name: bridge-python
