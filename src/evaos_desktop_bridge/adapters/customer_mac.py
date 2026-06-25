@@ -48,8 +48,8 @@ WORKBENCH_APP_ALIASES = {
     "evaos workbench",
 }
 PEEKABOO_BIN_CANDIDATES = (
-    "evaos-connector-helper",
     "peekaboo",
+    "evaos-connector-helper",
     "/opt/homebrew/bin/peekaboo",
     "/usr/local/bin/peekaboo",
 )

@@ -1635,8 +1635,8 @@ CONNECTOR_PORT = 8765
 CONNECTOR_SYSTEM_PLIST = Path(f"/Library/LaunchAgents/{CONNECTOR_LABEL}.plist")
 CONNECTOR_USER_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{CONNECTOR_LABEL}.plist"
 PEEKABOO_BIN_CANDIDATES = (
-    "evaos-connector-helper",
     "peekaboo",
+    "evaos-connector-helper",
     "/opt/homebrew/bin/peekaboo",
     "/usr/local/bin/peekaboo",
 )
