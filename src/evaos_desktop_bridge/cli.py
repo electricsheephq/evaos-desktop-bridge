@@ -1525,7 +1525,7 @@ def _prime_permission(permission: str) -> CommandResult:
 
 
 def _peekaboo_binary_path() -> str | None:
-    for candidate in (*bundled_bridge_bin_candidates(("evaos-connector-helper", "peekaboo")), *PEEKABOO_BIN_CANDIDATES):
+    for candidate in (*bundled_bridge_bin_candidates(("peekaboo", "evaos-connector-helper")), *PEEKABOO_BIN_CANDIDATES):
         if "/" in candidate:
             if Path(candidate).exists():
                 return candidate
