@@ -1,0 +1,10 @@
+when:
+  - event: [push, pull_request, manual]
+
+steps:
+  - name: bridge-python
+    image: python:3.12-bookworm
+    commands:
+      - python3 -m pip install --upgrade pip
+      - python3 -m pip install -e . pytest
+      - python3 -m pytest
