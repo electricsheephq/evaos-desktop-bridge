@@ -15,9 +15,12 @@ from evaos_desktop_bridge.connector_server import (
     _make_handler,
     _prepare_connector_params,
     _remote_kill_switch_error,
+    build_diagnostics_payload,
+    build_ready_payload,
     build_bridge_argv,
     normalize_connector_command,
     read_token,
+    record_service_event,
 )
 from evaos_desktop_bridge.state import kill_control_session, start_control_session, write_control_session
 
@@ -673,6 +676,64 @@ def test_connector_token_reads_existing_per_user_default(tmp_path: Path) -> None
     token_path.write_text("secret-token\n", encoding="utf-8")
 
     assert read_token(None, state_dir=tmp_path, auto_create=False) == "secret-token"
+
+
+def test_connector_health_liveness_differs_from_ready_without_token(tmp_path: Path) -> None:
+    handler = _make_handler(token=None, command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/health")
+        health_response = conn.getresponse()
+        health_payload = json.loads(health_response.read().decode("utf-8"))
+
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/ready")
+        ready_response = conn.getresponse()
+        ready_payload = json.loads(ready_response.read().decode("utf-8"))
+
+        assert health_response.status == 200
+        assert health_payload["ok"] is True
+        assert ready_response.status == 503
+        assert ready_payload["ok"] is False
+        assert ready_payload["schema"] == "evaos.desktop_bridge.ready.v1"
+        assert ready_payload["blockers"][0]["code"] == "token_missing"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+
+def test_connector_ready_and_diagnostics_are_redacted(tmp_path: Path) -> None:
+    record_service_event(
+        "bind_failed",
+        "blocker",
+        "failed to bind",
+        state_dir=tmp_path,
+        details={
+            "host": "127.0.0.1",
+            "connector_url": "http://100.64.1.10:8765",
+            "tailnet_ip": "100.64.1.10",
+            "connector_token": "secret-token-abcdef1234567890",
+            "port": 8765,
+        },
+    )
+
+    ready = build_ready_payload(token="secret-token-abcdef1234567890", state_dir=tmp_path)
+    diagnostics = build_diagnostics_payload(token="secret-token-abcdef1234567890", state_dir=tmp_path)
+    serialized = json.dumps(diagnostics, sort_keys=True)
+
+    assert ready["ok"] is True
+    assert ready["token_state"] == "present"
+    assert diagnostics["schema"] == "evaos.desktop_bridge.diagnostics.v1"
+    assert diagnostics["connector"]["token_state"] == "present"
+    assert "secret-token-abcdef1234567890" not in serialized
+    assert "100.64.1.10" not in serialized
+    assert "http://100.64.1.10:8765" not in serialized
+    assert diagnostics["service_events"][0]["details"]["connector_token"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["host"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["tailnet_ip"] == "<redacted>"
 
 
 def test_connector_token_autocreates_empty_configured_file(tmp_path: Path) -> None:

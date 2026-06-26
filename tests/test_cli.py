@@ -795,6 +795,19 @@ def test_connector_service_json_output_is_redacted(monkeypatch, tmp_path: Path) 
     assert str(Path.home()) not in output.getvalue()
 
 
+def test_diagnostics_cli_reports_missing_token_without_minting_secret(tmp_path: Path) -> None:
+    output = io.StringIO()
+    exit_code = main(["diagnostics", "--json"], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert payload["schema"] == "evaos.desktop_bridge.diagnostics.v1"
+    assert payload["connector"]["token_state"] == "missing"
+    assert payload["connector"]["ready"]["ok"] is False
+    assert payload["connector"]["ready"]["blockers"][0]["code"] == "token_missing"
+    assert not (tmp_path / "connector.token").exists()
+
+
 def test_connector_service_complete_enrollment_registers_privately(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 

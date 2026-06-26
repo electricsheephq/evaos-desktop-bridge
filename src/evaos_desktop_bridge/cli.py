@@ -20,7 +20,7 @@ from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.customer_mac import CustomerMacObserver
 from .audit import append_audit, default_state_dir
 from .bundled_tools import bundled_bridge_bin_candidates
-from .connector_server import complete_enrollment_via_control, read_token, run_connector_server
+from .connector_server import build_diagnostics_payload, complete_enrollment_via_control, read_token, run_connector_server
 from .helper_ipc import HelperIpcError, UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
@@ -224,6 +224,15 @@ def build_parser() -> argparse.ArgumentParser:
     latest_parser = subparsers.add_parser("latest", help="Return the last observed bridge envelope.")
     latest_parser.add_argument("--json", action="store_true", help="Emit JSON.")
     latest_parser.set_defaults(command_id="latest", target="desktop")
+
+    diagnostics_parser = subparsers.add_parser("diagnostics", help="Return redacted connector diagnostics for support.")
+    diagnostics_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    diagnostics_parser.add_argument(
+        "--token-file",
+        default=None,
+        help="Optional connector token file. Defaults to the bridge state directory when present.",
+    )
+    diagnostics_parser.set_defaults(command_id="diagnostics", target="connector")
 
     audit_parser = subparsers.add_parser("audit-tail", help="Return a redacted tail of the local audit log.")
     audit_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -724,6 +733,12 @@ def main(
             command_runner=lambda bridge_argv: _run_bridge_argv(bridge_argv, state_dir=state_dir),
             state_dir=state_dir,
         )
+        return 0
+
+    if command_id == "diagnostics":
+        token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
+        result = build_diagnostics_payload(token=token, state_dir=state_dir)
+        stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         return 0
 
     if command_id == "helper.run":
@@ -1731,6 +1746,13 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
         "headscale": public_headscale,
         "raw_secrets_returned": False,
     }
+
+
+def _read_connector_token_optional(token_file: str | None, *, state_dir: Path | None = None) -> str | None:
+    try:
+        return read_token(token_file, state_dir=state_dir, auto_create=False)
+    except Exception:
+        return None
 
 
 def _connector_registration_host(status: dict[str, object]) -> dict[str, object]:
