@@ -29,7 +29,7 @@ READY_SCHEMA = "evaos.desktop_bridge.ready.v1"
 SERVICE_EVENTS_FILE = "connector-service-events.jsonl"
 MAX_SERVICE_EVENTS = 40
 URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
-AUTH_HEADER_PATTERN = re.compile(r"(?i)(authorization:\s*)[^\s]+")
+AUTH_HEADER_PATTERN = re.compile(r"(?i)(authorization\s*:\s*)(?:bearer\s+|basic\s+)?[A-Za-z0-9._~+/=-]+")
 BEARER_TOKEN_PATTERN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}")
 SECRET_WORD_PATTERN = re.compile(
     r"(?i)\b(?:api[_-]?key|auth|authorization|password|secret|token)[A-Za-z0-9_.-]*(?:\s*[:=]\s*|\s+)[A-Za-z0-9._~+/=-]{8,}"
@@ -788,8 +788,7 @@ def _sanitize_public_value(value: Any) -> Any:
         for key, item in value.items():
             if not isinstance(key, str):
                 continue
-            lowered = key.lower()
-            if _is_sensitive_public_key(lowered):
+            if _is_sensitive_public_key(key):
                 sanitized[key] = "<redacted>"
             else:
                 sanitized[key] = _sanitize_public_value(item)
@@ -812,17 +811,26 @@ def _sanitize_public_text(value: str) -> str:
     return redacted
 
 
-def _is_sensitive_public_key(lowered_key: str) -> bool:
+def _is_sensitive_public_key(key: str) -> bool:
+    normalized = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key).replace("-", "_").lower()
+    if normalized in {"token_state"}:
+        return False
     sensitive_exact = {
+        "access_token",
         "address",
         "auth",
+        "auth_key",
         "auth_header",
+        "auth_headers",
         "authorization",
         "connector_token",
         "connector_url",
         "host",
         "ip",
+        "api_key",
         "password",
+        "preauth_key",
+        "refresh_token",
         "secret",
         "tailnet_ip",
         "token",
@@ -831,16 +839,25 @@ def _is_sensitive_public_key(lowered_key: str) -> bool:
     sensitive_suffixes = (
         "_address",
         "_auth",
+        "_auth_key",
         "_auth_header",
         "_authorization",
         "_host",
         "_ip",
+        "_api_key",
         "_password",
+        "_preauth_key",
+        "_refresh_token",
         "_secret",
         "_token",
         "_url",
     )
-    return lowered_key in sensitive_exact or lowered_key.endswith(sensitive_suffixes)
+    sensitive_parts = {"auth", "authorization", "password", "secret", "token"}
+    return (
+        normalized in sensitive_exact
+        or normalized.endswith(sensitive_suffixes)
+        or any(part in sensitive_parts for part in normalized.split("_"))
+    )
 
 
 def _looks_like_ip_literal(value: str) -> bool:

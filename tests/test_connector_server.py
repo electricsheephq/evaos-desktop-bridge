@@ -708,6 +708,7 @@ def test_connector_health_liveness_differs_from_ready_without_token(tmp_path: Pa
 
 def test_connector_ready_and_diagnostics_are_redacted(monkeypatch, tmp_path: Path) -> None:
     token_fixture = "secret-token-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
+    api_key_fixture = "api-key-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
     monkeypatch.setenv(
         "EVAOS_DESKTOP_BRIDGE_MODE",
         f"support http://100.64.1.10:8765/bootstrap?token={token_fixture}",
@@ -715,11 +716,14 @@ def test_connector_ready_and_diagnostics_are_redacted(monkeypatch, tmp_path: Pat
     record_service_event(
         "bind_failed",
         "blocker",
-        f"failed to bind http://100.64.1.10:8765 with token={token_fixture}",
+        f"failed to bind http://100.64.1.10:8765 with token={token_fixture} and Authorization: Bearer {api_key_fixture}",
         state_dir=tmp_path,
         details={
+            "apiKey": api_key_fixture,
+            "api-key": api_key_fixture,
             "host": "127.0.0.1",
             "connector_url": "http://100.64.1.10:8765",
+            "refreshToken": token_fixture,
             "tailnet_ip": "100.64.1.10",
             "connector_token": token_fixture,
             "port": 8765,
@@ -735,13 +739,17 @@ def test_connector_ready_and_diagnostics_are_redacted(monkeypatch, tmp_path: Pat
     assert diagnostics["schema"] == "evaos.desktop_bridge.diagnostics.v1"
     assert diagnostics["connector"]["token_state"] == "present"
     assert token_fixture not in serialized
+    assert api_key_fixture not in serialized
     assert "100.64.1.10" not in serialized
     assert "127.0.0.1" not in serialized
     assert "http://100.64.1.10:8765" not in serialized
     assert diagnostics["bridge"]["mode"] == "support <redacted-url>"
-    assert diagnostics["service_events"][0]["message"] == "failed to bind <redacted-url> with <redacted-secret>"
+    assert diagnostics["service_events"][0]["message"] == "failed to bind <redacted-url> with <redacted-secret> and Authorization: <redacted-secret>"
+    assert diagnostics["service_events"][0]["details"]["apiKey"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["api-key"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["connector_token"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["host"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["refreshToken"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["tailnet_ip"] == "<redacted>"
 
 
