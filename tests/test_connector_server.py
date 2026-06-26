@@ -719,8 +719,10 @@ def test_connector_ready_and_diagnostics_are_redacted(monkeypatch, tmp_path: Pat
         f"failed to bind http://100.64.1.10:8765 with token={token_fixture} and Authorization: Bearer {api_key_fixture}",
         state_dir=tmp_path,
         details={
+            "api_key": api_key_fixture,
             "apiKey": api_key_fixture,
             "api-key": api_key_fixture,
+            "apikey": api_key_fixture,
             "host": "127.0.0.1",
             "connector_url": "http://100.64.1.10:8765",
             "refreshToken": token_fixture,
@@ -745,8 +747,10 @@ def test_connector_ready_and_diagnostics_are_redacted(monkeypatch, tmp_path: Pat
     assert "http://100.64.1.10:8765" not in serialized
     assert diagnostics["bridge"]["mode"] == "support <redacted-url>"
     assert diagnostics["service_events"][0]["message"] == "failed to bind <redacted-url> with <redacted-secret> and Authorization: <redacted-secret>"
+    assert diagnostics["service_events"][0]["details"]["api_key"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["apiKey"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["api-key"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["apikey"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["connector_token"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["host"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["refreshToken"] == "<redacted>"
