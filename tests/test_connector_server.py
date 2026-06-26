@@ -15,9 +15,12 @@ from evaos_desktop_bridge.connector_server import (
     _make_handler,
     _prepare_connector_params,
     _remote_kill_switch_error,
+    build_diagnostics_payload,
+    build_ready_payload,
     build_bridge_argv,
     normalize_connector_command,
     read_token,
+    record_service_event,
 )
 from evaos_desktop_bridge.state import kill_control_session, start_control_session, write_control_session
 
@@ -673,6 +676,129 @@ def test_connector_token_reads_existing_per_user_default(tmp_path: Path) -> None
     token_path.write_text("secret-token\n", encoding="utf-8")
 
     assert read_token(None, state_dir=tmp_path, auto_create=False) == "secret-token"
+
+
+def test_connector_health_liveness_differs_from_ready_without_token(tmp_path: Path) -> None:
+    handler = _make_handler(token=None, command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/health")
+        health_response = conn.getresponse()
+        health_payload = json.loads(health_response.read().decode("utf-8"))
+
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/ready")
+        ready_response = conn.getresponse()
+        ready_payload = json.loads(ready_response.read().decode("utf-8"))
+
+        assert health_response.status == 200
+        assert health_payload["ok"] is True
+        assert ready_response.status == 503
+        assert ready_payload["ok"] is False
+        assert ready_payload["schema"] == "evaos.desktop_bridge.ready.v1"
+        assert ready_payload["blockers"][0]["code"] == "token_missing"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_connector_ready_and_diagnostics_are_redacted(monkeypatch, tmp_path: Path) -> None:
+    token_fixture = "secret-token-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
+    api_key_fixture = "api-key-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
+    monkeypatch.setenv(
+        "EVAOS_DESKTOP_BRIDGE_MODE",
+        f"support http://100.64.1.10:8765/bootstrap?token={token_fixture}",
+    )
+    record_service_event(
+        "bind_failed",
+        "blocker",
+        f"failed to bind http://100.64.1.10:8765 with token={token_fixture} and Authorization: Bearer {api_key_fixture}",
+        state_dir=tmp_path,
+        details={
+            "api_key": api_key_fixture,
+            "apiKey": api_key_fixture,
+            "api-key": api_key_fixture,
+            "apikey": api_key_fixture,
+            "host": "127.0.0.1",
+            "connector_url": "http://100.64.1.10:8765",
+            "refreshToken": token_fixture,
+            "tailnet_ip": "100.64.1.10",
+            "connector_token": token_fixture,
+            "port": 8765,
+        },
+    )
+
+    ready = build_ready_payload(token=token_fixture, state_dir=tmp_path)
+    diagnostics = build_diagnostics_payload(token=token_fixture, state_dir=tmp_path)
+    serialized = json.dumps(diagnostics, sort_keys=True)
+
+    assert ready["ok"] is True
+    assert ready["token_state"] == "present"
+    assert diagnostics["schema"] == "evaos.desktop_bridge.diagnostics.v1"
+    assert diagnostics["connector"]["token_state"] == "present"
+    assert token_fixture not in serialized
+    assert api_key_fixture not in serialized
+    assert "100.64.1.10" not in serialized
+    assert "127.0.0.1" not in serialized
+    assert "http://100.64.1.10:8765" not in serialized
+    assert diagnostics["bridge"]["mode"] == "support <redacted-url>"
+    assert diagnostics["service_events"][0]["message"] == "failed to bind <redacted-url> with <redacted-secret> and Authorization: <redacted-secret>"
+    assert diagnostics["service_events"][0]["details"]["api_key"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["apiKey"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["api-key"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["apikey"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["connector_token"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["host"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["refreshToken"] == "<redacted>"
+    assert diagnostics["service_events"][0]["details"]["tailnet_ip"] == "<redacted>"
+
+
+def test_connector_http_diagnostics_route_is_redacted(monkeypatch, tmp_path: Path) -> None:
+    token_fixture = "secret-token-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
+    monkeypatch.setenv(
+        "EVAOS_DESKTOP_BRIDGE_MODE",
+        f"support http://100.64.1.10:8765/bootstrap?token={token_fixture}",
+    )
+    record_service_event(
+        "port_in_use",
+        "blocker",
+        f"existing listener at 100.64.1.10:8765 used token={token_fixture}",
+        state_dir=tmp_path,
+        details={"host": "100.64.1.10", "connector_token": token_fixture},
+    )
+    handler = _make_handler(token=token_fixture, command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/v1/diagnostics")
+        unauthorized_response = conn.getresponse()
+        assert unauthorized_response.status == 401
+        unauthorized_response.read()
+
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/v1/diagnostics", headers={"Authorization": f"Bearer {token_fixture}"})
+        response = conn.getresponse()
+        body = response.read().decode("utf-8")
+        payload = json.loads(body)
+
+        assert response.status == 200
+        assert payload["schema"] == "evaos.desktop_bridge.diagnostics.v1"
+        assert payload["connector"]["token_state"] == "present"
+        assert token_fixture not in body
+        assert "100.64.1.10" not in body
+        assert "127.0.0.1" not in body
+        assert "http://100.64.1.10:8765" not in body
+        assert payload["service_events"][0]["details"]["host"] == "<redacted>"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_connector_token_autocreates_empty_configured_file(tmp_path: Path) -> None:

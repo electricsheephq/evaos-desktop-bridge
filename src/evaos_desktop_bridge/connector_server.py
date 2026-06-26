@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import json
 import hashlib
+import errno
+import ipaddress
 import os
+import re
 import secrets
 import socket
+import sys
 import tempfile
+import time
 import urllib.request
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
@@ -17,6 +23,20 @@ from .schema import build_envelope, make_error
 from .state import approval_audit_freshness_error, read_audit_record, read_control_session
 
 CommandRunner = Callable[[list[str]], tuple[int, str]]
+
+DIAGNOSTICS_SCHEMA = "evaos.desktop_bridge.diagnostics.v1"
+READY_SCHEMA = "evaos.desktop_bridge.ready.v1"
+SERVICE_EVENTS_FILE = "connector-service-events.jsonl"
+MAX_SERVICE_EVENTS = 40
+URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
+AUTH_HEADER_PATTERN = re.compile(r"(?i)(authorization\s*:\s*)(?:bearer\s+|basic\s+)?[A-Za-z0-9._~+/=-]+")
+BEARER_TOKEN_PATTERN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}")
+SECRET_WORD_PATTERN = re.compile(
+    r"(?i)\b(?:api[_-]?key|auth|authorization|password|secret|token)[A-Za-z0-9_.-]*(?:\s*[:=]\s*|\s+)[A-Za-z0-9._~+/=-]{8,}"
+)
+IPV4_PATTERN = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?::\d{1,5})?\b"
+)
 
 CUSTOMER_MAC_CONTROL_URL = os.environ.get(
     "EVAOS_CUSTOMER_MAC_CONTROL_URL",
@@ -582,8 +602,41 @@ def run_connector_server(
     command_runner: CommandRunner,
     state_dir: Path | None = None,
 ) -> None:
+    record_service_event(
+        "serve_starting",
+        "info",
+        "Connector HTTP server is starting.",
+        state_dir=state_dir,
+        details={"host": host, "port": port, "token_state": _token_state(token)},
+    )
+    if not token:
+        record_service_event(
+            "token_missing",
+            "blocker",
+            "Connector token is missing; command and enrollment endpoints fail closed.",
+            state_dir=state_dir,
+            details={"host": host, "port": port},
+        )
     handler = _make_handler(token=token, command_runner=command_runner, state_dir=state_dir)
-    server = ThreadingHTTPServer((host, port), handler)
+    try:
+        server = ThreadingHTTPServer((host, port), handler)
+    except OSError as exc:
+        category = "port_in_use" if exc.errno == errno.EADDRINUSE else "bind_failed"
+        record_service_event(
+            category,
+            "blocker",
+            str(exc),
+            state_dir=state_dir,
+            details={"host": host, "port": port, "errno": exc.errno},
+        )
+        raise
+    record_service_event(
+        "serve_ready",
+        "info",
+        "Connector HTTP server is accepting requests.",
+        state_dir=state_dir,
+        details={"host": host, "port": port, "token_state": _token_state(token)},
+    )
     server.serve_forever()
 
 
@@ -610,6 +663,248 @@ def read_token(path: str | None, *, state_dir: Path | None = None, auto_create: 
     return token
 
 
+def build_ready_payload(*, token: str | None, state_dir: Path | None = None) -> dict[str, Any]:
+    blockers = []
+    if not token:
+        blockers.append(
+            {
+                "code": "token_missing",
+                "message": "Connector token is missing; command and enrollment endpoints fail closed.",
+            }
+        )
+    ok = not blockers
+    return {
+        "ok": ok,
+        "schema": READY_SCHEMA,
+        "service": "evaos-desktop-bridge-connector",
+        "ready": ok,
+        "token_state": _token_state(token),
+        "blockers": blockers,
+        "control_session": _public_control_session(state_dir),
+        "service_events": read_service_events(state_dir=state_dir, limit=8),
+    }
+
+
+def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = None) -> dict[str, Any]:
+    root = state_dir or default_state_dir()
+    return {
+        "ok": True,
+        "schema": DIAGNOSTICS_SCHEMA,
+        "service": "evaos-desktop-bridge-connector",
+        "process": {
+            "pid": os.getpid(),
+            "executable": _public_path(sys.executable),
+            "argv0": _public_path(sys.argv[0]) if sys.argv else None,
+        },
+        "bridge": {
+            "version": _bridge_version(),
+            "mode": _sanitize_public_text(os.environ.get("EVAOS_DESKTOP_BRIDGE_MODE") or "unknown"),
+        },
+        "connector": {
+            "token_state": _token_state(token),
+            "state_dir": _public_path(root),
+            "ready": build_ready_payload(token=token, state_dir=state_dir),
+        },
+        "control_session": _public_control_session(state_dir),
+        "service_events": read_service_events(state_dir=state_dir, limit=MAX_SERVICE_EVENTS),
+        "redaction": {
+            "tokens": "redacted",
+            "urls": "redacted",
+            "ips": "redacted",
+            "auth_headers": "redacted",
+        },
+    }
+
+
+def record_service_event(
+    category: str,
+    level: str,
+    message: str,
+    *,
+    state_dir: Path | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    event = {
+        "timestamp": _now_iso(),
+        "category": category,
+        "level": level,
+        "message": _sanitize_public_text(message)[:500],
+        "details": _sanitize_public_value(details or {}),
+    }
+    root = state_dir or default_state_dir()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / SERVICE_EVENTS_FILE).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
+    return event
+
+
+def read_service_events(*, state_dir: Path | None = None, limit: int = MAX_SERVICE_EVENTS) -> list[dict[str, Any]]:
+    path = (state_dir or default_state_dir()) / SERVICE_EVENTS_FILE
+    if not path.exists():
+        return []
+    max_lines = max(1, limit)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            lines = deque(handle, maxlen=max_lines)
+    except Exception:
+        return []
+    events: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            events.append(_sanitize_public_value(parsed))
+    return events
+
+
+def _public_control_session(state_dir: Path | None) -> dict[str, Any]:
+    session = read_control_session(state_dir)
+    if not isinstance(session, dict):
+        return {}
+    allowed_keys = {
+        "active",
+        "kill_switch",
+        "mode",
+        "started_at",
+        "stopped_at",
+        "updated_at",
+        "takeover_warning",
+    }
+    return {
+        key: _sanitize_public_value(value)
+        for key, value in session.items()
+        if key in allowed_keys
+    }
+
+
+def _sanitize_public_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                continue
+            if _is_sensitive_public_key(key):
+                sanitized[key] = "<redacted>"
+            else:
+                sanitized[key] = _sanitize_public_value(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_public_value(item) for item in value[:MAX_SERVICE_EVENTS]]
+    if isinstance(value, str):
+        return _sanitize_public_text(value)[:500]
+    return value
+
+
+def _sanitize_public_text(value: str) -> str:
+    redacted = URL_PATTERN.sub("<redacted-url>", value)
+    redacted = AUTH_HEADER_PATTERN.sub(r"\1<redacted-secret>", redacted)
+    redacted = BEARER_TOKEN_PATTERN.sub(r"\1<redacted-secret>", redacted)
+    redacted = SECRET_WORD_PATTERN.sub("<redacted-secret>", redacted)
+    redacted = IPV4_PATTERN.sub("<redacted-ip>", redacted)
+    if _looks_like_ip_literal(redacted):
+        return "<redacted-ip>"
+    return redacted
+
+
+def _is_sensitive_public_key(key: str) -> bool:
+    normalized = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key).replace("-", "_").lower()
+    if normalized in {"token_state"}:
+        return False
+    sensitive_exact = {
+        "access_token",
+        "accesstoken",
+        "address",
+        "auth",
+        "auth_key",
+        "authkey",
+        "auth_header",
+        "auth_headers",
+        "authorization",
+        "connector_token",
+        "connector_url",
+        "host",
+        "ip",
+        "api_key",
+        "apikey",
+        "password",
+        "preauth_key",
+        "preauthkey",
+        "refresh_token",
+        "refreshtoken",
+        "secret",
+        "tailnet_ip",
+        "token",
+        "url",
+    }
+    sensitive_suffixes = (
+        "_address",
+        "_auth",
+        "_auth_key",
+        "_auth_header",
+        "_authorization",
+        "_host",
+        "_ip",
+        "_api_key",
+        "_password",
+        "_preauth_key",
+        "_refresh_token",
+        "_secret",
+        "_token",
+        "_url",
+    )
+    sensitive_parts = {"auth", "authorization", "password", "secret", "token"}
+    return (
+        normalized in sensitive_exact
+        or normalized.endswith(sensitive_suffixes)
+        or any(part in sensitive_parts for part in normalized.split("_"))
+    )
+
+
+def _looks_like_ip_literal(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value.strip("[]"))
+        return True
+    except ValueError:
+        return False
+
+
+def _token_state(token: str | None) -> str:
+    return "present" if isinstance(token, str) and bool(token.strip()) else "missing"
+
+
+def _bridge_version() -> str:
+    try:
+        from importlib.metadata import version
+
+        return version("evaos-desktop-bridge")
+    except Exception:
+        return "unknown"
+
+
+def _public_path(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    text = str(path)
+    try:
+        home = str(Path.home())
+        if text == home:
+            return "~"
+        if text.startswith(home + os.sep):
+            return "~" + text[len(home):]
+    except Exception:
+        pass
+    return text
+
+
+def _now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir: Path | None = None) -> type[BaseHTTPRequestHandler]:
     class ConnectorHandler(BaseHTTPRequestHandler):
         server_version = "evaos-desktop-bridge-connector/0.1"
@@ -618,6 +913,19 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
             parsed = urlparse(self.path)
             if parsed.path == "/health":
                 self._write_json(200, {"ok": True, "service": "evaos-desktop-bridge-connector"})
+                return
+            if parsed.path == "/ready":
+                payload = build_ready_payload(token=token, state_dir=state_dir)
+                self._write_json(200 if payload["ok"] is True else 503, payload)
+                return
+            if parsed.path == "/v1/diagnostics":
+                if not token:
+                    self._write_json(503, {"ok": False, "error": "token_missing", "schema": DIAGNOSTICS_SCHEMA})
+                    return
+                if not self._authorized():
+                    self._write_json(401, {"ok": False, "error": "connector_unauthorized", "schema": DIAGNOSTICS_SCHEMA})
+                    return
+                self._write_json(200, build_diagnostics_payload(token=token, state_dir=state_dir))
                 return
             if parsed.path.startswith("/v1/artifacts/"):
                 self._serve_artifact(parsed.path.removeprefix("/v1/artifacts/"))
