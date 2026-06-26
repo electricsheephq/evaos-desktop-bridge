@@ -5,6 +5,7 @@ import hashlib
 import errno
 import ipaddress
 import os
+import re
 import secrets
 import socket
 import sys
@@ -26,6 +27,15 @@ DIAGNOSTICS_SCHEMA = "evaos.desktop_bridge.diagnostics.v1"
 READY_SCHEMA = "evaos.desktop_bridge.ready.v1"
 SERVICE_EVENTS_FILE = "connector-service-events.jsonl"
 MAX_SERVICE_EVENTS = 40
+URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
+AUTH_HEADER_PATTERN = re.compile(r"(?i)(authorization:\s*)[^\s]+")
+BEARER_TOKEN_PATTERN = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}")
+SECRET_WORD_PATTERN = re.compile(
+    r"(?i)\b(?:api[_-]?key|auth|authorization|password|secret|token)[A-Za-z0-9_.-]*(?:\s*[:=]\s*|\s+)[A-Za-z0-9._~+/=-]{8,}"
+)
+IPV4_PATTERN = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?::\d{1,5})?\b"
+)
 
 CUSTOMER_MAC_CONTROL_URL = os.environ.get(
     "EVAOS_CUSTOMER_MAC_CONTROL_URL",
@@ -687,7 +697,7 @@ def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = Non
         },
         "bridge": {
             "version": _bridge_version(),
-            "mode": os.environ.get("EVAOS_DESKTOP_BRIDGE_MODE") or "unknown",
+            "mode": _sanitize_public_text(os.environ.get("EVAOS_DESKTOP_BRIDGE_MODE") or "unknown"),
         },
         "connector": {
             "token_state": _token_state(token),
@@ -717,7 +727,7 @@ def record_service_event(
         "timestamp": _now_iso(),
         "category": category,
         "level": level,
-        "message": message[:500],
+        "message": _sanitize_public_text(message)[:500],
         "details": _sanitize_public_value(details or {}),
     }
     root = state_dir or default_state_dir()
@@ -776,18 +786,7 @@ def _sanitize_public_value(value: Any) -> Any:
             if not isinstance(key, str):
                 continue
             lowered = key.lower()
-            secret_fragments = (
-                "token",
-                "secret",
-                "password",
-                "authorization",
-                "auth_header",
-                "url",
-                "ip",
-                "host",
-                "address",
-            )
-            if any(fragment in lowered for fragment in secret_fragments):
+            if _is_sensitive_public_key(lowered):
                 sanitized[key] = "<redacted>"
             else:
                 sanitized[key] = _sanitize_public_value(item)
@@ -795,10 +794,50 @@ def _sanitize_public_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_sanitize_public_value(item) for item in value[:MAX_SERVICE_EVENTS]]
     if isinstance(value, str):
-        if "://" in value or value.startswith("Bearer ") or _looks_like_ip_literal(value):
-            return "<redacted>"
-        return value[:500]
+        return _sanitize_public_text(value)[:500]
     return value
+
+
+def _sanitize_public_text(value: str) -> str:
+    redacted = URL_PATTERN.sub("<redacted-url>", value)
+    redacted = AUTH_HEADER_PATTERN.sub(r"\1<redacted-secret>", redacted)
+    redacted = BEARER_TOKEN_PATTERN.sub(r"\1<redacted-secret>", redacted)
+    redacted = SECRET_WORD_PATTERN.sub("<redacted-secret>", redacted)
+    redacted = IPV4_PATTERN.sub("<redacted-ip>", redacted)
+    if _looks_like_ip_literal(redacted):
+        return "<redacted-ip>"
+    return redacted
+
+
+def _is_sensitive_public_key(lowered_key: str) -> bool:
+    sensitive_exact = {
+        "address",
+        "auth",
+        "auth_header",
+        "authorization",
+        "connector_token",
+        "connector_url",
+        "host",
+        "ip",
+        "password",
+        "secret",
+        "tailnet_ip",
+        "token",
+        "url",
+    }
+    sensitive_suffixes = (
+        "_address",
+        "_auth",
+        "_auth_header",
+        "_authorization",
+        "_host",
+        "_ip",
+        "_password",
+        "_secret",
+        "_token",
+        "_url",
+    )
+    return lowered_key in sensitive_exact or lowered_key.endswith(sensitive_suffixes)
 
 
 def _looks_like_ip_literal(value: str) -> bool:

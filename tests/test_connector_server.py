@@ -705,11 +705,15 @@ def test_connector_health_liveness_differs_from_ready_without_token(tmp_path: Pa
         thread.join(timeout=2)
 
 
-def test_connector_ready_and_diagnostics_are_redacted(tmp_path: Path) -> None:
+def test_connector_ready_and_diagnostics_are_redacted(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv(
+        "EVAOS_DESKTOP_BRIDGE_MODE",
+        "support http://100.64.1.10:8765/bootstrap?token=secret-token-abcdef1234567890",
+    )
     record_service_event(
         "bind_failed",
         "blocker",
-        "failed to bind",
+        "failed to bind http://100.64.1.10:8765 with token=secret-token-abcdef1234567890",
         state_dir=tmp_path,
         details={
             "host": "127.0.0.1",
@@ -730,10 +734,49 @@ def test_connector_ready_and_diagnostics_are_redacted(tmp_path: Path) -> None:
     assert diagnostics["connector"]["token_state"] == "present"
     assert "secret-token-abcdef1234567890" not in serialized
     assert "100.64.1.10" not in serialized
+    assert "127.0.0.1" not in serialized
     assert "http://100.64.1.10:8765" not in serialized
+    assert diagnostics["bridge"]["mode"] == "support <redacted-url>"
+    assert diagnostics["service_events"][0]["message"] == "failed to bind <redacted-url> with <redacted-secret>"
     assert diagnostics["service_events"][0]["details"]["connector_token"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["host"] == "<redacted>"
     assert diagnostics["service_events"][0]["details"]["tailnet_ip"] == "<redacted>"
+
+
+def test_connector_http_diagnostics_route_is_redacted(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv(
+        "EVAOS_DESKTOP_BRIDGE_MODE",
+        "support http://100.64.1.10:8765/bootstrap?token=secret-token-abcdef1234567890",
+    )
+    record_service_event(
+        "port_in_use",
+        "blocker",
+        "existing listener at 100.64.1.10:8765 used token=secret-token-abcdef1234567890",
+        state_dir=tmp_path,
+        details={"host": "100.64.1.10", "connector_token": "secret-token-abcdef1234567890"},
+    )
+    handler = _make_handler(token="secret-token-abcdef1234567890", command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/v1/diagnostics")
+        response = conn.getresponse()
+        body = response.read().decode("utf-8")
+        payload = json.loads(body)
+
+        assert response.status == 200
+        assert payload["schema"] == "evaos.desktop_bridge.diagnostics.v1"
+        assert payload["connector"]["token_state"] == "present"
+        assert "secret-token-abcdef1234567890" not in body
+        assert "100.64.1.10" not in body
+        assert "127.0.0.1" not in body
+        assert "http://100.64.1.10:8765" not in body
+        assert payload["service_events"][0]["details"]["host"] == "<redacted>"
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
 
 
 def test_connector_token_autocreates_empty_configured_file(tmp_path: Path) -> None:
