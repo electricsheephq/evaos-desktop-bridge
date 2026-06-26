@@ -808,6 +808,16 @@ def test_diagnostics_cli_reports_missing_token_without_minting_secret(tmp_path: 
     assert not (tmp_path / "connector.token").exists()
 
 
+def test_diagnostics_cli_has_human_output_without_json_flag(tmp_path: Path) -> None:
+    output = io.StringIO()
+    exit_code = main(["diagnostics"], stdout=output, state_dir=tmp_path)
+
+    assert exit_code == 0
+    assert "evaOS desktop bridge diagnostics: not ready" in output.getvalue()
+    assert "token_missing" in output.getvalue()
+    assert not (tmp_path / "connector.token").exists()
+
+
 def test_connector_service_complete_enrollment_registers_privately(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 

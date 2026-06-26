@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
@@ -744,8 +745,10 @@ def read_service_events(*, state_dir: Path | None = None, limit: int = MAX_SERVI
     path = (state_dir or default_state_dir()) / SERVICE_EVENTS_FILE
     if not path.exists():
         return []
+    max_lines = max(1, limit)
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()[-max(1, limit):]
+        with path.open("r", encoding="utf-8") as handle:
+            lines = deque(handle, maxlen=max_lines)
     except Exception:
         return []
     events: list[dict[str, Any]] = []
@@ -894,6 +897,12 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                 self._write_json(200 if payload["ok"] is True else 503, payload)
                 return
             if parsed.path == "/v1/diagnostics":
+                if not token:
+                    self._write_json(503, {"ok": False, "error": "token_missing", "schema": DIAGNOSTICS_SCHEMA})
+                    return
+                if not self._authorized():
+                    self._write_json(401, {"ok": False, "error": "connector_unauthorized", "schema": DIAGNOSTICS_SCHEMA})
+                    return
                 self._write_json(200, build_diagnostics_payload(token=token, state_dir=state_dir))
                 return
             if parsed.path.startswith("/v1/artifacts/"):

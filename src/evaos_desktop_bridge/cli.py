@@ -738,7 +738,16 @@ def main(
     if command_id == "diagnostics":
         token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
         result = build_diagnostics_payload(token=token, state_dir=state_dir)
-        stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
+        if getattr(args, "json", None) is True:
+            stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
+        else:
+            ready = result.get("connector", {}).get("ready", {}) if isinstance(result.get("connector"), dict) else {}
+            status = "ready" if ready.get("ok") is True else "not ready"
+            stdout.write(f"evaOS desktop bridge diagnostics: {status}\n")
+            blockers = ready.get("blockers") if isinstance(ready.get("blockers"), list) else []
+            for blocker in blockers:
+                if isinstance(blocker, dict):
+                    stdout.write(f"- {blocker.get('code') or 'unknown'}: {blocker.get('message') or ''}\n")
         return 0
 
     if command_id == "helper.run":
@@ -1751,7 +1760,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
 def _read_connector_token_optional(token_file: str | None, *, state_dir: Path | None = None) -> str | None:
     try:
         return read_token(token_file, state_dir=state_dir, auto_create=False)
-    except Exception:
+    except (FileNotFoundError, ValueError):
         return None
 
 
