@@ -1579,6 +1579,12 @@ final class WorkbenchModel: ObservableObject {
             pairingText = "Create a pairing code before copying the agent prompt."
             return
         }
+        if let enrollmentExpiresAt, enrollmentExpiresAt <= Date() {
+            self.enrollmentCode = nil
+            self.enrollmentExpiresAt = nil
+            pairingText = "Pairing code expired. Create a new pairing code before copying the agent prompt."
+            return
+        }
 
         let prompt = Self.agentPairingPrompt(
             enrollmentCode: enrollmentCode,
