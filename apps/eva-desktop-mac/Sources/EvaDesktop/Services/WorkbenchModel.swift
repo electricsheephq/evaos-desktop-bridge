@@ -1563,10 +1563,8 @@ final class WorkbenchModel: ObservableObject {
                 enrollmentCode = response.enrollmentCode
                 enrollmentExpiresAt = response.enrollmentExpiresAt
                 var nextPairingText = "Pairing code \(response.enrollmentCode) is ready. Use it after Mac Access is on and the secure network link is connected."
-                if let key = response.headscale?.preauthKey, !key.isEmpty {
-                    nextPairingText += "\nHeadscale key: \(key)"
-                } else if let mode = response.headscale?.mode {
-                    nextPairingText += "\nHeadscale: \(mode)"
+                if response.headscale?.preauthKey?.isEmpty == false || response.headscale?.mode != nil {
+                    nextPairingText += "\nSecure network material is held server-side."
                 }
                 pairingText = nextPairingText
                 await refreshMacPairing()
@@ -1582,23 +1580,14 @@ final class WorkbenchModel: ObservableObject {
             return
         }
 
-        Task { @MainActor in
-            let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
-            connectorServiceText = BridgeStatusFormatter.connector(raw: service)
-            do {
-                let connector = try Self.localConnectorEnrollmentContext(from: service)
-                let prompt = Self.agentPairingPrompt(
-                    enrollmentCode: enrollmentCode,
-                    connectorUrl: connector.connectorUrl,
-                    customerId: sanitizedCustomerId
-                )
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(prompt, forType: .string)
-                pairingText = "Agent setup prompt copied. Paste it into your Eva or OpenClaw agent so it can complete the link."
-            } catch {
-                pairingText = "Prompt unavailable: \(error.localizedDescription)"
-            }
-        }
+        let prompt = Self.agentPairingPrompt(
+            enrollmentCode: enrollmentCode,
+            enrollmentExpiresAt: enrollmentExpiresAt,
+            customerId: sanitizedCustomerId
+        )
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(prompt, forType: .string)
+        pairingText = "Agent setup prompt copied. Paste it into your Eva or OpenClaw agent so it can complete the link."
     }
 
     func completeLocalMacEnrollment() {
@@ -1813,21 +1802,21 @@ final class WorkbenchModel: ObservableObject {
         )
     }
 
-    private static func agentPairingPrompt(enrollmentCode: String, connectorUrl: String, customerId: String) -> String {
+    private static func agentPairingPrompt(enrollmentCode: String, enrollmentExpiresAt: Date?, customerId: String) -> String {
+        let expiryText = enrollmentExpiresAt.map { Self.shortDateFormatter.string(from: $0) } ?? "unknown"
         """
         Finish my evaOS Workbench Mac pairing.
 
         Customer: \(customerId)
         Pairing code: \(enrollmentCode)
-        Mac connector URL: \(connectorUrl)
+        Expires: \(expiryText)
 
         From my evaOS VM, complete the pairing with the customer_mac_complete_pairing tool.
         Use exactly:
-        - connector_url: \(connectorUrl)
         - enrollment_code: \(enrollmentCode)
         - customer_id: \(customerId)
 
-        Do not ask me for a connector token. The Mac connector keeps it locally and sends it directly to evaOS.
+        Do not ask me for connector URLs, IP addresses, ports, SSH, VNC, browser debug details, Headscale/Tailscale keys, connector tokens, or other connector material.
 
         Success criteria:
         1. customer_mac_complete_pairing returns ok=true.
