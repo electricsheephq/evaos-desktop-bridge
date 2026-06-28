@@ -770,7 +770,7 @@ def main(
 
     if command_id == "ready":
         token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
-        result = _build_cli_ready_payload(token=token, state_dir=state_dir)
+        result = _build_cli_ready_payload(token=token, token_file=args.token_file, state_dir=state_dir)
         if getattr(args, "json", None) is True:
             stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         else:
@@ -1789,9 +1789,9 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
     }
 
 
-def _build_cli_ready_payload(*, token: str | None, state_dir: Path | None = None) -> dict[str, object]:
+def _build_cli_ready_payload(*, token: str | None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
     payload = dict(build_ready_payload(token=token, state_dir=state_dir))
-    service_status = _connector_service_status(state_dir=state_dir)
+    service_status = _connector_service_status(token_file=token_file, state_dir=state_dir)
     health = service_status.get("health") if isinstance(service_status.get("health"), dict) else {}
     blockers = list(payload.get("blockers") if isinstance(payload.get("blockers"), list) else [])
 
@@ -1810,16 +1810,16 @@ def _build_cli_ready_payload(*, token: str | None, state_dir: Path | None = None
         payload["ready"] = False
         payload["blockers"] = blockers
 
-    payload["connector_service"] = _public_ready_connector_service_status(service_status, token_present=bool(token))
+    payload["connector_service"] = _public_ready_connector_service_status(service_status)
     return payload
 
 
-def _public_ready_connector_service_status(status: dict[str, object], *, token_present: bool) -> dict[str, object]:
+def _public_ready_connector_service_status(status: dict[str, object]) -> dict[str, object]:
     health = status.get("health") if isinstance(status.get("health"), dict) else {}
     return {
         "ok": status.get("ok") is True,
         "managed_by": status.get("managed_by") if isinstance(status.get("managed_by"), str) else "unknown",
-        "token_present": token_present,
+        "token_present": status.get("token_present") is True,
         "loaded": status.get("loaded") is True,
         "running": status.get("running") is True,
         "health": {
@@ -1836,6 +1836,12 @@ def _read_connector_token_optional(token_file: str | None, *, state_dir: Path | 
         return read_token(token_file, state_dir=state_dir, auto_create=False)
     except (FileNotFoundError, ValueError):
         return None
+
+
+def _connector_token_path(token_file: str | None, *, state_dir: Path | None = None) -> Path:
+    if token_file:
+        return Path(token_file).expanduser()
+    return (state_dir or default_state_dir()) / "connector.token"
 
 
 def _connector_registration_host(status: dict[str, object]) -> dict[str, object]:
@@ -1941,11 +1947,11 @@ def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dic
     return _connector_service_status(state_dir=state_dir)
 
 
-def _connector_service_status(*, state_dir: Path | None = None) -> dict[str, object]:
+def _connector_service_status(*, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
     domain = _launchctl_domain()
     print_result = _run_launchctl(["print", f"{domain}/{CONNECTOR_LABEL}"])
     health = _connector_loopback_health()
-    token_path = (state_dir or default_state_dir()) / "connector.token"
+    token_path = _connector_token_path(token_file, state_dir=state_dir)
     plist_path = _connector_plist_path()
     loaded = print_result["returncode"] == 0
     reachable = health["reachable"] is True

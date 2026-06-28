@@ -835,7 +835,8 @@ def test_ready_cli_reports_missing_token_without_minting_secret(tmp_path: Path) 
 def test_ready_cli_fails_when_stale_token_exists_but_connector_is_offline(monkeypatch, tmp_path: Path) -> None:
     (tmp_path / "connector.token").write_text("secret-token-abcdef1234567890\n", encoding="utf-8")  # noqa: S105
 
-    def fake_connector_service_status(*, state_dir: Path | None = None) -> dict[str, object]:
+    def fake_connector_service_status(*, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+        assert token_file is None
         assert state_dir == tmp_path
         return {
             "ok": False,
@@ -868,6 +869,43 @@ def test_ready_cli_fails_when_stale_token_exists_but_connector_is_offline(monkey
     assert "100.64.1.23" not in output.getvalue()
 
 
+def test_ready_cli_uses_custom_token_file_for_connector_service_status(monkeypatch, tmp_path: Path) -> None:
+    token_path = tmp_path / "custom-connector.token"
+    token_path.write_text("secret-token-abcdef1234567890\n", encoding="utf-8")  # noqa: S105
+
+    def fake_connector_service_status(*, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+        assert token_file == str(token_path)
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "managed_by": "launchagent",
+            "token_present": True,
+            "loaded": True,
+            "running": True,
+            "health": {
+                "reachable": True,
+                "host": "127.0.0.1",
+                "port": 8765,
+                "status_line": "HTTP/1.0 200 OK",
+            },
+            "guidance": [],
+        }
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_service_status)
+
+    output = io.StringIO()
+    exit_code = main(["ready", "--json", "--token-file", str(token_path)], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert payload["ok"] is True
+    assert payload["ready"] is True
+    assert payload["token_state"] == "present"  # noqa: S105 - readiness state, not a secret
+    assert payload["connector_service"]["token_present"] is True
+    assert not (tmp_path / "connector.token").exists()
+    assert "secret-token" not in output.getvalue()
+
+
 def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tmp_path: Path) -> None:
     token = "secret-token-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
     bearer_secret = "Bearer abcdef1234567890"  # noqa: S105 - intentional redaction fixture
@@ -892,7 +930,8 @@ def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tm
             ],
         }
 
-    def fake_connector_service_status(*, state_dir: Path | None = None) -> dict[str, object]:
+    def fake_connector_service_status(*, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+        assert token_file is None
         assert state_dir == tmp_path
         return {
             "ok": True,
