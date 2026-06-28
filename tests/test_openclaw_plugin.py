@@ -200,8 +200,7 @@ def test_customer_mac_tools_require_remote_connector_material_without_local_fall
         cwd=ROOT,
         env=env,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
     )
     result = json.loads(completed.stdout)
