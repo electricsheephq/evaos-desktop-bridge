@@ -770,7 +770,7 @@ def main(
 
     if command_id == "ready":
         token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
-        result = build_ready_payload(token=token, state_dir=state_dir)
+        result = _build_cli_ready_payload(token=token, state_dir=state_dir)
         if getattr(args, "json", None) is True:
             stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         else:
@@ -1786,6 +1786,48 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
         "connector_token_last4": connector_token[-4:],
         "headscale": public_headscale,
         "raw_secrets_returned": False,
+    }
+
+
+def _build_cli_ready_payload(*, token: str | None, state_dir: Path | None = None) -> dict[str, object]:
+    payload = dict(build_ready_payload(token=token, state_dir=state_dir))
+    service_status = _connector_service_status(state_dir=state_dir)
+    health = service_status.get("health") if isinstance(service_status.get("health"), dict) else {}
+    blockers = list(payload.get("blockers") if isinstance(payload.get("blockers"), list) else [])
+
+    if health.get("reachable") is not True:
+        blockers.append(
+            {
+                "code": "connector_service_unreachable",
+                "message": "Connector service is not reachable; Workbench must start the signed bridge before Mac control is ready.",
+                "host_kind": _connector_host_kind(str(health.get("host") or "")),
+                "port": health.get("port") if isinstance(health.get("port"), int) else CONNECTOR_PORT,
+            }
+        )
+
+    if blockers:
+        payload["ok"] = False
+        payload["ready"] = False
+        payload["blockers"] = blockers
+
+    payload["connector_service"] = _public_ready_connector_service_status(service_status, token_present=bool(token))
+    return payload
+
+
+def _public_ready_connector_service_status(status: dict[str, object], *, token_present: bool) -> dict[str, object]:
+    health = status.get("health") if isinstance(status.get("health"), dict) else {}
+    return {
+        "ok": status.get("ok") is True,
+        "managed_by": status.get("managed_by") if isinstance(status.get("managed_by"), str) else "unknown",
+        "token_present": token_present,
+        "loaded": status.get("loaded") is True,
+        "running": status.get("running") is True,
+        "health": {
+            "reachable": health.get("reachable") is True,
+            "host_kind": _connector_host_kind(str(health.get("host") or "")),
+            "port": health.get("port") if isinstance(health.get("port"), int) else CONNECTOR_PORT,
+            "status_line": health.get("status_line") if isinstance(health.get("status_line"), str) else "",
+        },
     }
 
 

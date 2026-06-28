@@ -832,6 +832,42 @@ def test_ready_cli_reports_missing_token_without_minting_secret(tmp_path: Path) 
     assert not (tmp_path / "connector.token").exists()
 
 
+def test_ready_cli_fails_when_stale_token_exists_but_connector_is_offline(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "connector.token").write_text("secret-token-abcdef1234567890\n", encoding="utf-8")  # noqa: S105
+
+    def fake_connector_service_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": False,
+            "managed_by": "offline",
+            "token_present": True,
+            "loaded": False,
+            "running": False,
+            "health": {
+                "reachable": False,
+                "host": "100.64.1.23",
+                "port": 8765,
+                "error": "connection refused",
+            },
+            "guidance": ["Start the connector service and confirm health responds."],
+        }
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_service_status)
+
+    output = io.StringIO()
+    exit_code = main(["ready", "--json"], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["ready"] is False
+    assert payload["token_state"] == "present"  # noqa: S105 - readiness state, not a secret
+    assert [blocker["code"] for blocker in payload["blockers"]] == ["connector_service_unreachable"]
+    assert payload["connector_service"]["health"]["reachable"] is False
+    assert payload["connector_service"]["health"]["host_kind"] == "tailnet"
+    assert "100.64.1.23" not in output.getvalue()
+
+
 def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tmp_path: Path) -> None:
     token = "secret-token-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
     bearer_secret = "Bearer abcdef1234567890"  # noqa: S105 - intentional redaction fixture
@@ -856,7 +892,25 @@ def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tm
             ],
         }
 
+    def fake_connector_service_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "managed_by": "launchagent",
+            "token_present": True,
+            "loaded": True,
+            "running": True,
+            "health": {
+                "reachable": True,
+                "host": "127.0.0.1",
+                "port": 8765,
+                "status_line": "HTTP/1.0 200 OK",
+            },
+            "guidance": [],
+        }
+
     monkeypatch.setattr(bridge_cli, "build_ready_payload", fake_build_ready_payload)
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_service_status)
 
     output = io.StringIO()
     exit_code = main(["ready", "--json"], stdout=output, state_dir=tmp_path)
@@ -868,6 +922,8 @@ def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tm
     assert payload["ready"] is True
     assert payload["token_state"] == "present"  # noqa: S105 - readiness state, not a secret
     assert payload["blockers"] == []
+    assert payload["connector_service"]["running"] is True
+    assert payload["connector_service"]["health"]["host_kind"] == "loopback"
     assert token not in output.getvalue()
     assert bearer_secret not in output.getvalue()
     assert payload["control_session"]["token_echo"] == "Bearer <redacted-secret>"
