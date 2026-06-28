@@ -171,6 +171,50 @@ def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     assert 'dry_run: { type: "boolean", default: true }' in (PLUGIN / "index.ts").read_text(encoding="utf-8")
 
 
+def test_customer_mac_tools_require_remote_connector_material_without_local_fallback(tmp_path: Path) -> None:
+    fake_bridge = tmp_path / "fake-local-bridge"
+    marker = tmp_path / "local-fallback-ran"
+    fake_bridge.write_text(
+        "#!/bin/sh\n"
+        f"touch {marker}\n"
+        "printf '%s\\n' '{\"ok\":true,\"data\":{\"source\":\"local-cli\"}}'\n",
+        encoding="utf-8",
+    )
+    fake_bridge.chmod(0o700)
+
+    script = """
+        import { runBridge } from './openclaw-plugin/dist/src/bridge.js';
+        const result = await runBridge('desktopSee', {});
+        console.log(JSON.stringify(result));
+    """
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path),
+        "EVAOS_DESKTOP_BRIDGE_BIN": str(fake_bridge),
+        "EVAOS_DESKTOP_BRIDGE_ENV_FILE": str(tmp_path / "missing.env"),
+    }
+    env.pop("EVAOS_DESKTOP_BRIDGE_URL", None)
+    env.pop("EVAOS_DESKTOP_BRIDGE_TOKEN", None)
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    result = json.loads(completed.stdout)
+
+    assert result["ok"] is False
+    assert result["errors"][0]["code"] == "mac_connector_material_missing"
+    assert result["errors"][0]["details"]["missing"] == [
+        "EVAOS_DESKTOP_BRIDGE_URL",
+        "EVAOS_DESKTOP_BRIDGE_TOKEN",
+    ]
+    assert "fake-local-bridge" not in json.dumps(result)
+    assert not marker.exists()
+
+
 def test_openclaw_codex_visible_gui_tools_are_fixed_and_approval_gated() -> None:
     source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
     firewall = (PLUGIN / "src" / "firewall.ts").read_text(encoding="utf-8")
