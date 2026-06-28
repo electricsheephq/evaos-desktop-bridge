@@ -770,7 +770,7 @@ def main(
 
     if command_id == "ready":
         token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
-        result = build_ready_payload(token=token, state_dir=state_dir)
+        result = _build_cli_ready_payload(token=token, token_file=args.token_file, state_dir=state_dir)
         if getattr(args, "json", None) is True:
             stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         else:
@@ -1789,10 +1789,71 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
     }
 
 
+def _build_cli_ready_payload(*, token: str | None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+    payload = dict(build_ready_payload(token=token, state_dir=state_dir))
+    service_status = _connector_service_status(token=token, token_file=token_file, state_dir=state_dir)
+    health = service_status.get("health") if isinstance(service_status.get("health"), dict) else {}
+    blockers = list(payload.get("blockers") if isinstance(payload.get("blockers"), list) else [])
+
+    if service_status.get("ready") is not True:
+        code = "connector_service_unreachable" if health.get("reachable") is not True else "connector_service_not_ready"
+        blockers.append(
+            {
+                "code": code,
+                "message": "Connector service is not ready; Workbench must start the signed bridge before Mac control is ready.",
+                "host_kind": _connector_host_kind(str(health.get("host") or "")),
+                "port": health.get("port") if isinstance(health.get("port"), int) else CONNECTOR_PORT,
+            }
+        )
+
+    if blockers:
+        payload["ok"] = False
+        payload["ready"] = False
+        payload["blockers"] = blockers
+
+    payload["connector_service"] = _public_ready_connector_service_status(service_status)
+    return payload
+
+
+def _public_ready_connector_service_status(status: dict[str, object]) -> dict[str, object]:
+    health = status.get("health") if isinstance(status.get("health"), dict) else {}
+    return {
+        "ok": status.get("ok") is True,
+        "ready": status.get("ready") is True,
+        "managed_by": status.get("managed_by") if isinstance(status.get("managed_by"), str) else "unknown",
+        "token_present": status.get("token_present") is True,
+        "loaded": status.get("loaded") is True,
+        "running": status.get("running") is True,
+        "health": {
+            "reachable": health.get("reachable") is True,
+            "ready": health.get("ready") is True,
+            "authenticated": health.get("authenticated") is True,
+            "host_kind": _connector_host_kind(str(health.get("host") or "")),
+            "port": health.get("port") if isinstance(health.get("port"), int) else CONNECTOR_PORT,
+            "status_line": health.get("status_line") if isinstance(health.get("status_line"), str) else "",
+        },
+    }
+
+
 def _read_connector_token_optional(token_file: str | None, *, state_dir: Path | None = None) -> str | None:
     try:
         return read_token(token_file, state_dir=state_dir, auto_create=False)
     except (FileNotFoundError, ValueError):
+        return None
+
+
+def _connector_token_path(token_file: str | None, *, state_dir: Path | None = None) -> Path:
+    if token_file:
+        return Path(token_file).expanduser()
+    return (state_dir or default_state_dir()) / "connector.token"
+
+
+def _connector_token_value(token_file: str | None, *, token: str | None = None, state_dir: Path | None = None) -> str | None:
+    if isinstance(token, str) and token.strip():
+        return token
+    try:
+        return read_token(token_file, state_dir=state_dir, auto_create=False)
+    except (FileNotFoundError, IsADirectoryError, PermissionError, UnicodeDecodeError, ValueError):
         return None
 
 
@@ -1899,27 +1960,30 @@ def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dic
     return _connector_service_status(state_dir=state_dir)
 
 
-def _connector_service_status(*, state_dir: Path | None = None) -> dict[str, object]:
+def _connector_service_status(*, token: str | None = None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
     domain = _launchctl_domain()
     print_result = _run_launchctl(["print", f"{domain}/{CONNECTOR_LABEL}"])
-    health = _connector_loopback_health()
-    token_path = (state_dir or default_state_dir()) / "connector.token"
+    connector_token = _connector_token_value(token_file, token=token, state_dir=state_dir)
+    health = _connector_loopback_health(connector_token=connector_token)
+    token_path = _connector_token_path(token_file, state_dir=state_dir)
     plist_path = _connector_plist_path()
     loaded = print_result["returncode"] == 0
     reachable = health["reachable"] is True
-    running = loaded and reachable
+    ready = health.get("ready") is True
+    running = loaded and ready
     tailnet_ip = _tailscale_ip()
-    managed_by = "launchagent" if running else "workbench-or-manual" if reachable else "offline"
+    managed_by = "launchagent" if running else "workbench-or-manual" if ready else "offline"
     program_arguments = _connector_plist_program_arguments(plist_path)
     return {
-        "ok": bool(token_path.exists() and reachable),
+        "ok": bool(connector_token and ready),
+        "ready": ready,
         "label": CONNECTOR_LABEL,
         "domain": domain,
         "managed_by": managed_by,
         "plist_path": str(plist_path) if plist_path else None,
         "plist_installed": plist_path is not None,
         "token_path": str(token_path),
-        "token_present": token_path.exists(),
+        "token_present": bool(connector_token),
         "loaded": loaded,
         "running": running,
         "tailnet_ip": tailnet_ip,
@@ -1982,23 +2046,87 @@ def _run_launchctl(args: list[str]) -> dict[str, object]:
         return {"returncode": 1, "stderr": str(exc)}
 
 
-def _connector_loopback_health() -> dict[str, object]:
+def _connector_loopback_health(*, connector_token: str | None = None) -> dict[str, object]:
     plist_path = _connector_plist_path()
     host = _connector_plist_host(plist_path) or _tailscale_ip() or "127.0.0.1"
     try:
-        with socket.create_connection((host, CONNECTOR_PORT), timeout=1.0) as sock:
-            request = f"GET /health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode("utf-8")
-            sock.sendall(request)
-            data = sock.recv(512)
-        text = data.decode("utf-8", errors="replace")
-        return {
-            "reachable": text.startswith("HTTP/1.0 200") or text.startswith("HTTP/1.1 200"),
+        health = _connector_http_get(host, "/health")
+        health_json = health.get("json") if isinstance(health.get("json"), dict) else {}
+        reachable = health.get("status_code") == 200 and health_json.get("service") == "evaos-desktop-bridge-connector"
+        result: dict[str, object] = {
+            "reachable": reachable,
+            "ready": False,
+            "authenticated": False,
             "host": host,
             "port": CONNECTOR_PORT,
-            "status_line": text.splitlines()[0] if text else "",
+            "status_line": health.get("status_line") if isinstance(health.get("status_line"), str) else "",
         }
+        if not reachable:
+            result["error"] = "connector_identity_unverified"
+            return result
+        if not connector_token:
+            result["error"] = "connector_token_missing"
+            return result
+
+        diagnostics = _connector_http_get(host, "/v1/diagnostics", authorization=f"Bearer {connector_token}")
+        diagnostics_json = diagnostics.get("json") if isinstance(diagnostics.get("json"), dict) else {}
+        connector = diagnostics_json.get("connector") if isinstance(diagnostics_json.get("connector"), dict) else {}
+        ready_payload = connector.get("ready") if isinstance(connector.get("ready"), dict) else {}
+        authenticated = diagnostics.get("status_code") == 200 and diagnostics_json.get("schema") == "evaos.desktop_bridge.diagnostics.v1"
+        ready = (
+            authenticated
+            and ready_payload.get("schema") == "evaos.desktop_bridge.ready.v1"
+            and ready_payload.get("ok") is True
+            and ready_payload.get("ready") is True
+        )
+        result["authenticated"] = authenticated
+        result["ready"] = ready
+        result["ready_status_line"] = diagnostics.get("status_line") if isinstance(diagnostics.get("status_line"), str) else ""
+        if not ready:
+            result["error"] = "connector_ready_probe_failed"
+        return result
     except Exception as exc:
         return {"reachable": False, "host": host, "port": CONNECTOR_PORT, "error": str(exc)}
+
+
+def _connector_http_get(host: str, path: str, *, authorization: str | None = None) -> dict[str, object]:
+    connect_host = host[1:-1] if host.startswith("[") and host.endswith("]") else host
+    headers = [f"GET {path} HTTP/1.1", f"Host: {host}", "Connection: close"]
+    if authorization:
+        headers.append(f"Authorization: {authorization}")
+    request = ("\r\n".join(headers) + "\r\n\r\n").encode("utf-8")
+    with socket.create_connection((connect_host, CONNECTOR_PORT), timeout=1.0) as sock:
+        sock.settimeout(1.0)
+        sock.sendall(request)
+        chunks: list[bytes] = []
+        while True:
+            try:
+                chunk = sock.recv(4096)
+            except TimeoutError:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+            if sum(len(item) for item in chunks) >= 65536:
+                break
+    data = b"".join(chunks)
+    text = data.decode("utf-8", errors="replace")
+    status_line = text.splitlines()[0] if text else ""
+    status_code = None
+    parts = status_line.split()
+    if len(parts) >= 2:
+        try:
+            status_code = int(parts[1])
+        except ValueError:
+            status_code = None
+    _, _, body = text.partition("\r\n\r\n")
+    parsed_json: object | None = None
+    if body.strip():
+        try:
+            parsed_json = json.loads(body)
+        except json.JSONDecodeError:
+            parsed_json = None
+    return {"status_code": status_code, "status_line": status_line, "json": parsed_json}
 
 
 def _connector_permission_target(
