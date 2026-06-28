@@ -1853,7 +1853,7 @@ def _connector_token_value(token_file: str | None, *, token: str | None = None, 
         return token
     try:
         return read_token(token_file, state_dir=state_dir, auto_create=False)
-    except (FileNotFoundError, ValueError):
+    except (FileNotFoundError, IsADirectoryError, PermissionError, UnicodeDecodeError, ValueError):
         return None
 
 
