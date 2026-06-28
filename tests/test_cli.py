@@ -835,11 +835,13 @@ def test_ready_cli_reports_missing_token_without_minting_secret(tmp_path: Path) 
 def test_ready_cli_fails_when_stale_token_exists_but_connector_is_offline(monkeypatch, tmp_path: Path) -> None:
     (tmp_path / "connector.token").write_text("secret-token-abcdef1234567890\n", encoding="utf-8")  # noqa: S105
 
-    def fake_connector_service_status(*, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+    def fake_connector_service_status(*, token: str | None = None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+        assert token == "secret-token-abcdef1234567890"
         assert token_file is None
         assert state_dir == tmp_path
         return {
             "ok": False,
+            "ready": False,
             "managed_by": "offline",
             "token_present": True,
             "loaded": False,
@@ -873,17 +875,21 @@ def test_ready_cli_uses_custom_token_file_for_connector_service_status(monkeypat
     token_path = tmp_path / "custom-connector.token"
     token_path.write_text("secret-token-abcdef1234567890\n", encoding="utf-8")  # noqa: S105
 
-    def fake_connector_service_status(*, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+    def fake_connector_service_status(*, token: str | None = None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+        assert token == "secret-token-abcdef1234567890"
         assert token_file == str(token_path)
         assert state_dir == tmp_path
         return {
             "ok": True,
+            "ready": True,
             "managed_by": "launchagent",
             "token_present": True,
             "loaded": True,
             "running": True,
             "health": {
                 "reachable": True,
+                "ready": True,
+                "authenticated": True,
                 "host": "127.0.0.1",
                 "port": 8765,
                 "status_line": "HTTP/1.0 200 OK",
@@ -902,7 +908,44 @@ def test_ready_cli_uses_custom_token_file_for_connector_service_status(monkeypat
     assert payload["ready"] is True
     assert payload["token_state"] == "present"  # noqa: S105 - readiness state, not a secret
     assert payload["connector_service"]["token_present"] is True
+    assert payload["connector_service"]["ready"] is True
+    assert payload["connector_service"]["health"]["authenticated"] is True
     assert not (tmp_path / "connector.token").exists()
+    assert "secret-token" not in output.getvalue()
+
+
+def test_ready_cli_rejects_unauthenticated_health_200_listener(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "connector.token").write_text("secret-token-abcdef1234567890\n", encoding="utf-8")  # noqa: S105
+
+    monkeypatch.setattr(bridge_cli, "_connector_plist_path", lambda: None)
+    monkeypatch.setattr(bridge_cli, "_tailscale_ip", lambda: None)
+    monkeypatch.setattr(
+        bridge_cli,
+        "_run_launchctl",
+        lambda args: {"returncode": 113, "stdout": "", "stderr": "not loaded"},
+    )
+    monkeypatch.setattr(
+        bridge_cli,
+        "_connector_http_get",
+        lambda host, path, *, authorization=None: {
+            "status_code": 200,
+            "status_line": "HTTP/1.1 200 OK",
+            "json": {"ok": True, "service": "not-evaos"},
+        },
+    )
+
+    output = io.StringIO()
+    exit_code = main(["ready", "--json"], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["ready"] is False
+    assert payload["connector_service"]["ok"] is False
+    assert payload["connector_service"]["ready"] is False
+    assert payload["connector_service"]["health"]["reachable"] is False
+    assert payload["connector_service"]["health"]["authenticated"] is False
+    assert [blocker["code"] for blocker in payload["blockers"]] == ["connector_service_unreachable"]
     assert "secret-token" not in output.getvalue()
 
 
@@ -930,17 +973,21 @@ def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tm
             ],
         }
 
-    def fake_connector_service_status(*, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+    def fake_connector_service_status(*, token: str | None = None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+        assert token == "secret-token-abcdef1234567890"
         assert token_file is None
         assert state_dir == tmp_path
         return {
             "ok": True,
+            "ready": True,
             "managed_by": "launchagent",
             "token_present": True,
             "loaded": True,
             "running": True,
             "health": {
                 "reachable": True,
+                "ready": True,
+                "authenticated": True,
                 "host": "127.0.0.1",
                 "port": 8765,
                 "status_line": "HTTP/1.0 200 OK",
@@ -1884,7 +1931,14 @@ def test_connector_status_accepts_workbench_managed_health_without_launchagent(m
     monkeypatch.setattr(
         bridge_cli,
         "_connector_loopback_health",
-        lambda: {"reachable": True, "host": "100.64.0.4", "port": 8765, "status_line": "HTTP/1.0 200 OK"},
+        lambda *, connector_token=None: {
+            "reachable": True,
+            "ready": True,
+            "authenticated": True,
+            "host": "100.64.0.4",
+            "port": 8765,
+            "status_line": "HTTP/1.0 200 OK",
+        },
     )
 
     payload = bridge_cli._connector_service_status(state_dir=tmp_path)
@@ -1922,7 +1976,14 @@ def test_connector_status_reports_launchagent_program_as_permission_target(monke
     monkeypatch.setattr(
         bridge_cli,
         "_connector_loopback_health",
-        lambda: {"reachable": True, "host": "100.64.0.4", "port": 8765, "status_line": "HTTP/1.0 200 OK"},
+        lambda *, connector_token=None: {
+            "reachable": True,
+            "ready": True,
+            "authenticated": True,
+            "host": "100.64.0.4",
+            "port": 8765,
+            "status_line": "HTTP/1.0 200 OK",
+        },
     )
 
     payload = bridge_cli._connector_service_status(state_dir=tmp_path)
