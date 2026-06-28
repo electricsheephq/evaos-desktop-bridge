@@ -20,7 +20,13 @@ from .adapters.codex_macos import MacOSCodexObserver
 from .adapters.customer_mac import CustomerMacObserver
 from .audit import append_audit, default_state_dir
 from .bundled_tools import bundled_bridge_bin_candidates
-from .connector_server import build_diagnostics_payload, complete_enrollment_via_control, read_token, run_connector_server
+from .connector_server import (
+    build_diagnostics_payload,
+    build_ready_payload,
+    complete_enrollment_via_control,
+    read_token,
+    run_connector_server,
+)
 from .helper_ipc import HelperIpcError, UnixSocketHelperClient, default_helper_socket_path, read_helper_token, run_helper_server
 from .policy import PolicyError, command_metadata, ensure_allowed
 from .queue import append_queue_event, list_queue_events
@@ -233,6 +239,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional connector token file. Defaults to the bridge state directory when present.",
     )
     diagnostics_parser.set_defaults(command_id="diagnostics", target="connector")
+
+    ready_parser = subparsers.add_parser(
+        "ready",
+        help="Return connector readiness for release proof and support diagnostics.",
+    )
+    ready_parser.add_argument("--json", action="store_true", help="Emit JSON.")
+    ready_parser.add_argument(
+        "--token-file",
+        default=None,
+        help="Optional connector token file. Defaults to the bridge state directory when present.",
+    )
+    ready_parser.set_defaults(command_id="ready", target="connector")
 
     audit_parser = subparsers.add_parser("audit-tail", help="Return a redacted tail of the local audit log.")
     audit_parser.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -749,6 +767,20 @@ def main(
                 if isinstance(blocker, dict):
                     stdout.write(f"- {blocker.get('code') or 'unknown'}: {blocker.get('message') or ''}\n")
         return 0
+
+    if command_id == "ready":
+        token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
+        result = build_ready_payload(token=token, state_dir=state_dir)
+        if getattr(args, "json", None) is True:
+            stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
+        else:
+            status = "ready" if result.get("ok") is True else "not ready"
+            stdout.write(f"evaOS desktop bridge connector: {status}\n")
+            blockers = result.get("blockers") if isinstance(result.get("blockers"), list) else []
+            for blocker in blockers:
+                if isinstance(blocker, dict):
+                    stdout.write(f"- {blocker.get('code') or 'unknown'}: {blocker.get('message') or ''}\n")
+        return 0 if result.get("ok") is True else 2
 
     if command_id == "helper.run":
         token = read_helper_token(token_file=args.token_file, state_dir=state_dir, auto_create=True)

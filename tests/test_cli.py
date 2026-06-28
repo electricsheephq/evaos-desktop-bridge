@@ -818,6 +818,72 @@ def test_diagnostics_cli_has_human_output_without_json_flag(tmp_path: Path) -> N
     assert not (tmp_path / "connector.token").exists()
 
 
+def test_ready_cli_reports_missing_token_without_minting_secret(tmp_path: Path) -> None:
+    output = io.StringIO()
+    exit_code = main(["ready", "--json"], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 2
+    assert payload["schema"] == "evaos.desktop_bridge.ready.v1"
+    assert payload["ok"] is False
+    assert payload["ready"] is False
+    assert payload["token_state"] == "missing"  # noqa: S105 - readiness state, not a secret
+    assert payload["blockers"][0]["code"] == "token_missing"
+    assert not (tmp_path / "connector.token").exists()
+
+
+def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tmp_path: Path) -> None:
+    token = "secret-token-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
+    bearer_secret = "Bearer abcdef1234567890"  # noqa: S105 - intentional redaction fixture
+    (tmp_path / "connector.token").write_text(token + "\n", encoding="utf-8")
+
+    def fake_build_ready_payload(*, token: str | None, state_dir: Path | None = None) -> dict[str, object]:
+        return {
+            "ok": True,
+            "schema": "evaos.desktop_bridge.ready.v1",
+            "service": "evaos-desktop-bridge-connector",
+            "ready": True,
+            "token_state": "present",
+            "blockers": [],
+            "control_session": {
+                "active": False,
+                "token_echo": bearer_secret,
+            },
+            "service_events": [
+                {
+                    "message": f"authorization failed with {bearer_secret}",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(bridge_cli, "build_ready_payload", fake_build_ready_payload)
+
+    output = io.StringIO()
+    exit_code = main(["ready", "--json"], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert payload["schema"] == "evaos.desktop_bridge.ready.v1"
+    assert payload["ok"] is True
+    assert payload["ready"] is True
+    assert payload["token_state"] == "present"  # noqa: S105 - readiness state, not a secret
+    assert payload["blockers"] == []
+    assert token not in output.getvalue()
+    assert bearer_secret not in output.getvalue()
+    assert payload["control_session"]["token_echo"] == "Bearer <redacted-secret>"
+    assert payload["service_events"][0]["message"] == "authorization failed with Bearer <redacted-secret>"
+
+
+def test_ready_cli_has_human_output_without_json_flag(tmp_path: Path) -> None:
+    output = io.StringIO()
+    exit_code = main(["ready"], stdout=output, state_dir=tmp_path)
+
+    assert exit_code == 2
+    assert "evaOS desktop bridge connector: not ready" in output.getvalue()
+    assert "token_missing" in output.getvalue()
+    assert not (tmp_path / "connector.token").exists()
+
+
 def test_connector_service_complete_enrollment_registers_privately(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
