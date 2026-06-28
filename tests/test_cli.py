@@ -867,9 +867,13 @@ def test_ready_cli_fails_when_stale_token_exists_but_connector_is_offline(monkey
     assert payload["ready"] is False
     assert payload["token_state"] == "present"  # noqa: S105 - readiness state, not a secret
     assert [blocker["code"] for blocker in payload["blockers"]] == ["connector_service_unreachable"]
+    assert "port" not in payload["blockers"][0]
     assert payload["connector_service"]["health"]["reachable"] is False
     assert payload["connector_service"]["health"]["host_kind"] == "tailnet"
+    assert "port" not in payload["connector_service"]["health"]
+    assert "status_line" not in payload["connector_service"]["health"]
     assert "100.64.1.23" not in output.getvalue()
+    assert "8765" not in output.getvalue()
 
 
 def test_ready_cli_uses_custom_token_file_for_connector_service_status(monkeypatch, tmp_path: Path) -> None:
@@ -912,8 +916,11 @@ def test_ready_cli_uses_custom_token_file_for_connector_service_status(monkeypat
     assert payload["connector_service"]["token_present"] is True
     assert payload["connector_service"]["ready"] is True
     assert payload["connector_service"]["health"]["authenticated"] is True
+    assert "port" not in payload["connector_service"]["health"]
+    assert "status_line" not in payload["connector_service"]["health"]
     assert not (tmp_path / "connector.token").exists()
     assert "secret-token" not in output.getvalue()
+    assert "8765" not in output.getvalue()
 
 
 def test_ready_cli_rejects_unauthenticated_health_200_listener(monkeypatch, tmp_path: Path) -> None:
@@ -1018,10 +1025,13 @@ def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tm
     connector_health = payload["connector_service"]["health"]
     assert connector_health["host_kind"] == "loopback"
     assert "host" not in connector_health
+    assert "port" not in connector_health
+    assert "status_line" not in connector_health
     assert token_fixture not in output.getvalue()
     assert bearer_secret not in output.getvalue()
     assert "127.0.0.1" not in output.getvalue()
     assert "localhost" not in output.getvalue()
+    assert "8765" not in output.getvalue()
     assert payload["control_session"]["token_echo"] == "Bearer <redacted-secret>"
     assert payload["service_events"][0]["message"] == "authorization failed with Bearer <redacted-secret>"
 

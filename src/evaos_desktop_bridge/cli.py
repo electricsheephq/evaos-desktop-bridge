@@ -1802,7 +1802,6 @@ def _build_cli_ready_payload(*, token: str | None, token_file: str | None = None
                 "code": code,
                 "message": "Connector service is not ready; Workbench must start the signed bridge before Mac control is ready.",
                 "host_kind": _connector_host_kind(str(health.get("host") or "")),
-                "port": health.get("port") if isinstance(health.get("port"), int) else CONNECTOR_PORT,
             }
         )
 
@@ -1829,8 +1828,6 @@ def _public_ready_connector_service_status(status: dict[str, object]) -> dict[st
             "ready": health.get("ready") is True,
             "authenticated": health.get("authenticated") is True,
             "host_kind": _connector_host_kind(str(health.get("host") or "")),
-            "port": health.get("port") if isinstance(health.get("port"), int) else CONNECTOR_PORT,
-            "status_line": health.get("status_line") if isinstance(health.get("status_line"), str) else "",
         },
     }
 
