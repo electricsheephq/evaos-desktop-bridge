@@ -216,6 +216,51 @@ const FIXED_COMMANDS: Record<
   customerMacScreenSharingStatus: ["customer-mac", "screen-sharing", "status", "--json"],
 };
 
+const CUSTOMER_MAC_REMOTE_COMMANDS = new Set<BridgeCommandKey>([
+  "customerMacStatus",
+  "customerMacCapabilities",
+  "customerMacControlStatus",
+  "customerMacControlStart",
+  "customerMacControlStop",
+  "customerMacControlKillSwitch",
+  "desktopSee",
+  "desktopClick",
+  "desktopType",
+  "desktopSetValue",
+  "desktopScroll",
+  "desktopDrag",
+  "desktopHotkey",
+  "desktopFocusApp",
+  "desktopWindow",
+  "desktopMenu",
+  "desktopBrowserAction",
+  "customerMacSnapshot",
+  "customerMacAxTree",
+  "customerMacAppFocus",
+  "customerMacLocalSiteOpen",
+  "customerMacLocalSiteAction",
+  "customerMacIphoneMirroringStatus",
+  "iphoneSee",
+  "iphoneTap",
+  "iphoneSwipe",
+  "iphoneType",
+  "customerMacIphoneMirroringFocus",
+  "customerMacIphoneMirroringHome",
+  "customerMacIphoneMirroringAppSwitcher",
+  "customerMacIphoneMirroringSpotlight",
+  "customerMacIphoneMirroringTypeSpotlight",
+  "customerMacIphoneMirroringOpenApp",
+  "customerMacIphoneMirroringTapNamedTarget",
+  "customerMacIphoneMirroringScroll",
+  "customerMacIphoneMirroringSwipeLeft",
+  "customerMacIphoneMirroringSwipeRight",
+  "customerMacIphoneMirroringSwipeUp",
+  "customerMacIphoneMirroringSwipeDown",
+  "customerMacIphoneMirroringTypeApprovedText",
+  "customerMacIphoneMirroringSendApprovedMessage",
+  "customerMacScreenSharingStatus",
+]);
+
 export function buildBridgeArgv(command: BridgeCommandKey, params: BridgeParams = {}): string[] {
   if (command in FIXED_COMMANDS) {
     return FIXED_COMMANDS[command as keyof typeof FIXED_COMMANDS];
@@ -663,7 +708,14 @@ export async function runBridge(command: BridgeCommandKey, params: BridgeParams 
   }
 
   loadDesktopBridgeEnvFile();
-  const remoteURL = process.env.EVAOS_DESKTOP_BRIDGE_URL;
+  const remoteURL = process.env.EVAOS_DESKTOP_BRIDGE_URL?.trim();
+  const remoteToken = process.env.EVAOS_DESKTOP_BRIDGE_TOKEN?.trim();
+  if (isCustomerMacRemoteCommand(command)) {
+    const missing = missingRemoteConnectorMaterial(remoteURL, remoteToken);
+    if (missing.length > 0) {
+      return customerMacConnectorMaterialMissing(command, missing);
+    }
+  }
   if (remoteURL) {
     return runRemoteBridge(remoteURL, command, params);
   }
@@ -699,6 +751,43 @@ export async function runBridge(command: BridgeCommandKey, params: BridgeParams 
       };
     }
   });
+}
+
+function isCustomerMacRemoteCommand(command: BridgeCommandKey): boolean {
+  return CUSTOMER_MAC_REMOTE_COMMANDS.has(command);
+}
+
+function missingRemoteConnectorMaterial(remoteURL: string | undefined, remoteToken: string | undefined): string[] {
+  const missing: string[] = [];
+  if (!remoteURL) {
+    missing.push("EVAOS_DESKTOP_BRIDGE_URL");
+  }
+  if (!remoteToken) {
+    missing.push("EVAOS_DESKTOP_BRIDGE_TOKEN");
+  }
+  return missing;
+}
+
+function customerMacConnectorMaterialMissing(command: BridgeCommandKey, missing: string[]): unknown {
+  return {
+    ok: false,
+    errors: [
+      {
+        code: "mac_connector_material_missing",
+        message: "Customer Mac tools require broker/session-provided remote connector material.",
+        guidance:
+          "Launch the runtime from Workbench for the selected customer or complete customer_mac_complete_pairing so the brokered connector contract is present before using customer Mac tools.",
+        details: {
+          command,
+          missing,
+          required: ["EVAOS_DESKTOP_BRIDGE_URL", "EVAOS_DESKTOP_BRIDGE_TOKEN"],
+          route: "/v1/commands",
+          env_file: displayDesktopBridgeEnvPath(desktopBridgeEnvPath()),
+          local_fallback: false,
+        },
+      },
+    ],
+  };
 }
 
 async function withLocalMessagePayload<T>(
@@ -1441,7 +1530,7 @@ async function runRemoteBridge(remoteURL: string, command: BridgeCommandKey, par
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const token = process.env.EVAOS_DESKTOP_BRIDGE_TOKEN;
+  const token = process.env.EVAOS_DESKTOP_BRIDGE_TOKEN?.trim();
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
