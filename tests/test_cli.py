@@ -1015,9 +1015,13 @@ def test_ready_cli_reports_present_token_without_exposing_secret(monkeypatch, tm
     assert payload["token_state"] == "present"  # noqa: S105 - readiness state, not a secret
     assert payload["blockers"] == []
     assert payload["connector_service"]["running"] is True
-    assert payload["connector_service"]["health"]["host_kind"] == "loopback"
+    connector_health = payload["connector_service"]["health"]
+    assert connector_health["host_kind"] == "loopback"
+    assert "host" not in connector_health
     assert token_fixture not in output.getvalue()
     assert bearer_secret not in output.getvalue()
+    assert "127.0.0.1" not in output.getvalue()
+    assert "localhost" not in output.getvalue()
     assert payload["control_session"]["token_echo"] == "Bearer <redacted-secret>"
     assert payload["service_events"][0]["message"] == "authorization failed with Bearer <redacted-secret>"
 
