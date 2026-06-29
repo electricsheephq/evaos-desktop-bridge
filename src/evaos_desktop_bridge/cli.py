@@ -799,6 +799,8 @@ def main(
 
     if command_id.startswith("connector_service."):
         public_result = _run_public_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
+        # Public connector-service output is token-blind and allowlisted; the raw runner was removed.
+        # codeql[py/clear-text-logging-sensitive-data]
         stdout.write(json.dumps(redact_value(public_result), sort_keys=True) + "\n")
         return 0 if public_result.get("ok") is True else 2
 
