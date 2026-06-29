@@ -1456,6 +1456,67 @@ def test_connector_service_complete_enrollment_formats_ipv6_tailnet_host(
     assert "secret-token" not in output.getvalue()
 
 
+def test_connector_service_complete_enrollment_redacts_not_ready_status(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fake_connector_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": False,
+            "ready": False,
+            "managed_by": "launchagent",
+            "token_present": True,
+            "loaded": True,
+            "running": False,
+            "tailnet_ip": "100.64.1.10",
+            "health": {
+                "host": "100.64.1.10",
+                "port": 8765,
+                "reachable": True,
+                "ready": False,
+                "authenticated": False,
+                "status_line": "HTTP/1.0 401 Unauthorized",
+            },
+            "launchctl": {"stdout": "host=100.64.1.10", "stderr": "token at /Users/matt/Library/connector.token"},
+        }
+
+    def fail_read_token(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("connector token must not be read when status is not ready")
+
+    def fail_complete_enrollment(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("broker complete_enrollment must not run when status is not ready")
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
+    monkeypatch.setattr(bridge_cli, "read_token", fail_read_token)
+    monkeypatch.setattr(bridge_cli, "complete_enrollment_via_control", fail_complete_enrollment)
+
+    output = io.StringIO()
+    exit_code = main(
+        [
+            "connector-service",
+            "complete-enrollment",
+            "--json",
+            "--enrollment-code",
+            "PAIR123",
+            "--customer-id",
+            "benjamin-kennedy",
+        ],
+        stdout=output,
+        state_dir=tmp_path,
+    )
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["error"] == "connector_service_not_ready"
+    assert payload["status"]["health"]["host_kind"] == "tailnet"
+    assert "tailnet_ip" not in payload["status"]
+    assert "launchctl" not in payload["status"]
+    assert "100.64.1.10" not in output.getvalue()
+    assert "connector.token" not in output.getvalue()
+
+
 def test_connector_service_complete_enrollment_rejects_loopback_without_tailnet(
     monkeypatch,
     tmp_path: Path,

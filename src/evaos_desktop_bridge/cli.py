@@ -1725,7 +1725,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
             "ok": False,
             "action": "complete-enrollment",
             "error": "connector_service_not_ready",
-            "status": status,
+            "status": _public_ready_connector_service_status(status),
         }
     if not host:
         return {
