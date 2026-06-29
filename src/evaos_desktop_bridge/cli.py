@@ -2015,7 +2015,7 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
 
     if action == "start":
         start_result = _public_launchctl_result(_launchctl_start())
-        status = _public_connector_service_status(_wait_for_connector_service(state_dir=state_dir))
+        status = _public_connector_service_probe_status(state_dir=state_dir)
         return {
             "ok": status.get("ok") is True,
             "action": action,
@@ -2025,7 +2025,7 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
 
     if action == "stop":
         stop_result = _public_launchctl_result(_launchctl_stop())
-        status = _public_connector_service_status(_connector_service_status(state_dir=state_dir))
+        status = _public_connector_service_probe_status(state_dir=state_dir)
         return {
             "ok": True,
             "action": action,
@@ -2033,7 +2033,50 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
             "status": status,
         }
 
-    return _public_connector_service_status(_connector_service_status(state_dir=state_dir))
+    return _public_connector_service_probe_status(state_dir=state_dir)
+
+
+def _public_connector_service_probe_status(*, state_dir: Path | None = None) -> dict[str, object]:
+    domain = _launchctl_domain()
+    print_result = _run_launchctl(["print", f"{domain}/{CONNECTOR_LABEL}"])
+    token_path = _connector_token_path(None, state_dir=state_dir)
+    plist_path = _connector_plist_path()
+    loaded = print_result["returncode"] == 0
+    health = _connector_public_loopback_health()
+    reachable = health.get("reachable") is True
+    ready = health.get("ready") is True
+    running = loaded and ready
+    program_arguments = _connector_plist_program_arguments(plist_path)
+    active_program_path = _active_connector_process_program_path() if reachable else None
+    status = {
+        "ok": token_path.exists() and ready,
+        "ready": ready,
+        "label": CONNECTOR_LABEL,
+        "domain": domain,
+        "managed_by": "launchagent" if running else "workbench-or-manual" if ready else "offline",
+        "plist_path": str(plist_path) if plist_path else None,
+        "plist_installed": plist_path is not None,
+        "token_path": str(token_path),
+        "token_present": token_path.exists(),
+        "loaded": loaded,
+        "running": running,
+        "tailnet_ip": _tailscale_ip(),
+        "health": health,
+        "owner": _bridge_owner_summary(
+            label=CONNECTOR_LABEL,
+            plist_path=plist_path,
+            program_arguments=program_arguments,
+            ready=ready,
+            active_program_path=active_program_path,
+        ),
+        "permission_target": _connector_permission_target(
+            "launchagent" if running else "workbench-or-manual" if ready else "offline",
+            health,
+            program_arguments,
+        ),
+        "guidance": _connector_service_guidance(plist_path, token_path.exists(), health),
+    }
+    return _public_connector_service_status(status)
 
 
 def _public_connector_service_result(result: dict[str, object]) -> dict[str, object]:
@@ -2448,6 +2491,28 @@ def _connector_loopback_health(*, connector_token: str | None = None) -> dict[st
         result["ready_status_line"] = diagnostics.get("status_line") if isinstance(diagnostics.get("status_line"), str) else ""
         if not ready:
             result["error"] = "connector_ready_probe_failed"
+        return result
+    except Exception as exc:
+        return {"reachable": False, "host": host, "port": CONNECTOR_PORT, "error": str(exc)}
+
+
+def _connector_public_loopback_health() -> dict[str, object]:
+    plist_path = _connector_plist_path()
+    host = _connector_plist_host(plist_path) or _tailscale_ip() or "127.0.0.1"
+    try:
+        health = _connector_http_get(host, "/health")
+        health_json = health.get("json") if isinstance(health.get("json"), dict) else {}
+        reachable = health.get("status_code") == 200 and health_json.get("service") == "evaos-desktop-bridge-connector"
+        result: dict[str, object] = {
+            "reachable": reachable,
+            "ready": reachable,
+            "authenticated": False,
+            "host": host,
+            "port": CONNECTOR_PORT,
+            "status_line": health.get("status_line") if isinstance(health.get("status_line"), str) else "",
+        }
+        if not reachable:
+            result["error"] = "connector_identity_unverified"
         return result
     except Exception as exc:
         return {"reachable": False, "host": host, "port": CONNECTOR_PORT, "error": str(exc)}

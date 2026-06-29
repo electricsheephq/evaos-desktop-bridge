@@ -2412,6 +2412,18 @@ def _patch_connector_owner_probe(
 
     monkeypatch.setattr(bridge_cli, "_connector_loopback_health", fake_connector_loopback_health)
 
+    def fake_connector_public_loopback_health() -> dict[str, object]:
+        return {
+            "reachable": ready,
+            "ready": ready,
+            "authenticated": False,
+            "host": "100.64.0.4",
+            "port": 8765,
+            "status_line": "HTTP/1.0 200 OK" if ready else "",
+        }
+
+    monkeypatch.setattr(bridge_cli, "_connector_public_loopback_health", fake_connector_public_loopback_health)
+
 
 def test_permission_prime_uses_peekaboo_not_python_tcc(monkeypatch, tmp_path: Path) -> None:
     calls: list[list[str]] = []
