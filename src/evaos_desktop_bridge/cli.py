@@ -2004,17 +2004,21 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
 
     if action == "start":
         start_result = _public_launchctl_result(_launchctl_start())
-        start_ok = _public_launchctl_start_ok(start_result)
-        if start_ok:
+        bootstrap_ok = _public_launchctl_start_bootstrap_ok(start_result)
+        if bootstrap_ok:
             status = _wait_for_public_connector_service_ready(state_dir=state_dir)
         else:
             status = _public_connector_service_probe_status(state_dir=state_dir)
-        return {
-            "ok": start_ok and status.get("ok") is True,
+        payload: dict[str, object] = {
+            "ok": bootstrap_ok and status.get("ok") is True,
             "action": action,
             "launchctl": start_result,
             "status": status,
         }
+        launchctl_notes = _public_launchctl_start_notes(start_result, recovered=status.get("ok") is True)
+        if launchctl_notes:
+            payload["launchctl_notes"] = launchctl_notes
+        return payload
 
     if action == "stop":
         stop_result = _public_launchctl_result(_launchctl_stop())
@@ -2098,6 +2102,9 @@ def _public_connector_service_result(result: dict[str, object]) -> dict[str, obj
         launchctl = result.get("launchctl")
         if isinstance(launchctl, dict):
             public["launchctl"] = _public_launchctl_result(launchctl)
+        launchctl_notes = _public_launchctl_notes(result.get("launchctl_notes"))
+        if launchctl_notes:
+            public["launchctl_notes"] = launchctl_notes
         return public
     if "health" in result or "managed_by" in result or "permission_target" in result:
         return _public_connector_service_status(result)
@@ -2148,6 +2155,63 @@ def _public_launchctl_start_ok(result: dict[str, object]) -> bool:
         and _public_launchctl_ok(bootstrap)
         and _public_launchctl_ok(kickstart)
     )
+
+
+def _public_launchctl_start_bootstrap_ok(result: dict[str, object]) -> bool:
+    bootstrap = result.get("bootstrap")
+    return isinstance(bootstrap, dict) and _public_launchctl_ok(bootstrap)
+
+
+def _public_launchctl_start_notes(result: dict[str, object], *, recovered: bool) -> list[dict[str, object]]:
+    bootstrap = result.get("bootstrap")
+    kickstart = result.get("kickstart")
+    if not (
+        isinstance(bootstrap, dict)
+        and isinstance(kickstart, dict)
+        and _public_launchctl_ok(bootstrap)
+        and not _public_launchctl_ok(kickstart)
+    ):
+        return []
+    note: dict[str, object] = {
+        "type": "warning",
+        "code": "launchctl_kickstart_transient_failure" if recovered else "launchctl_kickstart_failed",
+        "stage": "kickstart",
+        "returncode": kickstart.get("returncode"),
+        "stdout_present": bool(kickstart.get("stdout_present")),
+        "stderr_present": bool(kickstart.get("stderr_present")),
+    }
+    if not recovered:
+        note["recovered"] = False
+    return [note]
+
+
+def _public_launchctl_notes(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    notes: list[dict[str, object]] = []
+    allowed_codes = {"launchctl_kickstart_transient_failure", "launchctl_kickstart_failed"}
+    allowed_stages = {"bootout", "bootstrap", "kickstart"}
+    allowed_types = {"warning", "info"}
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        note_type = item.get("type")
+        code = item.get("code")
+        stage = item.get("stage")
+        if note_type not in allowed_types or code not in allowed_codes or stage not in allowed_stages:
+            continue
+        public_note: dict[str, object] = {
+            "type": note_type,
+            "code": code,
+            "stage": stage,
+            "returncode": item.get("returncode") if isinstance(item.get("returncode"), int) else None,
+            "stdout_present": item.get("stdout_present") is True,
+            "stderr_present": item.get("stderr_present") is True,
+        }
+        if code == "launchctl_kickstart_failed":
+            public_note["recovered"] = item.get("recovered") is True
+        notes.append(public_note)
+    return notes
 
 
 def _public_connector_service_status(status: dict[str, object]) -> dict[str, object]:
@@ -2203,7 +2267,35 @@ def _bridge_owner_summary(
     active_program_path: Path | None = None,
 ) -> dict[str, object]:
     configured_program_path = Path(program_arguments[0]).expanduser() if program_arguments else None
-    if active_program_path is not None and not _is_python_interpreter_path(active_program_path):
+    configured_app_path = _owner_app_path(configured_program_path)
+    configured_bundle_id = _owner_bundle_id(configured_app_path)
+    configured_classification = _classify_bridge_owner(
+        program_path=configured_program_path,
+        app_path=configured_app_path,
+        bundle_id=configured_bundle_id,
+        ready=ready,
+    )
+    active_app_path = _owner_app_path(active_program_path)
+    active_bundle_id = _owner_bundle_id(active_app_path)
+    active_classification = _classify_bridge_owner(
+        program_path=active_program_path,
+        app_path=active_app_path,
+        bundle_id=active_bundle_id,
+        ready=ready,
+    )
+    if active_classification == "workbench_bundle" and configured_classification != "workbench_bundle":
+        program_path = active_program_path
+    elif configured_classification == "workbench_bundle" and _is_runtime_detail_owner(
+        active_program_path,
+        active_classification,
+        configured_classification=configured_classification,
+    ):
+        program_path = configured_program_path
+    elif active_program_path is not None and not _is_runtime_detail_owner(
+        active_program_path,
+        active_classification,
+        configured_classification=configured_classification,
+    ):
         program_path = active_program_path
     else:
         program_path = configured_program_path or active_program_path
@@ -2273,7 +2365,7 @@ def _read_owner_manifest(manifest_path: Path | None) -> dict[str, object]:
 
 
 def _owner_source_commit(manifest: dict[str, object]) -> str | None:
-    for key in ("source_commit", "bridge_ref", "commit_ref", "commit", "git_sha", "sha"):
+    for key in ("source_commit", "sourceCommit", "bridge_ref", "commit_ref", "commit", "git_sha", "sha"):
         value = manifest.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -2324,6 +2416,17 @@ def _classify_bridge_owner(*, program_path: Path | None, app_path: Path | None, 
 def _is_python_interpreter_path(path: Path) -> bool:
     name = path.name.lower()
     return name == "python" or name.startswith("python3") or name.startswith("python.")
+
+
+def _is_runtime_detail_owner(path: Path | None, classification: str, *, configured_classification: str | None = None) -> bool:
+    if path is None:
+        return False
+    name = path.name.lower()
+    if _is_python_interpreter_path(path):
+        return True
+    if name in {"loginwindow", "sh", "bash", "zsh", "fish", "dash"}:
+        return True
+    return classification == "unknown" and configured_classification == "workbench_bundle"
 
 
 def _public_connector_guidance(status: dict[str, object]) -> list[object]:
