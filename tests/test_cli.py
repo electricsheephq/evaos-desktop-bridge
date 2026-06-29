@@ -837,6 +837,37 @@ def test_connector_service_status_cli_reports_redacted_workbench_owner(monkeypat
     assert "fixture-token" not in output.getvalue()
 
 
+def test_connector_service_status_support_internal_keeps_local_pairing_fields(monkeypatch, tmp_path: Path) -> None:
+    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
+    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+    _app_path, program_path = _write_owner_app_fixture(
+        tmp_path,
+        app_name="evaOS Workbench.app",
+        bundle_id="com.evaos.workbench",
+        manifest={"source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b"},
+    )
+    plist_path = _write_owner_plist(tmp_path, program_path)
+    _patch_connector_owner_probe(monkeypatch, tmp_path, plist_path, token_fixture=token_fixture)
+
+    output = io.StringIO()
+    exit_code = main(["connector-service", "status", "--json", "--support-internal"], stdout=output, state_dir=tmp_path)
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 0
+    assert payload == {
+        "loaded": True,
+        "ok": True,
+        "raw_connector_token_returned": False,
+        "raw_connector_url_returned": False,
+        "ready": True,
+        "running": True,
+        "support_internal": True,
+        "tailnet_ip": "100.64.0.4",
+        "token_path": str(tmp_path / "connector.token"),
+    }
+    assert token_fixture not in output.getvalue()
+
+
 def test_diagnostics_cli_reports_missing_token_without_minting_secret(tmp_path: Path) -> None:
     output = io.StringIO()
     exit_code = main(["diagnostics", "--json"], stdout=output, state_dir=tmp_path)
@@ -1373,6 +1404,51 @@ def test_connector_service_complete_enrollment_rejects_loopback_without_tailnet(
     assert payload["health_host_kind"] == "loopback"
     assert payload["health_reachable"] is True
     assert "127.0.0.1" not in output.getvalue()
+
+
+def test_connector_service_complete_enrollment_rejects_public_100_host(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    def fake_connector_status(*, state_dir: Path | None = None) -> dict[str, object]:
+        assert state_dir == tmp_path
+        return {
+            "ok": True,
+            "tailnet_ip": "100.1.2.3",
+            "health": {"host": "100.1.2.3", "reachable": True},
+        }
+
+    def fail_read_token(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("connector token must not be read for public 100.0.0.0/8 host")
+
+    def fail_complete_enrollment(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("broker complete_enrollment must not run with public non-tailnet host")
+
+    monkeypatch.setattr(bridge_cli, "_connector_service_status", fake_connector_status)
+    monkeypatch.setattr(bridge_cli, "read_token", fail_read_token)
+    monkeypatch.setattr(bridge_cli, "complete_enrollment_via_control", fail_complete_enrollment)
+
+    output = io.StringIO()
+    exit_code = main(
+        [
+            "connector-service",
+            "complete-enrollment",
+            "--json",
+            "--enrollment-code",
+            "PAIR123",
+            "--customer-id",
+            "benjamin-kennedy",
+        ],
+        stdout=output,
+        state_dir=tmp_path,
+    )
+    payload = json.loads(output.getvalue())
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["error"] == "secure_network_link_required"
+    assert payload["health_host_kind"] == "public"
+    assert "100.1.2.3" not in output.getvalue()
 
 
 def test_connector_service_complete_enrollment_allows_private_health_host(

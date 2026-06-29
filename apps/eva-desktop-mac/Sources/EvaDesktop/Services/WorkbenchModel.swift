@@ -1603,7 +1603,7 @@ final class WorkbenchModel: ObservableObject {
         Task { @MainActor in
             defer { isPairingMac = false }
             do {
-                let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
+                let service = await bridge.run(arguments: ["connector-service", "status", "--json", "--support-internal"])
                 connectorServiceText = BridgeStatusFormatter.connector(raw: service)
                 let connector = try Self.localConnectorEnrollmentContext(from: service)
                 _ = try await macControl.completeEnrollment(
