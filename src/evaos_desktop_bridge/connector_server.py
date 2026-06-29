@@ -1059,8 +1059,8 @@ def _make_handler(
             try:
                 owner = owner_provider()
             except Exception:
-                return None
-            return owner if isinstance(owner, dict) else None
+                return _owner_provider_error_summary()
+            return owner if isinstance(owner, dict) else _owner_provider_error_summary()
 
         def _authorized(self) -> bool:
             header = self.headers.get("Authorization", "")
@@ -1088,6 +1088,19 @@ def _make_handler(
             self.wfile.write(body)
 
     return ConnectorHandler
+
+
+def _owner_provider_error_summary() -> dict[str, Any]:
+    return {
+        "label": "com.electricsheep.evaos-desktop-bridge",
+        "plist_path": {"kind": "unknown"},
+        "program_path": {"kind": "unknown"},
+        "app_path": {"kind": "unknown"},
+        "source_commit": None,
+        "manifest_path": {"kind": "unknown"},
+        "bundle_id": None,
+        "classification": "owner_probe_failed",
+    }
 
 
 def complete_enrollment_via_control(

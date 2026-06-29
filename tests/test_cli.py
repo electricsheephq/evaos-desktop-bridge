@@ -1451,6 +1451,13 @@ def test_connector_service_complete_enrollment_rejects_public_100_host(
     assert "100.1.2.3" not in output.getvalue()
 
 
+def test_tailnet_ipv4_detection_uses_cgnat_boundaries() -> None:
+    assert bridge_cli._looks_like_tailnet_ipv4("100.64.0.0") is True
+    assert bridge_cli._looks_like_tailnet_ipv4("100.127.255.255") is True
+    assert bridge_cli._looks_like_tailnet_ipv4("100.63.255.255") is False
+    assert bridge_cli._looks_like_tailnet_ipv4("100.128.0.0") is False
+
+
 def test_connector_service_complete_enrollment_allows_private_health_host(
     monkeypatch,
     tmp_path: Path,
@@ -2232,21 +2239,33 @@ def test_connector_status_reports_launchagent_program_as_permission_target(monke
     assert payload["permission_target"]["launch_program"] == "/opt/evaos/helper/evaos-desktop-bridge"
 
 
-def test_connector_owner_summary_classifies_legacy_global_unknown_and_not_running(monkeypatch, tmp_path: Path) -> None:
+def test_connector_owner_summary_classifies_workbench_legacy_global_unknown_and_not_running(monkeypatch, tmp_path: Path) -> None:
     token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
     (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
 
-    legacy_app, legacy_program = _write_owner_app_fixture(
+    packaged_workbench_app, packaged_workbench_program = _write_owner_app_fixture(
         tmp_path,
         app_name="evaOS.app",
         bundle_id="com.electricsheephq.EvaDesktop",
+    )
+    packaged_workbench_plist = _write_owner_plist(tmp_path, packaged_workbench_program)
+    _patch_connector_owner_probe(monkeypatch, tmp_path, packaged_workbench_plist, token_fixture=token_fixture)
+    packaged_workbench_status = bridge_cli._connector_service_status(state_dir=tmp_path)
+    assert packaged_workbench_status["owner"]["classification"] == "workbench_bundle"
+    assert packaged_workbench_status["owner"]["app_path"] == {"kind": "path", "value": str(packaged_workbench_app)}
+    assert packaged_workbench_status["owner"]["bundle_id"] == "com.electricsheephq.EvaDesktop"
+
+    legacy_app, legacy_program = _write_owner_app_fixture(
+        tmp_path,
+        app_name="legacy/evaOS.app",
+        bundle_id="com.evaos.legacy",
     )
     legacy_plist = _write_owner_plist(tmp_path, legacy_program)
     _patch_connector_owner_probe(monkeypatch, tmp_path, legacy_plist, token_fixture=token_fixture)
     legacy_status = bridge_cli._connector_service_status(state_dir=tmp_path)
     assert legacy_status["owner"]["classification"] == "legacy_bundle"
     assert legacy_status["owner"]["app_path"] == {"kind": "path", "value": str(legacy_app)}
-    assert legacy_status["owner"]["bundle_id"] == "com.electricsheephq.EvaDesktop"
+    assert legacy_status["owner"]["bundle_id"] == "com.evaos.legacy"
 
     homebrew_plist = _write_owner_plist(tmp_path, Path("/opt/homebrew/bin/evaos-desktop-bridge"))
     _patch_connector_owner_probe(monkeypatch, tmp_path, homebrew_plist, token_fixture=token_fixture)
@@ -2268,6 +2287,28 @@ def test_connector_owner_summary_classifies_legacy_global_unknown_and_not_runnin
     not_running_status = bridge_cli._connector_service_status(state_dir=tmp_path)
     assert not_running_status["owner"]["classification"] == "not_running"
     assert not_running_status["owner"]["program_path"] == {"kind": "unknown"}
+
+
+def test_connector_owner_summary_prefers_configured_launcher_when_active_process_is_python(monkeypatch, tmp_path: Path) -> None:
+    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
+    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+    app_path, program_path = _write_owner_app_fixture(
+        tmp_path,
+        app_name="evaOS.app",
+        bundle_id="com.electricsheephq.EvaDesktop",
+        manifest={"source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b"},
+    )
+    plist_path = _write_owner_plist(tmp_path, program_path)
+    _patch_connector_owner_probe(monkeypatch, tmp_path, plist_path, token_fixture=token_fixture, loaded=True, ready=True)
+    monkeypatch.setattr(bridge_cli, "_active_connector_process_program_path", lambda: Path("/opt/homebrew/bin/python3"), raising=False)
+
+    status = bridge_cli._connector_service_status(state_dir=tmp_path)
+    owner = status["owner"]
+
+    assert owner["classification"] == "workbench_bundle"
+    assert owner["program_path"] == {"kind": "path", "value": str(program_path)}
+    assert owner["app_path"] == {"kind": "path", "value": str(app_path)}
+    assert owner["bundle_id"] == "com.electricsheephq.EvaDesktop"
 
 
 def test_connector_owner_summary_uses_active_workbench_process_without_plist(monkeypatch, tmp_path: Path) -> None:
@@ -2322,6 +2363,18 @@ def test_connector_owner_summary_prefers_active_workbench_process_over_stale_leg
     assert owner["program_path"] == {"kind": "path", "value": str(workbench_program)}
     assert owner["app_path"] == {"kind": "path", "value": str(workbench_app)}
     assert owner["bundle_id"] == "com.evaos.workbench"
+
+
+def test_owner_metadata_reads_are_bounded(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text("{" + '"source_commit":"' + ("a" * (64 * 1024)) + '"}', encoding="utf-8")
+    app_path = tmp_path / "evaOS Workbench.app"
+    info_dir = app_path / "Contents"
+    info_dir.mkdir(parents=True)
+    (info_dir / "Info.plist").write_bytes(b"0" * (256 * 1024 + 1))
+
+    assert bridge_cli._read_owner_manifest(manifest_path) == {}
+    assert bridge_cli._owner_bundle_id(app_path) is None
 
 
 def test_active_connector_process_program_path_reads_listener_text_path(monkeypatch, tmp_path: Path) -> None:

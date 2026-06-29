@@ -258,8 +258,11 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "enrollment_code: \\(enrollmentCode)" in prompt_source
     assert "customer_id: \\(customerId)" in prompt_source
     assert '"connector-service",\n                    "complete-enrollment",' in model
+    assert '"connector-service",\n                    "complete-enrollment",' in complete_source
     assert "--support-internal" not in model
+    assert "--support-internal" not in complete_source
     assert "localConnectorEnrollmentContext" not in model
+    assert "localConnectorEnrollmentContext" not in complete_source
     assert "String(contentsOfFile: tokenPath" not in model
     assert "let enrollmentCustomerId = sanitizedCustomerId" in complete_source
     assert "guard enrollmentCustomerId == sanitizedCustomerId else { return }" in complete_source
@@ -273,6 +276,8 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
         "connector_url",
         "Mac connector URL",
         "connectorUrl",
+        "tailnet_ip",
+        "token_path",
         "http://",
         "https://",
         ":8765",

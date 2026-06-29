@@ -10,6 +10,7 @@ import plistlib
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -799,7 +800,7 @@ def main(
 
     if command_id.startswith("connector_service."):
         public_result = _run_public_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
-        stdout.write(json.dumps(public_result, sort_keys=True) + "\n")
+        stdout.write(json.dumps(redact_value(public_result), sort_keys=True) + "\n")
         return 0 if public_result.get("ok") is True else 2
 
     try:
@@ -1849,7 +1850,8 @@ def _current_connector_program_path() -> Path | None:
     preferred: tuple[int, Path] | None = None
     classification_rank = {"workbench_bundle": 0, "legacy_bundle": 1, "global_cli": 2}
     for candidate in candidates:
-        classification = _classify_bridge_owner(program_path=candidate, app_path=_owner_app_path(candidate), ready=True)
+        app_path = _owner_app_path(candidate)
+        classification = _classify_bridge_owner(program_path=candidate, app_path=app_path, bundle_id=_owner_bundle_id(app_path), ready=True)
         rank = classification_rank.get(classification)
         if rank is None:
             continue
@@ -2171,10 +2173,15 @@ def _bridge_owner_summary(
     ready: bool,
     active_program_path: Path | None = None,
 ) -> dict[str, object]:
-    program_path = active_program_path or (Path(program_arguments[0]).expanduser() if program_arguments else None)
+    configured_program_path = Path(program_arguments[0]).expanduser() if program_arguments else None
+    if active_program_path is not None and not _is_python_interpreter_path(active_program_path):
+        program_path = active_program_path
+    else:
+        program_path = configured_program_path or active_program_path
     app_path = _owner_app_path(program_path)
     manifest_path = _owner_manifest_path(program_path, app_path)
     manifest = _read_owner_manifest(manifest_path)
+    bundle_id = _owner_bundle_id(app_path)
     return {
         "label": label,
         "plist_path": _typed_public_path(plist_path),
@@ -2182,8 +2189,8 @@ def _bridge_owner_summary(
         "app_path": _typed_public_path(app_path),
         "source_commit": _owner_source_commit(manifest),
         "manifest_path": _typed_public_path(manifest_path),
-        "bundle_id": _owner_bundle_id(app_path),
-        "classification": _classify_bridge_owner(program_path=program_path, app_path=app_path, ready=ready),
+        "bundle_id": bundle_id,
+        "classification": _classify_bridge_owner(program_path=program_path, app_path=app_path, bundle_id=bundle_id, ready=ready),
     }
 
 
@@ -2227,7 +2234,10 @@ def _read_owner_manifest(manifest_path: Path | None) -> dict[str, object]:
     if manifest_path is None:
         return {}
     try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        text = _read_bounded_regular_file_text(manifest_path, max_bytes=64 * 1024)
+        if text is None:
+            return {}
+        payload = json.loads(text)
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
@@ -2246,18 +2256,33 @@ def _owner_bundle_id(app_path: Path | None) -> str | None:
         return None
     info_plist = app_path / "Contents" / "Info.plist"
     try:
-        payload = plistlib.loads(info_plist.read_bytes())
+        data = _read_bounded_regular_file_bytes(info_plist, max_bytes=256 * 1024)
+        if data is None:
+            return None
+        payload = plistlib.loads(data)
     except Exception:
         return None
     bundle_id = payload.get("CFBundleIdentifier") if isinstance(payload, dict) else None
     return bundle_id if isinstance(bundle_id, str) and bundle_id.strip() else None
 
 
-def _classify_bridge_owner(*, program_path: Path | None, app_path: Path | None, ready: bool) -> str:
+def _read_bounded_regular_file_text(path: Path, *, max_bytes: int) -> str | None:
+    data = _read_bounded_regular_file_bytes(path, max_bytes=max_bytes)
+    return data.decode("utf-8", errors="replace") if data is not None else None
+
+
+def _read_bounded_regular_file_bytes(path: Path, *, max_bytes: int) -> bytes | None:
+    file_stat = path.stat()
+    if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size > max_bytes:
+        return None
+    return path.read_bytes()
+
+
+def _classify_bridge_owner(*, program_path: Path | None, app_path: Path | None, bundle_id: str | None = None, ready: bool) -> str:
     if program_path is None:
         return "unknown" if ready else "not_running"
     app_name = app_path.name.lower() if app_path is not None else ""
-    if app_name == "evaos workbench.app":
+    if app_name == "evaos workbench.app" or bundle_id in {"com.evaos.workbench", "com.electricsheephq.EvaDesktop"}:
         return "workbench_bundle"
     if app_name == "evaos.app":
         return "legacy_bundle"
@@ -2265,6 +2290,11 @@ def _classify_bridge_owner(*, program_path: Path | None, app_path: Path | None, 
     if program_text == "evaos-desktop-bridge" or program_text.startswith(("/opt/homebrew/bin/", "/usr/local/bin/")):
         return "global_cli"
     return "unknown"
+
+
+def _is_python_interpreter_path(path: Path) -> bool:
+    name = path.name.lower()
+    return name == "python" or name.startswith("python3") or name.startswith("python.")
 
 
 def _public_connector_guidance(status: dict[str, object]) -> list[object]:
