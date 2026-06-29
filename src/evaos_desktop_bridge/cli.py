@@ -799,7 +799,8 @@ def main(
 
     if command_id.startswith("connector_service."):
         result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
-        stdout.write(json.dumps(redact_value(_public_connector_service_result(result)), sort_keys=True) + "\n")
+        public_result = _public_connector_service_result(result)
+        stdout.write(json.dumps(public_result, sort_keys=True) + "\n")
         return 0 if result.get("ok") is True else 2
 
     try:
@@ -2018,7 +2019,20 @@ def _public_connector_service_result(result: dict[str, object]) -> dict[str, obj
         return public
     if "health" in result or "managed_by" in result or "permission_target" in result:
         return _public_connector_service_status(result)
-    return result
+    return {
+        "ok": result.get("ok") is True,
+        "action": result.get("action") if isinstance(result.get("action"), str) else "connector-service",
+        "error": _public_connector_service_error(result.get("error")),
+        "raw_output_returned": False,
+    }
+
+
+def _public_connector_service_error(value: object) -> str:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", normalized):
+            return normalized
+    return "connector_service_failed"
 
 
 def _public_launchctl_result(result: dict[str, object]) -> dict[str, object]:

@@ -227,6 +227,11 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
     runtime_detail = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "RuntimeDetailView.swift").read_text(encoding="utf-8")
     prompt_source = model.split("private static func agentPairingPrompt", 1)[1].split("private func refreshMacPairing", 1)[0]
+    complete_source = model.split("func completeLocalMacEnrollment()", 1)[1].split("func revokeFirstPairedMac()", 1)[0]
+    local_error_source = model.split("private static func localEnrollmentErrorMessage", 1)[1].split(
+        "private static func connectorServiceIsRunning",
+        1,
+    )[0]
 
     assert "David's" not in model
     assert "David's" not in bridge_panel
@@ -256,6 +261,13 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "--support-internal" not in model
     assert "localConnectorEnrollmentContext" not in model
     assert "String(contentsOfFile: tokenPath" not in model
+    assert "let enrollmentCustomerId = sanitizedCustomerId" in complete_source
+    assert "guard enrollmentCustomerId == sanitizedCustomerId else { return }" in complete_source
+    assert "--customer-id\",\n                    enrollmentCustomerId," in complete_source
+    assert "safeLocalEnrollmentDetail" in local_error_source
+    assert "genericLocalEnrollmentFailure" in local_error_source
+    assert "return message" in local_error_source
+    assert "return \"Enrollment completion failed: \\(error)\"" in local_error_source
     assert '["connector-service", "status", "--json"])' in model
     for forbidden in (
         "connector_url",

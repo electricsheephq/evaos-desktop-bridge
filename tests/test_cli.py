@@ -776,8 +776,9 @@ def test_send_visible_message_audit_preview_redacts_secret_like_text(tmp_path: P
 def test_connector_service_json_output_is_redacted(monkeypatch, tmp_path: Path) -> None:
     def fake_run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
         return {
-            "ok": True,
+            "ok": False,
             "action": action,
+            "error": "http://100.64.0.4:8765/token/Bearer abcdef1234567890",
             "token": "Bearer abcdef1234567890",  # noqa: S105 - intentional redaction fixture
             "path": f"{Path.home()}/Library/secret",
         }
@@ -788,9 +789,13 @@ def test_connector_service_json_output_is_redacted(monkeypatch, tmp_path: Path) 
     exit_code = main(["connector-service", "status", "--json"], stdout=output, state_dir=tmp_path)
     payload = json.loads(output.getvalue())
 
-    assert exit_code == 0
-    assert payload["token"] == "Bearer <redacted-secret>"  # noqa: S105 - expected redacted fixture
-    assert payload["path"] == "~/Library/secret"
+    assert exit_code == 2
+    assert payload == {
+        "action": "status",
+        "error": "connector_service_failed",
+        "ok": False,
+        "raw_output_returned": False,
+    }
     assert "abcdef1234567890" not in output.getvalue()
     assert str(Path.home()) not in output.getvalue()
 
@@ -2361,6 +2366,7 @@ def _patch_connector_owner_probe(
 ) -> None:
     monkeypatch.setattr(bridge_cli, "CONNECTOR_USER_PLIST", plist_path)
     monkeypatch.setattr(bridge_cli, "CONNECTOR_SYSTEM_PLIST", tmp_path / "missing-system.plist")
+    monkeypatch.setattr(bridge_cli, "_active_connector_process_program_path", lambda: None)
     monkeypatch.setattr(bridge_cli, "_tailscale_ip", lambda: "100.64.0.4" if ready else None)
     monkeypatch.setattr(
         bridge_cli,

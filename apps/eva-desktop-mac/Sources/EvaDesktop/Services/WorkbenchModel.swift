@@ -1598,6 +1598,7 @@ final class WorkbenchModel: ObservableObject {
 
     func completeLocalMacEnrollment() {
         guard let enrollmentCode, !enrollmentCode.isEmpty, !isPairingMac else { return }
+        let enrollmentCustomerId = sanitizedCustomerId
         isPairingMac = true
         pairingText = "Completing this Mac enrollment..."
         Task { @MainActor in
@@ -1610,10 +1611,11 @@ final class WorkbenchModel: ObservableObject {
                     "--enrollment-code",
                     enrollmentCode,
                     "--customer-id",
-                    sanitizedCustomerId,
+                    enrollmentCustomerId,
                     "--device-name",
                     Host.current().localizedName ?? "Customer Mac"
                 ])
+                guard enrollmentCustomerId == sanitizedCustomerId else { return }
                 guard let object = Self.connectorStatusObject(from: result) else {
                     throw LocalConnectorEnrollmentError.statusUnavailable
                 }
@@ -1625,7 +1627,10 @@ final class WorkbenchModel: ObservableObject {
                 pairingText = "This Mac is linked. Refresh status, then run Check Setup."
                 await refreshMacPairing()
             } catch {
-                pairingText = "Enrollment completion failed: \(error.localizedDescription)"
+                let message = error.localizedDescription
+                pairingText = message.hasPrefix("Enrollment completion failed")
+                    ? message
+                    : "Enrollment completion failed: \(message)"
             }
         }
     }
@@ -1730,6 +1735,8 @@ final class WorkbenchModel: ObservableObject {
         }
     }
 
+    private static let genericLocalEnrollmentFailure = "Enrollment completion failed. Start the connector service and confirm the secure network link is ready."
+
     private static func connectorStatusObject(from text: String) -> [String: Any]? {
         guard let data = text.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -1743,13 +1750,36 @@ final class WorkbenchModel: ObservableObject {
     }
 
     private static func localEnrollmentErrorMessage(from object: [String: Any]) -> String {
-        if let message = object["message"] as? String, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let message = object["message"] as? String, let message = safeLocalEnrollmentDetail(message) {
             return message
         }
-        if let error = object["error"] as? String, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let error = object["error"] as? String, let error = safeLocalEnrollmentDetail(error) {
             return "Enrollment completion failed: \(error)"
         }
-        return "Enrollment completion failed. Start the connector service and confirm the secure network link is ready."
+        return genericLocalEnrollmentFailure
+    }
+
+    private static func safeLocalEnrollmentDetail(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lowercased = trimmed.lowercased()
+        let blockedFragments = [
+            "connector_url",
+            "connector url",
+            "connector_token",
+            "token_path",
+            "tailnet_ip",
+            "bearer ",
+            "http://",
+            "https://",
+            ":8765",
+            "ssh",
+            "vnc",
+            "cdp",
+            "browser debug"
+        ]
+        guard !blockedFragments.contains(where: { lowercased.contains($0) }) else { return nil }
+        return trimmed
     }
 
     private static func connectorServiceIsRunning(statusText: String) -> Bool {
