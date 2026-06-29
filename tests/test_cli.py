@@ -811,7 +811,9 @@ def test_connector_service_json_output_uses_public_runner(monkeypatch, tmp_path:
     payload = json.loads(output.getvalue())
 
     assert exit_code == 2
-    assert payload == {
+    assert payload["ok"] is False
+    assert payload["command"] == "connector_service.status"
+    assert payload["data"] == {
         "action": "status",
         "error": "connector_service_failed",
         "ok": False,
@@ -844,9 +846,11 @@ def test_connector_service_status_cli_reports_redacted_workbench_owner(monkeypat
     output = io.StringIO()
     exit_code = main(["connector-service", "status", "--json"], stdout=output, state_dir=tmp_path)
     payload = json.loads(output.getvalue())
-    owner = payload["owner"]
+    status = payload["data"]
+    owner = status["owner"]
 
     assert exit_code == 0
+    assert payload["ok"] is True
     assert owner["classification"] == "workbench_bundle"
     assert owner["label"] == "com.electricsheep.evaos-desktop-bridge"
     assert owner["plist_path"] == {"kind": "path", "value": str(plist_path)}
@@ -855,10 +859,10 @@ def test_connector_service_status_cli_reports_redacted_workbench_owner(monkeypat
     assert owner["bundle_id"] == "com.evaos.workbench"
     assert owner["source_commit"] == "ff00f606d5d4c3edf9bf97642ce9088bee645e7b"
     assert owner["manifest_path"] == {"kind": "path", "value": str(program_path.parent / "manifest.json")}
-    assert payload["health"]["host_kind"] == "tailnet"
-    assert payload["tailnet_available"] is True
-    assert "tailnet_ip" not in payload
-    assert payload["guidance"] == ["Confirm <redacted-url> responds."]
+    assert status["health"]["host_kind"] == "tailnet"
+    assert status["tailnet_available"] is True
+    assert "tailnet_ip" not in status
+    assert status["guidance"] == ["Confirm <redacted-url> responds."]
     assert "100.64.0.4" not in output.getvalue()
     assert "8765" not in output.getvalue()
     assert "fixture-token" not in output.getvalue()

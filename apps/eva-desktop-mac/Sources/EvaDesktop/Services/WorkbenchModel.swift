@@ -3101,7 +3101,7 @@ enum BridgeStatusFormatter {
 
     static func connectorReady(raw: String) -> Bool {
         guard let object = object(from: raw) else { return false }
-        let status = (object["status"] as? [String: Any]) ?? object
+        let status = connectorStatus(from: object)
         let health = status["health"] as? [String: Any]
         return status["ok"] as? Bool == true
             && status["token_present"] as? Bool == true
@@ -3148,7 +3148,7 @@ enum BridgeStatusFormatter {
 
     static func connector(raw: String) -> String {
         guard let object = object(from: raw) else { return cleanFallback(raw) }
-        let status = (object["status"] as? [String: Any]) ?? object
+        let status = connectorStatus(from: object)
         let ok = status["ok"] as? Bool == true
         let health = status["health"] as? [String: Any]
         let host = health?["host"] as? String
@@ -3170,6 +3170,19 @@ enum BridgeStatusFormatter {
             permissionPath.map { "Bridge file: \($0)" },
             ok ? nil : firstGuidance(status)
         ])
+    }
+
+    private static func connectorStatus(from object: [String: Any]) -> [String: Any] {
+        if let status = object["status"] as? [String: Any] {
+            return status
+        }
+        if let data = object["data"] as? [String: Any] {
+            if let status = data["status"] as? [String: Any] {
+                return status
+            }
+            return data
+        }
+        return object
     }
 
     static func customerMac(raw: String) -> String {

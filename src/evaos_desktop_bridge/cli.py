@@ -797,13 +797,6 @@ def main(
         stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         return 0 if result.get("ok") is True else 2
 
-    if command_id.startswith("connector_service."):
-        public_result = _run_public_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
-        # Public connector-service output is token-blind and allowlisted; the raw runner was removed.
-        # codeql[py/clear-text-logging-sensitive-data]
-        stdout.write(json.dumps(redact_value(public_result), sort_keys=True) + "\n")
-        return 0 if public_result.get("ok") is True else 2
-
     try:
         if command_id == "codex.send_visible_message":
             args.message = _resolve_visible_message_arg(args)
@@ -978,6 +971,13 @@ def _run_command(
         return _prime_permission(args.permission)
     if command_id == "helper.ping":
         return _helper_ping(args, state_dir=getattr(args, "state_dir", None))
+    if command_id.startswith("connector_service."):
+        public_result = _run_public_connector_service(command_id.split(".", 1)[1], state_dir=getattr(args, "state_dir", None))
+        return CommandResult(
+            ok=public_result.get("ok") is True,
+            data=public_result,
+            provenance={"source": "connector_service"},
+        )
     if command_id == "queue.list":
         return list_queue_events(limit=args.limit, state_dir=getattr(args, "state_dir", None))
     if command_id == "queue.append":
