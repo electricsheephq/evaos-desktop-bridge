@@ -226,6 +226,7 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
     bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
     runtime_detail = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "RuntimeDetailView.swift").read_text(encoding="utf-8")
+    prompt_source = model.split("private static func agentPairingPrompt", 1)[1].split("private func refreshMacPairing", 1)[0]
 
     assert "David's" not in model
     assert "David's" not in bridge_panel
@@ -249,6 +250,28 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "deviceCodeInput = \"\"" in model
     assert "deviceCodeInput = fallbackCode" not in model
     assert "signIn(fallbackCode: fallbackCode)" in model
+    assert "enrollment_code: \\(enrollmentCode)" in prompt_source
+    assert "customer_id: \\(customerId)" in prompt_source
+    for forbidden in (
+        "connector_url",
+        "Mac connector URL",
+        "connectorUrl",
+        "http://",
+        "https://",
+        ":8765",
+        "IP address",
+        "IP addresses",
+        "token",
+        "tokens",
+        "SSH",
+        "VNC",
+        "CDP",
+        "browser debug",
+        "Headscale",
+        "Tailscale",
+    ):
+        assert forbidden not in prompt_source
+    assert re.search(r"\bports?\b", prompt_source, flags=re.IGNORECASE) is None
 
 
 def test_workbench_setup_primary_badges_use_approved_state_labels() -> None:

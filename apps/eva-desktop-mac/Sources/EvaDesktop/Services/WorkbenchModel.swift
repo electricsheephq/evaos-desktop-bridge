@@ -1822,7 +1822,7 @@ final class WorkbenchModel: ObservableObject {
         - enrollment_code: \(enrollmentCode)
         - customer_id: \(customerId)
 
-        Do not ask me for connector URLs, IP addresses, ports, SSH, VNC, browser debug details, Headscale/Tailscale keys, connector tokens, or other connector material.
+        Use only the fields above. If a tool asks for additional connector material, stop and report a Mac pairing contract mismatch.
 
         Success criteria:
         1. customer_mac_complete_pairing returns ok=true.

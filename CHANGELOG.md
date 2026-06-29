@@ -4,7 +4,13 @@ All notable repo release changes should be recorded here before a release branch
 
 ## Unreleased
 
-No unreleased changes.
+- Remove raw connector-material wording from the native Workbench Mac pairing
+  prompt and keep the public agent handoff on `enrollment_code` plus
+  `customer_id`.
+- Add redacted bridge-owner diagnostics to connector service status/readiness
+  output so Workbench, doctor, and support-control can distinguish Workbench,
+  legacy app, global CLI, unknown, and not-running owners without exposing
+  connector transport details.
 
 ## 0.6.28 - 2026-06-06
 

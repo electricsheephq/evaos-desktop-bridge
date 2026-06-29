@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import plistlib
+import re
 import shutil
 import socket
 import subprocess
@@ -797,7 +798,7 @@ def main(
 
     if command_id.startswith("connector_service."):
         result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
-        stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
+        stdout.write(json.dumps(redact_value(_public_connector_service_result(result)), sort_keys=True) + "\n")
         return 0 if result.get("ok") is True else 2
 
     try:
@@ -1823,6 +1824,7 @@ def _public_ready_connector_service_status(status: dict[str, object]) -> dict[st
         "token_present": status.get("token_present") is True,
         "loaded": status.get("loaded") is True,
         "running": status.get("running") is True,
+        "owner": _public_bridge_owner_from_status(status),
         "health": {
             "reachable": health.get("reachable") is True,
             "ready": health.get("ready") is True,
@@ -1957,6 +1959,198 @@ def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dic
     return _connector_service_status(state_dir=state_dir)
 
 
+def _public_connector_service_result(result: dict[str, object]) -> dict[str, object]:
+    nested_status = result.get("status")
+    if isinstance(nested_status, dict):
+        public: dict[str, object] = {
+            "ok": result.get("ok") is True,
+            "action": result.get("action") if isinstance(result.get("action"), str) else "connector-service",
+            "status": _public_connector_service_status(nested_status),
+        }
+        launchctl = result.get("launchctl")
+        if isinstance(launchctl, dict):
+            public["launchctl"] = _public_launchctl_result(launchctl)
+        return public
+    if "health" in result or "managed_by" in result or "permission_target" in result:
+        return _public_connector_service_status(result)
+    return result
+
+
+def _public_launchctl_result(result: dict[str, object]) -> dict[str, object]:
+    if "returncode" in result:
+        return {
+            "returncode": result.get("returncode"),
+            "stdout_present": bool(result.get("stdout")),
+            "stderr_present": bool(result.get("stderr")),
+        }
+    return {key: _public_launchctl_result(value) for key, value in result.items() if isinstance(key, str) and isinstance(value, dict)}
+
+
+def _public_connector_service_status(status: dict[str, object]) -> dict[str, object]:
+    health = status.get("health") if isinstance(status.get("health"), dict) else {}
+    public: dict[str, object] = {
+        "ok": status.get("ok") is True,
+        "ready": status.get("ready") is True,
+        "label": status.get("label") if isinstance(status.get("label"), str) else CONNECTOR_LABEL,
+        "domain": status.get("domain") if isinstance(status.get("domain"), str) else _launchctl_domain(),
+        "managed_by": status.get("managed_by") if isinstance(status.get("managed_by"), str) else "unknown",
+        "plist_path": _public_path(status.get("plist_path")) if status.get("plist_path") else None,
+        "plist_installed": status.get("plist_installed") is True,
+        "token_path": _public_path(status.get("token_path")) if status.get("token_path") else None,
+        "token_present": status.get("token_present") is True,
+        "loaded": status.get("loaded") is True,
+        "running": status.get("running") is True,
+        "tailnet_available": bool(status.get("tailnet_ip")),
+        "health": {
+            "reachable": health.get("reachable") is True,
+            "ready": health.get("ready") is True,
+            "authenticated": health.get("authenticated") is True,
+            "host_kind": _connector_host_kind(str(health.get("host") or "")),
+        },
+        "owner": _public_bridge_owner_from_status(status),
+        "guidance": _public_connector_guidance(status),
+    }
+    permission_target = status.get("permission_target")
+    if isinstance(permission_target, dict):
+        public["permission_target"] = redact_value(permission_target)
+    return public
+
+
+def _public_bridge_owner_from_status(status: dict[str, object]) -> dict[str, object]:
+    owner = status.get("owner")
+    if isinstance(owner, dict):
+        return owner
+    program_arguments = status.get("program_arguments") if isinstance(status.get("program_arguments"), list) else None
+    plist_path = Path(status["plist_path"]) if isinstance(status.get("plist_path"), str) else None
+    return _bridge_owner_summary(
+        label=str(status.get("label") or CONNECTOR_LABEL),
+        plist_path=plist_path,
+        program_arguments=program_arguments,
+        ready=status.get("ready") is True,
+    )
+
+
+def _bridge_owner_summary(
+    *,
+    label: str,
+    plist_path: Path | None,
+    program_arguments: list[str] | None,
+    ready: bool,
+) -> dict[str, object]:
+    program_path = Path(program_arguments[0]).expanduser() if program_arguments else None
+    app_path = _owner_app_path(program_path)
+    manifest_path = _owner_manifest_path(program_path, app_path)
+    manifest = _read_owner_manifest(manifest_path)
+    return {
+        "label": label,
+        "plist_path": _typed_public_path(plist_path),
+        "program_path": _typed_public_path(program_path),
+        "app_path": _typed_public_path(app_path),
+        "source_commit": _owner_source_commit(manifest),
+        "manifest_path": _typed_public_path(manifest_path),
+        "bundle_id": _owner_bundle_id(app_path),
+        "classification": _classify_bridge_owner(program_path=program_path, app_path=app_path, ready=ready),
+    }
+
+
+def _typed_public_path(path: Path | str | None) -> dict[str, object]:
+    if path is None:
+        return {"kind": "unknown"}
+    public_path = _public_path(path)
+    if not public_path:
+        return {"kind": "unknown"}
+    return {"kind": "path", "value": public_path}
+
+
+def _public_path(path: Path | str | object | None) -> str | None:
+    if path is None:
+        return None
+    return str(redact_value(str(path)))
+
+
+def _owner_app_path(program_path: Path | None) -> Path | None:
+    if program_path is None:
+        return None
+    for candidate in (program_path, *program_path.parents):
+        if candidate.suffix == ".app":
+            return candidate
+    return None
+
+
+def _owner_manifest_path(program_path: Path | None, app_path: Path | None) -> Path | None:
+    candidates: list[Path] = []
+    if program_path is not None:
+        candidates.append(program_path.parent / "manifest.json")
+    if app_path is not None:
+        candidates.append(app_path / "Contents" / "Resources" / "Bridge" / "manifest.json")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _read_owner_manifest(manifest_path: Path | None) -> dict[str, object]:
+    if manifest_path is None:
+        return {}
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _owner_source_commit(manifest: dict[str, object]) -> str | None:
+    for key in ("source_commit", "bridge_ref", "commit_ref", "commit", "git_sha", "sha"):
+        value = manifest.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _owner_bundle_id(app_path: Path | None) -> str | None:
+    if app_path is None:
+        return None
+    info_plist = app_path / "Contents" / "Info.plist"
+    try:
+        payload = plistlib.loads(info_plist.read_bytes())
+    except Exception:
+        return None
+    bundle_id = payload.get("CFBundleIdentifier") if isinstance(payload, dict) else None
+    return bundle_id if isinstance(bundle_id, str) and bundle_id.strip() else None
+
+
+def _classify_bridge_owner(*, program_path: Path | None, app_path: Path | None, ready: bool) -> str:
+    if program_path is None:
+        return "unknown" if ready else "not_running"
+    app_name = app_path.name.lower() if app_path is not None else ""
+    if app_name == "evaos workbench.app":
+        return "workbench_bundle"
+    if app_name == "evaos.app":
+        return "legacy_bundle"
+    program_text = str(program_path)
+    if program_text == "evaos-desktop-bridge" or program_text.startswith(("/opt/homebrew/bin/", "/usr/local/bin/")):
+        return "global_cli"
+    return "unknown"
+
+
+def _public_connector_guidance(status: dict[str, object]) -> list[object]:
+    guidance = status.get("guidance")
+    if not isinstance(guidance, list):
+        return []
+    return [_redact_connector_transport_text(str(item)) for item in guidance if isinstance(item, str)]
+
+
+def _redact_connector_transport_text(value: str) -> str:
+    redacted = str(redact_value(value))
+    redacted = re.sub(r"https?://[^\s)>\"]+", "<redacted-url>", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(
+        r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?::\d{1,5})?\b",
+        "<redacted-ip>",
+        redacted,
+    )
+    return re.sub(r"\b8765\b", "<redacted-port>", redacted)
+
+
 def _connector_service_status(*, token: str | None = None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
     domain = _launchctl_domain()
     print_result = _run_launchctl(["print", f"{domain}/{CONNECTOR_LABEL}"])
@@ -1971,6 +2165,12 @@ def _connector_service_status(*, token: str | None = None, token_file: str | Non
     tailnet_ip = _tailscale_ip()
     managed_by = "launchagent" if running else "workbench-or-manual" if ready else "offline"
     program_arguments = _connector_plist_program_arguments(plist_path)
+    owner = _bridge_owner_summary(
+        label=CONNECTOR_LABEL,
+        plist_path=plist_path,
+        program_arguments=program_arguments,
+        ready=ready,
+    )
     return {
         "ok": bool(connector_token and ready),
         "ready": ready,
@@ -1986,6 +2186,7 @@ def _connector_service_status(*, token: str | None = None, token_file: str | Non
         "tailnet_ip": tailnet_ip,
         "health": health,
         "launchctl": print_result,
+        "owner": owner,
         "permission_target": _connector_permission_target(managed_by, health, program_arguments),
         "guidance": _connector_service_guidance(plist_path, token_path.exists(), health),
     }
@@ -2007,8 +2208,7 @@ def _connector_service_guidance(plist_path: Path | None, token_present: bool, he
     if not token_present:
         guidance.append("Start the connector once to mint the per-user connector token.")
     if health.get("reachable") is not True:
-        host = health.get("host") or "127.0.0.1"
-        guidance.append(f"Start the connector service and confirm http://{host}:8765/health responds.")
+        guidance.append("Start the connector service and confirm its health endpoint responds.")
     return guidance
 
 
