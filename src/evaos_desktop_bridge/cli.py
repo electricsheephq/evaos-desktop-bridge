@@ -756,7 +756,7 @@ def main(
 
     if command_id == "diagnostics":
         token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
-        result = build_diagnostics_payload(token=token, state_dir=state_dir)
+        result = _build_cli_diagnostics_payload(token=token, token_file=args.token_file, state_dir=state_dir)
         if getattr(args, "json", None) is True:
             stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         else:
@@ -1815,6 +1815,15 @@ def _build_cli_ready_payload(*, token: str | None, token_file: str | None = None
     return payload
 
 
+def _build_cli_diagnostics_payload(*, token: str | None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+    service_status = _connector_service_status(token=token, token_file=token_file, state_dir=state_dir)
+    return build_diagnostics_payload(
+        token=token,
+        state_dir=state_dir,
+        owner=_public_bridge_owner_from_status(service_status),
+    )
+
+
 def _public_ready_connector_service_status(status: dict[str, object]) -> dict[str, object]:
     health = status.get("health") if isinstance(status.get("health"), dict) else {}
     return {
@@ -2036,8 +2045,9 @@ def _bridge_owner_summary(
     plist_path: Path | None,
     program_arguments: list[str] | None,
     ready: bool,
+    active_program_path: Path | None = None,
 ) -> dict[str, object]:
-    program_path = Path(program_arguments[0]).expanduser() if program_arguments else None
+    program_path = active_program_path or (Path(program_arguments[0]).expanduser() if program_arguments else None)
     app_path = _owner_app_path(program_path)
     manifest_path = _owner_manifest_path(program_path, app_path)
     manifest = _read_owner_manifest(manifest_path)
@@ -2165,11 +2175,13 @@ def _connector_service_status(*, token: str | None = None, token_file: str | Non
     tailnet_ip = _tailscale_ip()
     managed_by = "launchagent" if running else "workbench-or-manual" if ready else "offline"
     program_arguments = _connector_plist_program_arguments(plist_path)
+    active_program_path = _active_connector_process_program_path() if reachable else None
     owner = _bridge_owner_summary(
         label=CONNECTOR_LABEL,
         plist_path=plist_path,
         program_arguments=program_arguments,
         ready=ready,
+        active_program_path=active_program_path,
     )
     return {
         "ok": bool(connector_token and ready),
@@ -2210,6 +2222,80 @@ def _connector_service_guidance(plist_path: Path | None, token_present: bool, he
     if health.get("reachable") is not True:
         guidance.append("Start the connector service and confirm its health endpoint responds.")
     return guidance
+
+
+def _active_connector_process_program_path() -> Path | None:
+    pid = _active_connector_process_pid()
+    if pid is None:
+        return None
+    return _process_program_path(pid)
+
+
+def _active_connector_process_pid() -> int | None:
+    lsof = shutil.which("lsof") or "/usr/sbin/lsof"
+    try:
+        completed = subprocess.run(
+            [lsof, "-nP", f"-iTCP:{CONNECTOR_PORT}", "-sTCP:LISTEN", "-Fp"],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        if line.startswith("p"):
+            try:
+                pid = int(line[1:])
+            except ValueError:
+                continue
+            if pid > 0:
+                return pid
+    return None
+
+
+def _process_program_path(pid: int) -> Path | None:
+    text_path = _process_text_path(pid)
+    if text_path is not None:
+        return text_path
+    try:
+        completed = subprocess.run(
+            ["/bin/ps", "-p", str(pid), "-o", "comm="],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    path_text = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
+    return Path(path_text).expanduser() if path_text else None
+
+
+def _process_text_path(pid: int) -> Path | None:
+    lsof = shutil.which("lsof") or "/usr/sbin/lsof"
+    try:
+        completed = subprocess.run(
+            [lsof, "-nP", "-p", str(pid), "-d", "txt", "-Fn"],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        if line.startswith("n"):
+            path_text = line[1:].strip()
+            if path_text:
+                return Path(path_text).expanduser()
+    return None
 
 
 def _launchctl_start() -> dict[str, object]:

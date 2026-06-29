@@ -685,8 +685,15 @@ def build_ready_payload(*, token: str | None, state_dir: Path | None = None) -> 
     }
 
 
-def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = None) -> dict[str, Any]:
+def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = None, owner: dict[str, Any] | None = None) -> dict[str, Any]:
     root = state_dir or default_state_dir()
+    connector: dict[str, Any] = {
+        "token_state": _token_state(token),
+        "state_dir": _public_path(root),
+        "ready": build_ready_payload(token=token, state_dir=state_dir),
+    }
+    if owner is not None:
+        connector["owner"] = _sanitize_public_value(owner)
     return {
         "ok": True,
         "schema": DIAGNOSTICS_SCHEMA,
@@ -700,11 +707,7 @@ def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = Non
             "version": _bridge_version(),
             "mode": _sanitize_public_text(os.environ.get("EVAOS_DESKTOP_BRIDGE_MODE") or "unknown"),
         },
-        "connector": {
-            "token_state": _token_state(token),
-            "state_dir": _public_path(root),
-            "ready": build_ready_payload(token=token, state_dir=state_dir),
-        },
+        "connector": connector,
         "control_session": _public_control_session(state_dir),
         "service_events": read_service_events(state_dir=state_dir, limit=MAX_SERVICE_EVENTS),
         "redaction": {
