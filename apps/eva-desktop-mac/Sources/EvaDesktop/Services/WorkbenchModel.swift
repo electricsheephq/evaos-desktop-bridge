@@ -3151,8 +3151,6 @@ enum BridgeStatusFormatter {
         let status = connectorStatus(from: object)
         let ok = status["ok"] as? Bool == true
         let health = status["health"] as? [String: Any]
-        let host = health?["host"] as? String
-        let port = health?["port"] as? Int
         let managedBy = (status["managed_by"] as? String) ?? ((status["loaded"] as? Bool == true) ? "launchagent" : "workbench")
         let permissionTarget = value(at: ["permission_target", "name"], in: status) as? String
         let permissionPath = value(at: ["permission_target", "bridge_executable"], in: status) as? String
@@ -3163,7 +3161,6 @@ enum BridgeStatusFormatter {
         return compact([
             ok ? "Ready" : "Needs attention",
             "Mode: \(mode)",
-            (host != nil && port != nil) ? "Address: \(host!):\(port!)" : nil,
             "Token: \(tokenPresent ? "ready" : "missing")",
             permissionTarget.map { "Permission target: \($0)" },
             permissionHolder.map { "Permission holder: \($0)" },

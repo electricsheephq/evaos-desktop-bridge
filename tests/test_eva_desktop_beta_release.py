@@ -228,6 +228,10 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     runtime_detail = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "RuntimeDetailView.swift").read_text(encoding="utf-8")
     prompt_source = model.split("private static func agentPairingPrompt", 1)[1].split("private func refreshMacPairing", 1)[0]
     complete_source = model.split("func completeLocalMacEnrollment()", 1)[1].split("func revokeFirstPairedMac()", 1)[0]
+    connector_formatter_source = model.split("static func connector(raw: String)", 1)[1].split(
+        "private static func connectorStatus",
+        1,
+    )[0]
     local_error_source = model.split("private static func localEnrollmentErrorMessage", 1)[1].split(
         "private static func connectorServiceIsRunning",
         1,
@@ -271,6 +275,9 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "genericLocalEnrollmentFailure" in local_error_source
     assert "return message" in local_error_source
     assert "return \"Enrollment completion failed: \\(error)\"" in local_error_source
+    assert "Address:" not in connector_formatter_source
+    assert 'health?["host"]' not in connector_formatter_source
+    assert 'health?["port"]' not in connector_formatter_source
     assert '["connector-service", "status", "--json"])' in model
     for forbidden in (
         "connector_url",

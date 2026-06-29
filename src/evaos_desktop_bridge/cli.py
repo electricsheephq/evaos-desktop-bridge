@@ -2003,7 +2003,7 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
         start_result = _public_launchctl_result(_launchctl_start())
         status = _public_connector_service_probe_status(state_dir=state_dir)
         return {
-            "ok": status.get("ok") is True,
+            "ok": _public_launchctl_ok(start_result) and status.get("ok") is True,
             "action": action,
             "launchctl": start_result,
             "status": status,
@@ -2013,7 +2013,7 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
         stop_result = _public_launchctl_result(_launchctl_stop())
         status = _public_connector_service_probe_status(state_dir=state_dir)
         return {
-            "ok": True,
+            "ok": _public_launchctl_ok(stop_result),
             "action": action,
             "launchctl": stop_result,
             "status": status,
@@ -2088,10 +2088,15 @@ def _public_connector_service_result(result: dict[str, object]) -> dict[str, obj
 
 
 def _public_connector_service_error(value: object) -> str:
-    if isinstance(value, str):
-        normalized = value.strip()
-        if re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", normalized):
-            return normalized
+    allowed = {
+        "connector_identity_unverified",
+        "connector_ready_probe_failed",
+        "connector_service_failed",
+        "connector_token_missing",
+        "unsupported_connector_service_action",
+    }
+    if isinstance(value, str) and value.strip() in allowed:
+        return value.strip()
     return "connector_service_failed"
 
 
@@ -2103,6 +2108,13 @@ def _public_launchctl_result(result: dict[str, object]) -> dict[str, object]:
             "stderr_present": bool(result.get("stderr")),
         }
     return {key: _public_launchctl_result(value) for key, value in result.items() if isinstance(key, str) and isinstance(value, dict)}
+
+
+def _public_launchctl_ok(result: dict[str, object]) -> bool:
+    if "returncode" in result:
+        return result.get("returncode") == 0
+    nested = [value for value in result.values() if isinstance(value, dict)]
+    return bool(nested) and all(_public_launchctl_ok(value) for value in nested)
 
 
 def _public_connector_service_status(status: dict[str, object]) -> dict[str, object]:
@@ -2505,6 +2517,22 @@ def _connector_public_loopback_health() -> dict[str, object]:
     plist_path = _connector_plist_path()
     host = _connector_plist_host(plist_path) or _tailscale_ip() or "127.0.0.1"
     try:
+        ready_probe = _connector_http_get(host, "/ready")
+        ready_json = ready_probe.get("json") if isinstance(ready_probe.get("json"), dict) else {}
+        if ready_json.get("schema") == "evaos.desktop_bridge.ready.v1":
+            ready = ready_probe.get("status_code") == 200 and ready_json.get("ok") is True and ready_json.get("ready") is True
+            result: dict[str, object] = {
+                "reachable": True,
+                "ready": ready,
+                "authenticated": False,
+                "host": host,
+                "port": CONNECTOR_PORT,
+                "status_line": ready_probe.get("status_line") if isinstance(ready_probe.get("status_line"), str) else "",
+            }
+            if not ready:
+                result["error"] = "connector_ready_probe_failed"
+            return result
+
         health = _connector_http_get(host, "/health")
         health_json = health.get("json") if isinstance(health.get("json"), dict) else {}
         reachable = health.get("status_code") == 200 and health_json.get("service") == "evaos-desktop-bridge-connector"

@@ -823,6 +823,30 @@ def test_connector_service_json_output_uses_public_runner(monkeypatch, tmp_path:
     assert str(Path.home()) not in output.getvalue()
 
 
+def test_public_connector_service_stop_reports_launchctl_failure(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        bridge_cli,
+        "_launchctl_stop",
+        lambda: {"returncode": 5, "stdout": "", "stderr": "not loaded"},
+    )
+    monkeypatch.setattr(
+        bridge_cli,
+        "_public_connector_service_probe_status",
+        lambda *, state_dir=None: {"ok": False, "ready": False},
+    )
+
+    payload = bridge_cli._run_public_connector_service("stop", state_dir=tmp_path)
+
+    assert payload["ok"] is False
+    assert payload["launchctl"] == {"returncode": 5, "stdout_present": False, "stderr_present": True}
+
+
+def test_public_connector_service_error_uses_symbolic_allowlist() -> None:
+    assert bridge_cli._public_connector_service_error("connector_ready_probe_failed") == "connector_ready_probe_failed"
+    assert bridge_cli._public_connector_service_error("100.64.0.4:8765") == "connector_service_failed"
+    assert bridge_cli._public_connector_service_error("abcdef1234567890") == "connector_service_failed"
+
+
 def test_connector_service_status_cli_reports_redacted_workbench_owner(monkeypatch, tmp_path: Path) -> None:
     token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
     (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
@@ -2196,6 +2220,39 @@ def test_connector_status_accepts_workbench_managed_health_without_launchagent(m
     assert payload["permission_target"]["bridge_executable"]
     assert payload["permission_target"]["permission_holder"] == "Peekaboo Bridge host or bundled Peekaboo CLI"
     assert "python_executable" not in payload["permission_target"]
+
+
+def test_public_connector_health_uses_ready_before_health(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_USER_PLIST", tmp_path / "missing-user.plist")
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_SYSTEM_PLIST", tmp_path / "missing-system.plist")
+    monkeypatch.setattr(bridge_cli, "_tailscale_ip", lambda: "100.64.0.4")
+
+    def fake_connector_http_get(host: str, path: str, *, authorization: str | None = None) -> dict[str, object]:
+        assert host == "100.64.0.4"
+        assert authorization is None
+        calls.append(path)
+        if path == "/ready":
+            return {
+                "status_code": 503,
+                "status_line": "HTTP/1.0 503 Service Unavailable",
+                "json": {
+                    "schema": "evaos.desktop_bridge.ready.v1",
+                    "ok": False,
+                    "ready": False,
+                },
+            }
+        raise AssertionError("public probe must not fall back to /health when /ready has the ready schema")
+
+    monkeypatch.setattr(bridge_cli, "_connector_http_get", fake_connector_http_get)
+
+    health = bridge_cli._connector_public_loopback_health()
+
+    assert calls == ["/ready"]
+    assert health["reachable"] is True
+    assert health["ready"] is False
+    assert health["error"] == "connector_ready_probe_failed"
 
 
 def test_connector_status_reports_launchagent_program_as_permission_target(monkeypatch, tmp_path: Path) -> None:
