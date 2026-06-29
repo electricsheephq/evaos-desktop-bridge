@@ -892,6 +892,93 @@ def test_public_connector_service_start_ignores_missing_prior_bootout(monkeypatc
     assert payload["launchctl"]["kickstart"] == {"returncode": 0, "stdout_present": False, "stderr_present": False}
 
 
+def test_public_connector_service_start_polls_after_transient_kickstart_failure(monkeypatch, tmp_path: Path) -> None:
+    statuses: list[dict[str, object]] = [
+        {"ok": False, "ready": False},
+        {"ok": True, "ready": True},
+    ]
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(
+        bridge_cli,
+        "_launchctl_start",
+        lambda: {
+            "bootout": {"returncode": 3, "stdout": "", "stderr": "service not loaded"},
+            "bootstrap": {"returncode": 0, "stdout": "", "stderr": ""},
+            "kickstart": {"returncode": 1, "stdout": "", "stderr": "service already starting at http://100.64.0.4:8765"},
+        },
+    )
+    monkeypatch.setattr(bridge_cli, "_public_connector_service_probe_status", lambda *, state_dir=None: statuses.pop(0))
+    monkeypatch.setattr(bridge_cli.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    payload = bridge_cli._run_public_connector_service("start", state_dir=tmp_path)
+
+    assert payload["ok"] is True
+    assert payload["status"] == {"ok": True, "ready": True}
+    assert sleeps == [0.2]
+    assert payload["launchctl_notes"] == [
+        {
+            "type": "warning",
+            "code": "launchctl_kickstart_transient_failure",
+            "stage": "kickstart",
+            "returncode": 1,
+            "stdout_present": False,
+            "stderr_present": True,
+        }
+    ]
+    public_payload = bridge_cli._public_connector_service_result(payload)
+    assert public_payload["launchctl_notes"] == payload["launchctl_notes"]
+    public_text = json.dumps(public_payload)
+    assert "fixture-token" not in public_text
+    assert "http://100.64.0.4:8765" not in public_text
+    assert "100.64.0.4" not in public_text
+    assert "8765" not in public_text
+
+
+def test_public_connector_service_start_reports_unrecovered_kickstart_failure(monkeypatch, tmp_path: Path) -> None:
+    statuses: list[dict[str, object]] = [
+        {"ok": False, "ready": False, "error": "connector_service_unreachable"},
+        {"ok": False, "ready": False, "error": "connector_service_unreachable"},
+    ]
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(
+        bridge_cli,
+        "_launchctl_start",
+        lambda: {
+            "bootout": {"returncode": 3, "stdout": "", "stderr": "service not loaded"},
+            "bootstrap": {"returncode": 0, "stdout": "", "stderr": ""},
+            "kickstart": {"returncode": 1, "stdout": "", "stderr": "service failed at http://100.64.0.4:8765"},
+        },
+    )
+    monkeypatch.setattr(bridge_cli, "_public_connector_service_probe_status", lambda *, state_dir=None: statuses.pop(0))
+    monkeypatch.setattr(bridge_cli.time, "monotonic", iter([0.0, 0.1, 9.0]).__next__)
+    monkeypatch.setattr(bridge_cli.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    payload = bridge_cli._run_public_connector_service("start", state_dir=tmp_path)
+
+    assert payload["ok"] is False
+    assert payload["status"] == {"ok": False, "ready": False, "error": "connector_service_unreachable"}
+    assert sleeps == [0.2]
+    assert payload["launchctl_notes"] == [
+        {
+            "type": "warning",
+            "code": "launchctl_kickstart_failed",
+            "stage": "kickstart",
+            "recovered": False,
+            "returncode": 1,
+            "stdout_present": False,
+            "stderr_present": True,
+        }
+    ]
+    public_payload = bridge_cli._public_connector_service_result(payload)
+    assert public_payload["launchctl_notes"] == payload["launchctl_notes"]
+    public_text = json.dumps(public_payload)
+    assert "http://100.64.0.4:8765" not in public_text
+    assert "100.64.0.4" not in public_text
+    assert "8765" not in public_text
+
+
 def test_public_connector_service_error_uses_symbolic_allowlist() -> None:
     assert bridge_cli._public_connector_service_error("connector_ready_probe_failed") == "connector_ready_probe_failed"
     assert bridge_cli._public_connector_service_error("100.64.0.4:8765") == "connector_service_failed"
@@ -2526,6 +2613,111 @@ def test_connector_owner_summary_prefers_configured_launcher_when_active_process
     assert owner["bundle_id"] == "com.electricsheephq.EvaDesktop"
 
 
+def test_connector_owner_summary_reads_camel_case_source_commit(monkeypatch, tmp_path: Path) -> None:
+    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
+    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+    _app_path, program_path = _write_owner_app_fixture(
+        tmp_path,
+        app_name="evaOS Workbench.app",
+        bundle_id="com.evaos.workbench",
+        manifest={"sourceCommit": "c0ffee06d5d4c3edf9bf97642ce9088bee645e7b"},
+    )
+    plist_path = _write_owner_plist(tmp_path, program_path)
+    _patch_connector_owner_probe(monkeypatch, tmp_path, plist_path, token_fixture=token_fixture, loaded=True, ready=True)
+
+    status = bridge_cli._connector_service_status(state_dir=tmp_path)
+
+    assert status["owner"]["source_commit"] == "c0ffee06d5d4c3edf9bf97642ce9088bee645e7b"
+
+
+def test_connector_owner_summary_prefers_configured_launcher_when_loginwindow_masks_process(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
+    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+    app_path, program_path = _write_owner_app_fixture(
+        tmp_path,
+        app_name="evaOS Workbench.app",
+        bundle_id="com.evaos.workbench",
+        manifest={"source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b"},
+    )
+    plist_path = _write_owner_plist(tmp_path, program_path)
+    _patch_connector_owner_probe(monkeypatch, tmp_path, plist_path, token_fixture=token_fixture, loaded=True, ready=True)
+    monkeypatch.setattr(
+        bridge_cli,
+        "_active_connector_process_program_path",
+        lambda: Path("/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow"),
+        raising=False,
+    )
+
+    status = bridge_cli._connector_service_status(state_dir=tmp_path)
+    owner = status["owner"]
+
+    assert owner["classification"] == "workbench_bundle"
+    assert owner["program_path"] == {"kind": "path", "value": str(program_path)}
+    assert owner["app_path"] == {"kind": "path", "value": str(app_path)}
+    assert owner["bundle_id"] == "com.evaos.workbench"
+
+
+def test_connector_owner_summary_prefers_configured_launcher_when_shell_masks_process(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    for shell_path in (Path("/bin/zsh"), Path("/bin/sh")):
+        case_dir = tmp_path / shell_path.name
+        case_dir.mkdir()
+        token_fixture = f"fixture-token-{shell_path.name}"  # noqa: S105 - intentional readiness fixture
+        (case_dir / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+        app_path, program_path = _write_owner_app_fixture(
+            case_dir,
+            app_name="evaOS Workbench.app",
+            bundle_id="com.evaos.workbench",
+            manifest={"source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b"},
+        )
+        plist_path = _write_owner_plist(case_dir, program_path)
+        _patch_connector_owner_probe(monkeypatch, case_dir, plist_path, token_fixture=token_fixture, loaded=True, ready=True)
+        monkeypatch.setattr(bridge_cli, "_active_connector_process_program_path", lambda shell_path=shell_path: shell_path, raising=False)
+
+        status = bridge_cli._connector_service_status(state_dir=case_dir)
+        owner = status["owner"]
+
+        assert owner["classification"] == "workbench_bundle"
+        assert owner["program_path"] == {"kind": "path", "value": str(program_path)}
+        assert owner["app_path"] == {"kind": "path", "value": str(app_path)}
+        assert owner["bundle_id"] == "com.evaos.workbench"
+
+
+def test_connector_owner_summary_prefers_configured_launcher_when_unknown_active_path_masks_process(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
+    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+    app_path, program_path = _write_owner_app_fixture(
+        tmp_path,
+        app_name="evaOS Workbench.app",
+        bundle_id="com.evaos.workbench",
+        manifest={"source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b"},
+    )
+    plist_path = _write_owner_plist(tmp_path, program_path)
+    _patch_connector_owner_probe(monkeypatch, tmp_path, plist_path, token_fixture=token_fixture, loaded=True, ready=True)
+    monkeypatch.setattr(
+        bridge_cli,
+        "_active_connector_process_program_path",
+        lambda: Path("/private/var/folders/runtime-detail/evaos-desktop-bridge"),
+        raising=False,
+    )
+
+    status = bridge_cli._connector_service_status(state_dir=tmp_path)
+    owner = status["owner"]
+
+    assert owner["classification"] == "workbench_bundle"
+    assert owner["program_path"] == {"kind": "path", "value": str(program_path)}
+    assert owner["app_path"] == {"kind": "path", "value": str(app_path)}
+    assert owner["bundle_id"] == "com.evaos.workbench"
+
+
 def test_connector_owner_summary_uses_active_workbench_process_without_plist(monkeypatch, tmp_path: Path) -> None:
     token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
     (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
@@ -2578,6 +2770,27 @@ def test_connector_owner_summary_prefers_active_workbench_process_over_stale_leg
     assert owner["program_path"] == {"kind": "path", "value": str(workbench_program)}
     assert owner["app_path"] == {"kind": "path", "value": str(workbench_app)}
     assert owner["bundle_id"] == "com.evaos.workbench"
+
+
+def test_connector_owner_summary_prefers_live_custom_process_over_stale_global_plist(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
+    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+    global_plist = _write_owner_plist(tmp_path, Path("/opt/homebrew/bin/evaos-desktop-bridge"))
+    custom_program = Path("/custom/live/evaos-desktop-bridge")
+    _patch_connector_owner_probe(monkeypatch, tmp_path, global_plist, token_fixture=token_fixture, loaded=True, ready=True)
+    monkeypatch.setattr(bridge_cli, "_active_connector_process_program_path", lambda: custom_program, raising=False)
+
+    status = bridge_cli._connector_service_status(state_dir=tmp_path)
+    owner = status["owner"]
+
+    assert owner["classification"] == "unknown"
+    assert owner["plist_path"] == {"kind": "path", "value": str(global_plist)}
+    assert owner["program_path"] == {"kind": "path", "value": str(custom_program)}
+    assert owner["app_path"] == {"kind": "unknown"}
+    assert owner["bundle_id"] is None
 
 
 def test_owner_metadata_reads_are_bounded(tmp_path: Path) -> None:
