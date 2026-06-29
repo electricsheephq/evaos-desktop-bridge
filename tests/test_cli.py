@@ -841,10 +841,79 @@ def test_public_connector_service_stop_reports_launchctl_failure(monkeypatch, tm
     assert payload["launchctl"] == {"returncode": 5, "stdout_present": False, "stderr_present": True}
 
 
+def test_public_connector_service_start_waits_for_ready(monkeypatch, tmp_path: Path) -> None:
+    statuses: list[dict[str, object]] = [
+        {"ok": False, "ready": False},
+        {"ok": True, "ready": True},
+    ]
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(
+        bridge_cli,
+        "_launchctl_start",
+        lambda: {
+            "bootout": {"returncode": 0, "stdout": "", "stderr": ""},
+            "bootstrap": {"returncode": 0, "stdout": "", "stderr": ""},
+            "kickstart": {"returncode": 0, "stdout": "", "stderr": ""},
+        },
+    )
+    monkeypatch.setattr(bridge_cli, "_public_connector_service_probe_status", lambda *, state_dir=None: statuses.pop(0))
+    monkeypatch.setattr(bridge_cli.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    payload = bridge_cli._run_public_connector_service("start", state_dir=tmp_path)
+
+    assert payload["ok"] is True
+    assert payload["status"] == {"ok": True, "ready": True}
+    assert sleeps == [0.2]
+
+
 def test_public_connector_service_error_uses_symbolic_allowlist() -> None:
     assert bridge_cli._public_connector_service_error("connector_ready_probe_failed") == "connector_ready_probe_failed"
     assert bridge_cli._public_connector_service_error("100.64.0.4:8765") == "connector_service_failed"
     assert bridge_cli._public_connector_service_error("abcdef1234567890") == "connector_service_failed"
+
+
+def test_public_connector_service_status_validates_existing_token(monkeypatch, tmp_path: Path) -> None:
+    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
+    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        bridge_cli,
+        "_run_launchctl",
+        lambda _args: {"returncode": 0, "stdout": "loaded", "stderr": ""},
+    )
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_USER_PLIST", tmp_path / "missing-user.plist")
+    monkeypatch.setattr(bridge_cli, "CONNECTOR_SYSTEM_PLIST", tmp_path / "missing-system.plist")
+    monkeypatch.setattr(bridge_cli, "_active_connector_process_program_path", lambda: None)
+    monkeypatch.setattr(bridge_cli, "_tailscale_ip", lambda: "100.64.0.4")
+
+    def fake_connector_loopback_health(*, connector_token: str | None = None) -> dict[str, object]:
+        captured["connector_token"] = connector_token
+        return {
+            "reachable": True,
+            "ready": False,
+            "authenticated": False,
+            "host": "100.64.0.4",
+            "port": 8765,
+            "status_line": "HTTP/1.0 401 Unauthorized",
+        }
+
+    def fail_public_health() -> dict[str, object]:
+        raise AssertionError("token-bearing status must use authenticated diagnostics")
+
+    monkeypatch.setattr(bridge_cli, "_connector_loopback_health", fake_connector_loopback_health)
+    monkeypatch.setattr(bridge_cli, "_connector_public_loopback_health", fail_public_health)
+
+    payload = bridge_cli._public_connector_service_probe_status(state_dir=tmp_path)
+
+    assert captured["connector_token"] == token_fixture
+    assert payload["ok"] is False
+    assert payload["ready"] is False
+    assert payload["token_present"] is True
+    assert payload["health"]["authenticated"] is False
+    assert payload["health"]["host_kind"] == "tailnet"
+    assert "100.64.0.4" not in json.dumps(payload, sort_keys=True)
 
 
 def test_connector_service_status_cli_reports_redacted_workbench_owner(monkeypatch, tmp_path: Path) -> None:
@@ -1255,6 +1324,8 @@ def test_connector_service_complete_enrollment_registers_privately(monkeypatch, 
             "benjamin-kennedy",
             "--device-name",
             "Benjamin Mac",
+            "--device-identifier",
+            "mac-stable-123",
         ],
         stdout=output,
         state_dir=tmp_path,
@@ -1266,6 +1337,7 @@ def test_connector_service_complete_enrollment_registers_privately(monkeypatch, 
     assert captured["connector_url"] == "http://100.64.1.10:8765"
     assert captured["connector_token"] == "secret-token-abcdef1234567890"
     assert captured["device_name"] == "Benjamin Mac"
+    assert captured["device_identifier"] == "mac-stable-123"
     assert payload["ok"] is True
     assert payload["customer_id"] == "benjamin-kennedy"
     assert payload["device_id"] == "device-1"

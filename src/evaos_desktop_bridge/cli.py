@@ -13,6 +13,7 @@ import socket
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -308,6 +309,7 @@ def build_parser() -> argparse.ArgumentParser:
     service_complete_parser.add_argument("--enrollment-code", required=True, help="Short-lived Workbench pairing code.")
     service_complete_parser.add_argument("--customer-id", required=True, help="Customer id for the selected Workbench customer.")
     service_complete_parser.add_argument("--device-name", default=None, help="Friendly Mac device name.")
+    service_complete_parser.add_argument("--device-identifier", default=None, help="Stable Workbench device identifier.")
     service_complete_parser.set_defaults(command_id="connector_service.complete_enrollment", target="connector")
 
     queue_parser = subparsers.add_parser("queue", help="Eva/OpenClaw announcement queue commands.")
@@ -1706,6 +1708,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
     enrollment_code = str(getattr(args, "enrollment_code", "") or "").strip()
     customer_id = str(getattr(args, "customer_id", "") or "").strip()
     device_name = str(getattr(args, "device_name", "") or "").strip() or socket.gethostname() or "Customer Mac"
+    device_identifier = str(getattr(args, "device_identifier", "") or "").strip() or socket.gethostname()
     if not enrollment_code or not customer_id:
         return {
             "ok": False,
@@ -1760,7 +1763,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
             connector_url=f"http://{_connector_url_host(host)}:{CONNECTOR_PORT}",
             connector_token=connector_token,
             device_name=device_name,
-            device_identifier=socket.gethostname(),
+            device_identifier=device_identifier,
         )
     except Exception as exc:
         return {
@@ -2001,7 +2004,10 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
 
     if action == "start":
         start_result = _public_launchctl_result(_launchctl_start())
-        status = _public_connector_service_probe_status(state_dir=state_dir)
+        if _public_launchctl_ok(start_result):
+            status = _wait_for_public_connector_service_ready(state_dir=state_dir)
+        else:
+            status = _public_connector_service_probe_status(state_dir=state_dir)
         return {
             "ok": _public_launchctl_ok(start_result) and status.get("ok") is True,
             "action": action,
@@ -2022,20 +2028,35 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
     return _public_connector_service_probe_status(state_dir=state_dir)
 
 
+def _wait_for_public_connector_service_ready(
+    *,
+    state_dir: Path | None = None,
+    timeout_seconds: float = 8.0,
+    poll_interval_seconds: float = 0.2,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    status = _public_connector_service_probe_status(state_dir=state_dir)
+    while status.get("ok") is not True and time.monotonic() < deadline:
+        time.sleep(poll_interval_seconds)
+        status = _public_connector_service_probe_status(state_dir=state_dir)
+    return status
+
+
 def _public_connector_service_probe_status(*, state_dir: Path | None = None) -> dict[str, object]:
     domain = _launchctl_domain()
     print_result = _run_launchctl(["print", f"{domain}/{CONNECTOR_LABEL}"])
     token_path = _connector_token_path(None, state_dir=state_dir)
     plist_path = _connector_plist_path()
     loaded = print_result["returncode"] == 0
-    health = _connector_public_loopback_health()
+    connector_token = _connector_token_value(None, state_dir=state_dir)
+    health = _connector_loopback_health(connector_token=connector_token) if connector_token else _connector_public_loopback_health()
     reachable = health.get("reachable") is True
-    ready = health.get("ready") is True
+    ready = connector_token is not None and health.get("ready") is True and health.get("authenticated") is True
     running = loaded and ready
     program_arguments = _connector_plist_program_arguments(plist_path)
     active_program_path = _active_connector_process_program_path() if reachable else None
     status = {
-        "ok": token_path.exists() and ready,
+        "ok": ready,
         "ready": ready,
         "label": CONNECTOR_LABEL,
         "domain": domain,
@@ -2043,7 +2064,7 @@ def _public_connector_service_probe_status(*, state_dir: Path | None = None) -> 
         "plist_path": str(plist_path) if plist_path else None,
         "plist_installed": plist_path is not None,
         "token_path": str(token_path),
-        "token_present": token_path.exists(),
+        "token_present": connector_token is not None,
         "loaded": loaded,
         "running": running,
         "tailnet_ip": _tailscale_ip(),
@@ -2060,7 +2081,7 @@ def _public_connector_service_probe_status(*, state_dir: Path | None = None) -> 
             health,
             program_arguments,
         ),
-        "guidance": _connector_service_guidance(plist_path, token_path.exists(), health),
+        "guidance": _connector_service_guidance(plist_path, connector_token is not None, health),
     }
     return _public_connector_service_status(status)
 

@@ -236,6 +236,10 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
         "private static func connectorServiceIsRunning",
         1,
     )[0]
+    connector_status_object_source = model.split("private static func connectorStatusObject", 1)[1].split(
+        "private static func localEnrollmentErrorMessage",
+        1,
+    )[0]
 
     assert "David's" not in model
     assert "David's" not in bridge_panel
@@ -271,6 +275,9 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "let enrollmentCustomerId = sanitizedCustomerId" in complete_source
     assert "guard enrollmentCustomerId == sanitizedCustomerId else { return }" in complete_source
     assert "--customer-id\",\n                    enrollmentCustomerId," in complete_source
+    assert "--device-identifier\",\n                    localDeviceIdentifier" in complete_source
+    assert "object[\"data\"] as? [String: Any]" in connector_status_object_source
+    assert "data[\"status\"] as? [String: Any]" in connector_status_object_source
     assert "safeLocalEnrollmentDetail" in local_error_source
     assert "genericLocalEnrollmentFailure" in local_error_source
     assert "return message" in local_error_source

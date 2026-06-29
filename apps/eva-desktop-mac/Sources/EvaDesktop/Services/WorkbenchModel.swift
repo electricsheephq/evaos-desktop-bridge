@@ -1613,7 +1613,9 @@ final class WorkbenchModel: ObservableObject {
                     "--customer-id",
                     enrollmentCustomerId,
                     "--device-name",
-                    Host.current().localizedName ?? "Customer Mac"
+                    Host.current().localizedName ?? "Customer Mac",
+                    "--device-identifier",
+                    localDeviceIdentifier
                 ])
                 guard enrollmentCustomerId == sanitizedCustomerId else { return }
                 guard let object = Self.connectorStatusObject(from: result) else {
@@ -1745,6 +1747,12 @@ final class WorkbenchModel: ObservableObject {
         }
         if let status = object["status"] as? [String: Any] {
             return status
+        }
+        if let data = object["data"] as? [String: Any] {
+            if let status = data["status"] as? [String: Any] {
+                return status
+            }
+            return data
         }
         return object
     }
