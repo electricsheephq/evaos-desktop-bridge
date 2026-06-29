@@ -798,10 +798,9 @@ def main(
         return 0 if result.get("ok") is True else 2
 
     if command_id.startswith("connector_service."):
-        result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
-        public_result = _public_connector_service_result(result)
+        public_result = _run_public_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
         stdout.write(json.dumps(public_result, sort_keys=True) + "\n")
-        return 0 if result.get("ok") is True else 2
+        return 0 if public_result.get("ok") is True else 2
 
     try:
         if command_id == "codex.send_visible_message":
@@ -2003,6 +2002,38 @@ def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dic
         return {"ok": True, "action": action, "launchctl": stop_result, "status": status}
 
     return _connector_service_status(state_dir=state_dir)
+
+
+def _run_public_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
+    if action not in {"status", "start", "stop"}:
+        return {
+            "ok": False,
+            "action": action,
+            "error": "unsupported_connector_service_action",
+            "raw_output_returned": False,
+        }
+
+    if action == "start":
+        start_result = _public_launchctl_result(_launchctl_start())
+        status = _public_connector_service_status(_wait_for_connector_service(state_dir=state_dir))
+        return {
+            "ok": status.get("ok") is True,
+            "action": action,
+            "launchctl": start_result,
+            "status": status,
+        }
+
+    if action == "stop":
+        stop_result = _public_launchctl_result(_launchctl_stop())
+        status = _public_connector_service_status(_connector_service_status(state_dir=state_dir))
+        return {
+            "ok": True,
+            "action": action,
+            "launchctl": stop_result,
+            "status": status,
+        }
+
+    return _public_connector_service_status(_connector_service_status(state_dir=state_dir))
 
 
 def _public_connector_service_result(result: dict[str, object]) -> dict[str, object]:

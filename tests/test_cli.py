@@ -773,17 +773,42 @@ def test_send_visible_message_audit_preview_redacts_secret_like_text(tmp_path: P
     assert records[-1]["args"]["message_preview"] == "please use <redacted-secret> for the check"
 
 
-def test_connector_service_json_output_is_redacted(monkeypatch, tmp_path: Path) -> None:
-    def fake_run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
-        return {
+def test_public_connector_service_result_redacts_raw_failure_payload() -> None:
+    payload = bridge_cli._public_connector_service_result(
+        {
             "ok": False,
-            "action": action,
+            "action": "status",
             "error": "http://100.64.0.4:8765/token/Bearer abcdef1234567890",
             "token": "Bearer abcdef1234567890",  # noqa: S105 - intentional redaction fixture
             "path": f"{Path.home()}/Library/secret",
         }
+    )
 
-    monkeypatch.setattr(bridge_cli, "_run_connector_service", fake_run_connector_service)
+    assert payload == {
+        "action": "status",
+        "error": "connector_service_failed",
+        "ok": False,
+        "raw_output_returned": False,
+    }
+    serialized = json.dumps(payload, sort_keys=True)
+    assert "abcdef1234567890" not in serialized
+    assert str(Path.home()) not in serialized
+
+
+def test_connector_service_json_output_uses_public_runner(monkeypatch, tmp_path: Path) -> None:
+    def fail_raw_runner(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
+        raise AssertionError(f"raw connector service runner should not serve public JSON for {action}")
+
+    def fake_run_public_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
+        return {
+            "ok": False,
+            "action": action,
+            "error": "connector_service_failed",
+            "raw_output_returned": False,
+        }
+
+    monkeypatch.setattr(bridge_cli, "_run_connector_service", fail_raw_runner)
+    monkeypatch.setattr(bridge_cli, "_run_public_connector_service", fake_run_public_connector_service)
 
     output = io.StringIO()
     exit_code = main(["connector-service", "status", "--json"], stdout=output, state_dir=tmp_path)
