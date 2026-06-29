@@ -2589,6 +2589,8 @@ final class DesktopAuthLoopbackReceiver {
 }
 
 struct BridgeCommandService {
+    private static let commandTimeoutSeconds: TimeInterval = 20
+
     private static let allowedArgumentLists: Set<String> = [
         bridgeKey(["status", "--json"]),
         bridgeKey(["capabilities", "--json"]),
@@ -2658,7 +2660,7 @@ struct BridgeCommandService {
                 return "Unable to run evaos-desktop-bridge: \(error.localizedDescription)"
             }
 
-            let deadline = Date().addingTimeInterval(8)
+            let deadline = Date().addingTimeInterval(Self.commandTimeoutSeconds)
             while process.isRunning && Date() < deadline {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
@@ -2683,7 +2685,7 @@ struct BridgeCommandService {
             let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
             if timedOut {
                 let detail = stderr.isEmpty ? "" : " \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
-                return "evaos-desktop-bridge timed out after 8 seconds.\(detail)"
+                return "evaos-desktop-bridge timed out after \(Int(Self.commandTimeoutSeconds)) seconds.\(detail)"
             }
             let output = stdout.isEmpty ? stderr : stdout
             return output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2698,6 +2700,9 @@ struct BridgeCommandService {
         if allowedArgumentLists.contains(bridgeKey(arguments)) {
             return true
         }
+        if Self.isCompleteEnrollmentCommand(arguments) {
+            return true
+        }
         guard arguments.count == 8,
               arguments[0...3].elementsEqual(["customer-mac", "control", "start", "--json"]),
               arguments[4] == "--mode",
@@ -2707,6 +2712,19 @@ struct BridgeCommandService {
         }
         let label = arguments[7]
         return !label.isEmpty && label.count <= 80 && !label.contains(where: { $0.isNewline })
+    }
+
+    private static func isCompleteEnrollmentCommand(_ arguments: [String]) -> Bool {
+        guard arguments.count == 11,
+              arguments[0...3].elementsEqual(["connector-service", "complete-enrollment", "--json", "--enrollment-code"]),
+              arguments[5] == "--customer-id",
+              arguments[7] == "--device-name",
+              arguments[9] == "--device-identifier" else {
+            return false
+        }
+        return [arguments[4], arguments[6], arguments[8], arguments[10]].allSatisfy { value in
+            !value.isEmpty && value.count <= 240 && !value.contains(where: { $0.isNewline })
+        }
     }
 
     private static func resolveBridgeExecutable() -> URL? {

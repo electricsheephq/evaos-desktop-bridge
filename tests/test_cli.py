@@ -867,6 +867,31 @@ def test_public_connector_service_start_waits_for_ready(monkeypatch, tmp_path: P
     assert sleeps == [0.2]
 
 
+def test_public_connector_service_start_ignores_missing_prior_bootout(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        bridge_cli,
+        "_launchctl_start",
+        lambda: {
+            "bootout": {"returncode": 113, "stdout": "", "stderr": "Could not find service"},
+            "bootstrap": {"returncode": 0, "stdout": "", "stderr": ""},
+            "kickstart": {"returncode": 0, "stdout": "", "stderr": ""},
+        },
+    )
+    monkeypatch.setattr(
+        bridge_cli,
+        "_public_connector_service_probe_status",
+        lambda *, state_dir=None: {"ok": True, "ready": True},
+    )
+
+    payload = bridge_cli._run_public_connector_service("start", state_dir=tmp_path)
+
+    assert payload["ok"] is True
+    assert payload["status"] == {"ok": True, "ready": True}
+    assert payload["launchctl"]["bootout"] == {"returncode": 113, "stdout_present": False, "stderr_present": True}
+    assert payload["launchctl"]["bootstrap"] == {"returncode": 0, "stdout_present": False, "stderr_present": False}
+    assert payload["launchctl"]["kickstart"] == {"returncode": 0, "stdout_present": False, "stderr_present": False}
+
+
 def test_public_connector_service_error_uses_symbolic_allowlist() -> None:
     assert bridge_cli._public_connector_service_error("connector_ready_probe_failed") == "connector_ready_probe_failed"
     assert bridge_cli._public_connector_service_error("100.64.0.4:8765") == "connector_service_failed"

@@ -2004,12 +2004,13 @@ def _run_public_connector_service(action: str, *, state_dir: Path | None = None)
 
     if action == "start":
         start_result = _public_launchctl_result(_launchctl_start())
-        if _public_launchctl_ok(start_result):
+        start_ok = _public_launchctl_start_ok(start_result)
+        if start_ok:
             status = _wait_for_public_connector_service_ready(state_dir=state_dir)
         else:
             status = _public_connector_service_probe_status(state_dir=state_dir)
         return {
-            "ok": _public_launchctl_ok(start_result) and status.get("ok") is True,
+            "ok": start_ok and status.get("ok") is True,
             "action": action,
             "launchctl": start_result,
             "status": status,
@@ -2136,6 +2137,17 @@ def _public_launchctl_ok(result: dict[str, object]) -> bool:
         return result.get("returncode") == 0
     nested = [value for value in result.values() if isinstance(value, dict)]
     return bool(nested) and all(_public_launchctl_ok(value) for value in nested)
+
+
+def _public_launchctl_start_ok(result: dict[str, object]) -> bool:
+    bootstrap = result.get("bootstrap")
+    kickstart = result.get("kickstart")
+    return (
+        isinstance(bootstrap, dict)
+        and isinstance(kickstart, dict)
+        and _public_launchctl_ok(bootstrap)
+        and _public_launchctl_ok(kickstart)
+    )
 
 
 def _public_connector_service_status(status: dict[str, object]) -> dict[str, object]:

@@ -276,6 +276,16 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "guard enrollmentCustomerId == sanitizedCustomerId else { return }" in complete_source
     assert "--customer-id\",\n                    enrollmentCustomerId," in complete_source
     assert "--device-identifier\",\n                    localDeviceIdentifier" in complete_source
+    assert "private static let commandTimeoutSeconds: TimeInterval = 20" in model
+    assert "Date().addingTimeInterval(Self.commandTimeoutSeconds)" in model
+    assert "timed out after \\(Int(Self.commandTimeoutSeconds)) seconds" in model
+    assert "private static func isCompleteEnrollmentCommand(_ arguments: [String]) -> Bool" in model
+    assert "if Self.isCompleteEnrollmentCommand(arguments) {" in model
+    assert "arguments.count == 11" in model
+    assert 'arguments[0...3].elementsEqual(["connector-service", "complete-enrollment", "--json", "--enrollment-code"])' in model
+    assert 'arguments[5] == "--customer-id"' in model
+    assert 'arguments[7] == "--device-name"' in model
+    assert 'arguments[9] == "--device-identifier"' in model
     assert "object[\"data\"] as? [String: Any]" in connector_status_object_source
     assert "data[\"status\"] as? [String: Any]" in connector_status_object_source
     assert "safeLocalEnrollmentDetail" in local_error_source
