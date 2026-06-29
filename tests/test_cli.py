@@ -1868,6 +1868,38 @@ def test_disallowed_command_is_not_registered(tmp_path: Path) -> None:
         assert main(args, observer_factory=FakeObserver, stdout=io.StringIO(), stderr=io.StringIO(), state_dir=tmp_path) == 2
 
 
+def test_connector_serve_supplies_http_owner_provider(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+    workbench_program = Path("/Applications/evaOS Workbench.app/Contents/Resources/Bridge/evaos-desktop-bridge")
+
+    monkeypatch.setattr(bridge_cli, "read_token", lambda *_args, **_kwargs: "secret-token-abcdef1234567890")
+    monkeypatch.setattr(bridge_cli, "_connector_plist_path", lambda: None)
+    monkeypatch.setattr(bridge_cli, "_current_connector_program_path", lambda: workbench_program)
+
+    def fake_run_connector_server(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(bridge_cli, "run_connector_server", fake_run_connector_server)
+
+    assert (
+        main(
+            ["serve", "--host", "127.0.0.1", "--port", "8765"],
+            observer_factory=FakeObserver,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            state_dir=tmp_path,
+        )
+        == 0
+    )
+
+    owner_provider = captured["owner_provider"]
+    assert callable(owner_provider)
+    owner = owner_provider()
+    assert owner["classification"] == "workbench_bundle"
+    assert owner["program_path"] == {"kind": "path", "value": str(workbench_program)}
+    assert captured["token"] == "secret-token-abcdef1234567890"
+
+
 def test_connector_start_autoinstalls_user_launchagent(monkeypatch, tmp_path: Path) -> None:
     plist_path = tmp_path / "Library" / "LaunchAgents" / "com.electricsheep.evaos-desktop-bridge.plist"
     launchctl_calls: list[list[str]] = []

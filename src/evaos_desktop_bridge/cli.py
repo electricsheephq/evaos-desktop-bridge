@@ -751,6 +751,7 @@ def main(
             token=token,
             command_runner=lambda bridge_argv: _run_bridge_argv(bridge_argv, state_dir=state_dir),
             state_dir=state_dir,
+            owner_provider=_connector_http_owner_summary,
         )
         return 0
 
@@ -1822,6 +1823,41 @@ def _build_cli_diagnostics_payload(*, token: str | None, token_file: str | None 
         state_dir=state_dir,
         owner=_public_bridge_owner_from_status(service_status),
     )
+
+
+def _connector_http_owner_summary() -> dict[str, object]:
+    return _bridge_owner_summary(
+        label=CONNECTOR_LABEL,
+        plist_path=_connector_plist_path(),
+        program_arguments=None,
+        ready=True,
+        active_program_path=_current_connector_program_path(),
+    )
+
+
+def _current_connector_program_path() -> Path | None:
+    candidates: list[Path] = []
+    argv0 = str(sys.argv[0] or "").strip()
+    if argv0:
+        candidates.append(Path(argv0).expanduser())
+    process_path = _process_program_path(os.getpid())
+    if process_path is not None:
+        candidates.append(process_path)
+    if sys.executable:
+        candidates.append(Path(sys.executable).expanduser())
+
+    preferred: tuple[int, Path] | None = None
+    classification_rank = {"workbench_bundle": 0, "legacy_bundle": 1, "global_cli": 2}
+    for candidate in candidates:
+        classification = _classify_bridge_owner(program_path=candidate, app_path=_owner_app_path(candidate), ready=True)
+        rank = classification_rank.get(classification)
+        if rank is None:
+            continue
+        if preferred is None or rank < preferred[0]:
+            preferred = (rank, candidate)
+    if preferred is not None:
+        return preferred[1]
+    return candidates[0] if candidates else None
 
 
 def _public_ready_connector_service_status(status: dict[str, object]) -> dict[str, object]:

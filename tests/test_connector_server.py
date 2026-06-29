@@ -770,7 +770,22 @@ def test_connector_http_diagnostics_route_is_redacted(monkeypatch, tmp_path: Pat
         state_dir=tmp_path,
         details={"host": "100.64.1.10", "connector_token": token_fixture},
     )
-    handler = _make_handler(token=token_fixture, command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    handler = _make_handler(
+        token=token_fixture,
+        command_runner=lambda _argv: (0, "{}"),
+        state_dir=tmp_path,
+        owner_provider=lambda: {
+            "label": "com.electricsheep.evaos-desktop-bridge",
+            "plist_path": {"kind": "unknown"},
+            "program_path": {"kind": "path", "value": "/Applications/evaOS Workbench.app/Contents/Resources/Bridge/evaos-desktop-bridge"},
+            "app_path": {"kind": "path", "value": "/Applications/evaOS Workbench.app"},
+            "source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b",
+            "manifest_path": {"kind": "path", "value": "/Applications/evaOS Workbench.app/Contents/Resources/Bridge/manifest.json"},
+            "bundle_id": "com.evaos.workbench",
+            "classification": "workbench_bundle",
+            "transport_note": "http://100.64.1.10:8765",  # noqa: S105 - intentional redaction fixture
+        },
+    )
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -790,6 +805,9 @@ def test_connector_http_diagnostics_route_is_redacted(monkeypatch, tmp_path: Pat
         assert response.status == 200
         assert payload["schema"] == "evaos.desktop_bridge.diagnostics.v1"
         assert payload["connector"]["token_state"] == "present"
+        assert payload["connector"]["owner"]["classification"] == "workbench_bundle"
+        assert payload["connector"]["owner"]["bundle_id"] == "com.evaos.workbench"
+        assert payload["connector"]["owner"]["transport_note"] == "<redacted-url>"
         assert token_fixture not in body
         assert "100.64.1.10" not in body
         assert "127.0.0.1" not in body

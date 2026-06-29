@@ -23,6 +23,7 @@ from .schema import build_envelope, make_error
 from .state import approval_audit_freshness_error, read_audit_record, read_control_session
 
 CommandRunner = Callable[[list[str]], tuple[int, str]]
+OwnerProvider = Callable[[], dict[str, Any] | None]
 
 DIAGNOSTICS_SCHEMA = "evaos.desktop_bridge.diagnostics.v1"
 READY_SCHEMA = "evaos.desktop_bridge.ready.v1"
@@ -601,6 +602,7 @@ def run_connector_server(
     token: str | None,
     command_runner: CommandRunner,
     state_dir: Path | None = None,
+    owner_provider: OwnerProvider | None = None,
 ) -> None:
     record_service_event(
         "serve_starting",
@@ -617,7 +619,7 @@ def run_connector_server(
             state_dir=state_dir,
             details={"host": host, "port": port},
         )
-    handler = _make_handler(token=token, command_runner=command_runner, state_dir=state_dir)
+    handler = _make_handler(token=token, command_runner=command_runner, state_dir=state_dir, owner_provider=owner_provider)
     try:
         server = ThreadingHTTPServer((host, port), handler)
     except OSError as exc:
@@ -908,7 +910,13 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir: Path | None = None) -> type[BaseHTTPRequestHandler]:
+def _make_handler(
+    *,
+    token: str | None,
+    command_runner: CommandRunner,
+    state_dir: Path | None = None,
+    owner_provider: OwnerProvider | None = None,
+) -> type[BaseHTTPRequestHandler]:
     class ConnectorHandler(BaseHTTPRequestHandler):
         server_version = "evaos-desktop-bridge-connector/0.1"
 
@@ -928,7 +936,7 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                 if not self._authorized():
                     self._write_json(401, {"ok": False, "error": "connector_unauthorized", "schema": DIAGNOSTICS_SCHEMA})
                     return
-                self._write_json(200, build_diagnostics_payload(token=token, state_dir=state_dir))
+                self._write_json(200, build_diagnostics_payload(token=token, state_dir=state_dir, owner=self._owner_summary()))
                 return
             if parsed.path.startswith("/v1/artifacts/"):
                 self._serve_artifact(parsed.path.removeprefix("/v1/artifacts/"))
@@ -1044,6 +1052,15 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             return
+
+        def _owner_summary(self) -> dict[str, Any] | None:
+            if owner_provider is None:
+                return None
+            try:
+                owner = owner_provider()
+            except Exception:
+                return None
+            return owner if isinstance(owner, dict) else None
 
         def _authorized(self) -> bool:
             header = self.headers.get("Authorization", "")
