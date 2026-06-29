@@ -831,41 +831,11 @@ def test_connector_service_status_cli_reports_redacted_workbench_owner(monkeypat
     assert owner["manifest_path"] == {"kind": "path", "value": str(program_path.parent / "manifest.json")}
     assert payload["health"]["host_kind"] == "tailnet"
     assert payload["tailnet_available"] is True
+    assert "tailnet_ip" not in payload
     assert payload["guidance"] == ["Confirm <redacted-url> responds."]
     assert "100.64.0.4" not in output.getvalue()
     assert "8765" not in output.getvalue()
     assert "fixture-token" not in output.getvalue()
-
-
-def test_connector_service_status_support_internal_keeps_local_pairing_fields(monkeypatch, tmp_path: Path) -> None:
-    token_fixture = "fixture-token"  # noqa: S105 - intentional readiness fixture
-    (tmp_path / "connector.token").write_text(token_fixture + "\n", encoding="utf-8")
-    _app_path, program_path = _write_owner_app_fixture(
-        tmp_path,
-        app_name="evaOS Workbench.app",
-        bundle_id="com.evaos.workbench",
-        manifest={"source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b"},
-    )
-    plist_path = _write_owner_plist(tmp_path, program_path)
-    _patch_connector_owner_probe(monkeypatch, tmp_path, plist_path, token_fixture=token_fixture)
-
-    output = io.StringIO()
-    exit_code = main(["connector-service", "status", "--json", "--support-internal"], stdout=output, state_dir=tmp_path)
-    payload = json.loads(output.getvalue())
-
-    assert exit_code == 0
-    assert payload == {
-        "loaded": True,
-        "ok": True,
-        "raw_connector_token_returned": False,
-        "raw_connector_url_returned": False,
-        "ready": True,
-        "running": True,
-        "support_internal": True,
-        "tailnet_ip": "100.64.0.4",
-        "token_path": str(tmp_path / "connector.token"),
-    }
-    assert token_fixture not in output.getvalue()
 
 
 def test_diagnostics_cli_reports_missing_token_without_minting_secret(tmp_path: Path) -> None:

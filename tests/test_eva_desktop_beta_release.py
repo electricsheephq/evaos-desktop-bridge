@@ -252,7 +252,10 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "signIn(fallbackCode: fallbackCode)" in model
     assert "enrollment_code: \\(enrollmentCode)" in prompt_source
     assert "customer_id: \\(customerId)" in prompt_source
-    assert '["connector-service", "status", "--json", "--support-internal"]' in model
+    assert '"connector-service",\n                    "complete-enrollment",' in model
+    assert "--support-internal" not in model
+    assert "localConnectorEnrollmentContext" not in model
+    assert "String(contentsOfFile: tokenPath" not in model
     assert '["connector-service", "status", "--json"])' in model
     for forbidden in (
         "connector_url",

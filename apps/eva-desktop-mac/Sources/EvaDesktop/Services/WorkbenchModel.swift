@@ -1603,27 +1603,23 @@ final class WorkbenchModel: ObservableObject {
         Task { @MainActor in
             defer { isPairingMac = false }
             do {
-                let service = await bridge.run(arguments: ["connector-service", "status", "--json", "--support-internal"])
-                connectorServiceText = BridgeStatusFormatter.connector(raw: service)
-                let connector = try Self.localConnectorEnrollmentContext(from: service)
-                _ = try await macControl.completeEnrollment(
-                    enrollmentCode: enrollmentCode,
-                    deviceName: Host.current().localizedName ?? "Customer Mac",
-                    deviceIdentifier: localDeviceIdentifier,
-                    tailnetIp: connector.tailnetIp,
-                    connectorUrl: connector.connectorUrl,
-                    connectorToken: connector.connectorToken,
-                    capabilities: [
-                        "connector": "evaos-desktop-bridge",
-                        "openclaw_tools": "enabled",
-                        "desktop_control": "full_access_or_ask_permission",
-                        "iphone_mirroring": "visible_control_surface"
-                    ],
-                    permissionState: [
-                        "accessibility": "check_required",
-                        "screen_recording": "check_required"
-                    ]
-                )
+                let result = await bridge.run(arguments: [
+                    "connector-service",
+                    "complete-enrollment",
+                    "--json",
+                    "--enrollment-code",
+                    enrollmentCode,
+                    "--customer-id",
+                    sanitizedCustomerId,
+                    "--device-name",
+                    Host.current().localizedName ?? "Customer Mac"
+                ])
+                guard let object = Self.connectorStatusObject(from: result) else {
+                    throw LocalConnectorEnrollmentError.statusUnavailable
+                }
+                guard object["ok"] as? Bool == true else {
+                    throw LocalConnectorEnrollmentError.commandFailed(Self.localEnrollmentErrorMessage(from: object))
+                }
                 self.enrollmentCode = nil
                 self.enrollmentExpiresAt = nil
                 pairingText = "This Mac is linked. Refresh status, then run Check Setup."
@@ -1720,35 +1716,16 @@ final class WorkbenchModel: ObservableObject {
         return next
     }
 
-    private var connectorTailnetIp: String? {
-        Self.connectorStatusObject(from: connectorServiceText)?["tailnet_ip"] as? String
-    }
-
-    private struct LocalConnectorEnrollmentContext {
-        let tailnetIp: String
-        let connectorUrl: String
-        let connectorToken: String
-    }
-
     private enum LocalConnectorEnrollmentError: LocalizedError {
         case statusUnavailable
-        case connectorNotReady
-        case missingTailnetIp
-        case missingTokenPath
-        case missingToken
+        case commandFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .statusUnavailable:
-                "Connector status could not be read. Start the connector service, then try again."
-            case .connectorNotReady:
-                "The local connector is not ready. Start the connector service and confirm it is reachable first."
-            case .missingTailnetIp:
-                "The secure network link is not connected yet. Connect this Mac to evaOS before completing pairing."
-            case .missingTokenPath:
-                "Connector token path is missing. Restart the connector service so it can mint a local token."
-            case .missingToken:
-                "Connector token is missing or invalid. Restart the connector service, then try pairing again."
+                "Enrollment result could not be read. Start the connector service, then try again."
+            case let .commandFailed(message):
+                message
             }
         }
     }
@@ -1765,6 +1742,16 @@ final class WorkbenchModel: ObservableObject {
         return object
     }
 
+    private static func localEnrollmentErrorMessage(from object: [String: Any]) -> String {
+        if let message = object["message"] as? String, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return message
+        }
+        if let error = object["error"] as? String, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Enrollment completion failed: \(error)"
+        }
+        return "Enrollment completion failed. Start the connector service and confirm the secure network link is ready."
+    }
+
     private static func connectorServiceIsRunning(statusText: String) -> Bool {
         guard let object = connectorStatusObject(from: statusText) else {
             return false
@@ -1777,35 +1764,6 @@ final class WorkbenchModel: ObservableObject {
             return true
         }
         return false
-    }
-
-    private static func localConnectorEnrollmentContext(from statusText: String) throws -> LocalConnectorEnrollmentContext {
-        guard let object = connectorStatusObject(from: statusText) else {
-            throw LocalConnectorEnrollmentError.statusUnavailable
-        }
-        guard object["ok"] as? Bool == true || object["running"] as? Bool == true else {
-            throw LocalConnectorEnrollmentError.connectorNotReady
-        }
-        guard let tailnetIp = object["tailnet_ip"] as? String, !tailnetIp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw LocalConnectorEnrollmentError.missingTailnetIp
-        }
-        guard let tokenPath = object["token_path"] as? String, !tokenPath.isEmpty else {
-            throw LocalConnectorEnrollmentError.missingTokenPath
-        }
-
-        let token = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard token.count >= 24,
-              token.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
-        else {
-            throw LocalConnectorEnrollmentError.missingToken
-        }
-
-        return LocalConnectorEnrollmentContext(
-            tailnetIp: tailnetIp,
-            connectorUrl: "http://\(tailnetIp):8765",
-            connectorToken: token
-        )
     }
 
     private static func agentPairingPrompt(enrollmentCode: String, enrollmentExpiresAt: Date?, customerId: String) -> String {

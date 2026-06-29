@@ -298,12 +298,6 @@ def build_parser() -> argparse.ArgumentParser:
     ]:
         service_action = service_subparsers.add_parser(service_command, help=help_text)
         service_action.add_argument("--json", action="store_true", help="Emit JSON.")
-        if service_command == "status":
-            service_action.add_argument(
-                "--support-internal",
-                action="store_true",
-                help="Emit local support-only fields for Workbench's pairing fallback.",
-            )
         service_action.set_defaults(command_id=f"connector_service.{service_command}", target="connector")
 
     service_complete_parser = service_subparsers.add_parser(
@@ -805,10 +799,7 @@ def main(
 
     if command_id.startswith("connector_service."):
         result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
-        if command_id == "connector_service.status" and getattr(args, "support_internal", False) is True:
-            stdout.write(json.dumps(_support_internal_connector_service_status(result), sort_keys=True) + "\n")
-        else:
-            stdout.write(json.dumps(redact_value(_public_connector_service_result(result)), sort_keys=True) + "\n")
+        stdout.write(json.dumps(redact_value(_public_connector_service_result(result)), sort_keys=True) + "\n")
         return 0 if result.get("ok") is True else 2
 
     try:
@@ -2068,20 +2059,6 @@ def _public_connector_service_status(status: dict[str, object]) -> dict[str, obj
     if isinstance(permission_target, dict):
         public["permission_target"] = redact_value(permission_target)
     return public
-
-
-def _support_internal_connector_service_status(status: dict[str, object]) -> dict[str, object]:
-    return {
-        "ok": status.get("ok") is True,
-        "ready": status.get("ready") is True,
-        "running": status.get("running") is True,
-        "loaded": status.get("loaded") is True,
-        "tailnet_ip": status.get("tailnet_ip") if isinstance(status.get("tailnet_ip"), str) else None,
-        "token_path": status.get("token_path") if isinstance(status.get("token_path"), str) else None,
-        "support_internal": True,
-        "raw_connector_url_returned": False,
-        "raw_connector_token_returned": False,
-    }
 
 
 def _public_bridge_owner_from_status(status: dict[str, object]) -> dict[str, object]:
