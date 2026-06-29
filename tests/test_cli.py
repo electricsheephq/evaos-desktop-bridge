@@ -796,9 +796,6 @@ def test_public_connector_service_result_redacts_raw_failure_payload() -> None:
 
 
 def test_connector_service_json_output_uses_public_runner(monkeypatch, tmp_path: Path) -> None:
-    def fail_raw_runner(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
-        raise AssertionError(f"raw connector service runner should not serve public JSON for {action}")
-
     def fake_run_public_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
         return {
             "ok": False,
@@ -807,7 +804,6 @@ def test_connector_service_json_output_uses_public_runner(monkeypatch, tmp_path:
             "raw_output_returned": False,
         }
 
-    monkeypatch.setattr(bridge_cli, "_run_connector_service", fail_raw_runner)
     monkeypatch.setattr(bridge_cli, "_run_public_connector_service", fake_run_public_connector_service)
 
     output = io.StringIO()

@@ -13,7 +13,6 @@ import socket
 import stat
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -1989,23 +1988,6 @@ def _connector_url_host(host: str) -> str:
     return f"[{normalized}]" if ip.version == 6 else normalized
 
 
-def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
-    if action not in {"status", "start", "stop"}:
-        return {"ok": False, "error": "unsupported_connector_service_action", "action": action}
-
-    if action == "start":
-        start_result = _launchctl_start()
-        status = _wait_for_connector_service(state_dir=state_dir)
-        return {"ok": status["ok"], "action": action, "launchctl": start_result, "status": status}
-
-    if action == "stop":
-        stop_result = _launchctl_stop()
-        status = _connector_service_status(state_dir=state_dir)
-        return {"ok": True, "action": action, "launchctl": stop_result, "status": status}
-
-    return _connector_service_status(state_dir=state_dir)
-
-
 def _run_public_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
     if action not in {"status", "start", "stop"}:
         return {
@@ -2356,15 +2338,6 @@ def _connector_service_status(*, token: str | None = None, token_file: str | Non
         "permission_target": _connector_permission_target(managed_by, health, program_arguments),
         "guidance": _connector_service_guidance(plist_path, token_path.exists(), health),
     }
-
-
-def _wait_for_connector_service(*, state_dir: Path | None = None, timeout_sec: float = 8.0) -> dict[str, object]:
-    deadline = time.monotonic() + timeout_sec
-    status = _connector_service_status(state_dir=state_dir)
-    while not status["ok"] and time.monotonic() < deadline:
-        time.sleep(0.25)
-        status = _connector_service_status(state_dir=state_dir)
-    return status
 
 
 def _connector_service_guidance(plist_path: Path | None, token_present: bool, health: dict[str, object]) -> list[str]:

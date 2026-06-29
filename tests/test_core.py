@@ -31,7 +31,7 @@ from evaos_desktop_bridge.queue import append_queue_event, list_queue_events
 from evaos_desktop_bridge.redaction import cap_text, redact_value
 from evaos_desktop_bridge.schema import build_envelope, make_error
 from evaos_desktop_bridge.state import read_audit_record, read_audit_tail, read_latest, write_latest
-from evaos_desktop_bridge.cli import _run_connector_service
+from evaos_desktop_bridge.cli import _connector_service_status
 from evaos_desktop_bridge.types import CommandResult
 
 
@@ -1308,7 +1308,7 @@ def test_remote_control_status_reports_remote_read_errors() -> None:
 
 
 def test_connector_service_status_is_structured(tmp_path: Path) -> None:
-    result = _run_connector_service("status", state_dir=tmp_path)
+    result = _connector_service_status(state_dir=tmp_path)
 
     assert result["label"] == "com.electricsheep.evaos-desktop-bridge"
     assert result["domain"].startswith("gui/")
