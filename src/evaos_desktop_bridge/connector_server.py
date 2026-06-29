@@ -23,6 +23,7 @@ from .schema import build_envelope, make_error
 from .state import approval_audit_freshness_error, read_audit_record, read_control_session
 
 CommandRunner = Callable[[list[str]], tuple[int, str]]
+OwnerProvider = Callable[[], dict[str, Any] | None]
 
 DIAGNOSTICS_SCHEMA = "evaos.desktop_bridge.diagnostics.v1"
 READY_SCHEMA = "evaos.desktop_bridge.ready.v1"
@@ -601,6 +602,7 @@ def run_connector_server(
     token: str | None,
     command_runner: CommandRunner,
     state_dir: Path | None = None,
+    owner_provider: OwnerProvider | None = None,
 ) -> None:
     record_service_event(
         "serve_starting",
@@ -617,7 +619,7 @@ def run_connector_server(
             state_dir=state_dir,
             details={"host": host, "port": port},
         )
-    handler = _make_handler(token=token, command_runner=command_runner, state_dir=state_dir)
+    handler = _make_handler(token=token, command_runner=command_runner, state_dir=state_dir, owner_provider=owner_provider)
     try:
         server = ThreadingHTTPServer((host, port), handler)
     except OSError as exc:
@@ -685,8 +687,15 @@ def build_ready_payload(*, token: str | None, state_dir: Path | None = None) -> 
     }
 
 
-def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = None) -> dict[str, Any]:
+def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = None, owner: dict[str, Any] | None = None) -> dict[str, Any]:
     root = state_dir or default_state_dir()
+    connector: dict[str, Any] = {
+        "token_state": _token_state(token),
+        "state_dir": _public_path(root),
+        "ready": build_ready_payload(token=token, state_dir=state_dir),
+    }
+    if owner is not None:
+        connector["owner"] = _sanitize_public_value(owner)
     return {
         "ok": True,
         "schema": DIAGNOSTICS_SCHEMA,
@@ -700,11 +709,7 @@ def build_diagnostics_payload(*, token: str | None, state_dir: Path | None = Non
             "version": _bridge_version(),
             "mode": _sanitize_public_text(os.environ.get("EVAOS_DESKTOP_BRIDGE_MODE") or "unknown"),
         },
-        "connector": {
-            "token_state": _token_state(token),
-            "state_dir": _public_path(root),
-            "ready": build_ready_payload(token=token, state_dir=state_dir),
-        },
+        "connector": connector,
         "control_session": _public_control_session(state_dir),
         "service_events": read_service_events(state_dir=state_dir, limit=MAX_SERVICE_EVENTS),
         "redaction": {
@@ -905,7 +910,13 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir: Path | None = None) -> type[BaseHTTPRequestHandler]:
+def _make_handler(
+    *,
+    token: str | None,
+    command_runner: CommandRunner,
+    state_dir: Path | None = None,
+    owner_provider: OwnerProvider | None = None,
+) -> type[BaseHTTPRequestHandler]:
     class ConnectorHandler(BaseHTTPRequestHandler):
         server_version = "evaos-desktop-bridge-connector/0.1"
 
@@ -925,7 +936,7 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
                 if not self._authorized():
                     self._write_json(401, {"ok": False, "error": "connector_unauthorized", "schema": DIAGNOSTICS_SCHEMA})
                     return
-                self._write_json(200, build_diagnostics_payload(token=token, state_dir=state_dir))
+                self._write_json(200, build_diagnostics_payload(token=token, state_dir=state_dir, owner=self._owner_summary()))
                 return
             if parsed.path.startswith("/v1/artifacts/"):
                 self._serve_artifact(parsed.path.removeprefix("/v1/artifacts/"))
@@ -1042,6 +1053,15 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             return
 
+        def _owner_summary(self) -> dict[str, Any] | None:
+            if owner_provider is None:
+                return None
+            try:
+                owner = owner_provider()
+            except Exception:
+                return _owner_provider_error_summary()
+            return owner if isinstance(owner, dict) else _owner_provider_error_summary()
+
         def _authorized(self) -> bool:
             header = self.headers.get("Authorization", "")
             if not header.startswith("Bearer "):
@@ -1068,6 +1088,19 @@ def _make_handler(*, token: str | None, command_runner: CommandRunner, state_dir
             self.wfile.write(body)
 
     return ConnectorHandler
+
+
+def _owner_provider_error_summary() -> dict[str, Any]:
+    return {
+        "label": "com.electricsheep.evaos-desktop-bridge",
+        "plist_path": {"kind": "unknown"},
+        "program_path": {"kind": "unknown"},
+        "app_path": {"kind": "unknown"},
+        "source_commit": None,
+        "manifest_path": {"kind": "unknown"},
+        "bundle_id": None,
+        "classification": "owner_probe_failed",
+    }
 
 
 def complete_enrollment_via_control(

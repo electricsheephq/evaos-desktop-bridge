@@ -226,6 +226,20 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     model = (APP_ROOT / "Sources" / "EvaDesktop" / "Services" / "WorkbenchModel.swift").read_text(encoding="utf-8")
     bridge_panel = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "BridgePanelView.swift").read_text(encoding="utf-8")
     runtime_detail = (APP_ROOT / "Sources" / "EvaDesktop" / "Views" / "RuntimeDetailView.swift").read_text(encoding="utf-8")
+    prompt_source = model.split("private static func agentPairingPrompt", 1)[1].split("private func refreshMacPairing", 1)[0]
+    complete_source = model.split("func completeLocalMacEnrollment()", 1)[1].split("func revokeFirstPairedMac()", 1)[0]
+    connector_formatter_source = model.split("static func connector(raw: String)", 1)[1].split(
+        "private static func connectorStatus",
+        1,
+    )[0]
+    local_error_source = model.split("private static func localEnrollmentErrorMessage", 1)[1].split(
+        "private static func connectorServiceIsRunning",
+        1,
+    )[0]
+    connector_status_object_source = model.split("private static func connectorStatusObject", 1)[1].split(
+        "private static func localEnrollmentErrorMessage",
+        1,
+    )[0]
 
     assert "David's" not in model
     assert "David's" not in bridge_panel
@@ -249,6 +263,61 @@ def test_workbench_pairing_prompt_is_customer_safe_and_self_serve() -> None:
     assert "deviceCodeInput = \"\"" in model
     assert "deviceCodeInput = fallbackCode" not in model
     assert "signIn(fallbackCode: fallbackCode)" in model
+    assert "enrollment_code: \\(enrollmentCode)" in prompt_source
+    assert "customer_id: \\(customerId)" in prompt_source
+    assert '"connector-service",\n                    "complete-enrollment",' in model
+    assert '"connector-service",\n                    "complete-enrollment",' in complete_source
+    assert "--support-internal" not in model
+    assert "--support-internal" not in complete_source
+    assert "localConnectorEnrollmentContext" not in model
+    assert "localConnectorEnrollmentContext" not in complete_source
+    assert "String(contentsOfFile: tokenPath" not in model
+    assert "let enrollmentCustomerId = sanitizedCustomerId" in complete_source
+    assert "guard enrollmentCustomerId == sanitizedCustomerId else { return }" in complete_source
+    assert "--customer-id\",\n                    enrollmentCustomerId," in complete_source
+    assert "--device-identifier\",\n                    localDeviceIdentifier" in complete_source
+    assert "private static let commandTimeoutSeconds: TimeInterval = 20" in model
+    assert "Date().addingTimeInterval(Self.commandTimeoutSeconds)" in model
+    assert "timed out after \\(Int(Self.commandTimeoutSeconds)) seconds" in model
+    assert "private static func isCompleteEnrollmentCommand(_ arguments: [String]) -> Bool" in model
+    assert "if Self.isCompleteEnrollmentCommand(arguments) {" in model
+    assert "arguments.count == 11" in model
+    assert 'arguments[0...3].elementsEqual(["connector-service", "complete-enrollment", "--json", "--enrollment-code"])' in model
+    assert 'arguments[5] == "--customer-id"' in model
+    assert 'arguments[7] == "--device-name"' in model
+    assert 'arguments[9] == "--device-identifier"' in model
+    assert "object[\"data\"] as? [String: Any]" in connector_status_object_source
+    assert "data[\"status\"] as? [String: Any]" in connector_status_object_source
+    assert "safeLocalEnrollmentDetail" in local_error_source
+    assert "genericLocalEnrollmentFailure" in local_error_source
+    assert "return message" in local_error_source
+    assert "return \"Enrollment completion failed: \\(error)\"" in local_error_source
+    assert "Address:" not in connector_formatter_source
+    assert 'health?["host"]' not in connector_formatter_source
+    assert 'health?["port"]' not in connector_formatter_source
+    assert '["connector-service", "status", "--json"])' in model
+    for forbidden in (
+        "connector_url",
+        "Mac connector URL",
+        "connectorUrl",
+        "tailnet_ip",
+        "token_path",
+        "http://",
+        "https://",
+        ":8765",
+        "IP address",
+        "IP addresses",
+        "token",
+        "tokens",
+        "SSH",
+        "VNC",
+        "CDP",
+        "browser debug",
+        "Headscale",
+        "Tailscale",
+    ):
+        assert forbidden not in prompt_source
+    assert re.search(r"\bports?\b", prompt_source, flags=re.IGNORECASE) is None
 
 
 def test_workbench_setup_primary_badges_use_approved_state_labels() -> None:

@@ -7,8 +7,10 @@ import ipaddress
 import json
 import os
 import plistlib
+import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -307,6 +309,7 @@ def build_parser() -> argparse.ArgumentParser:
     service_complete_parser.add_argument("--enrollment-code", required=True, help="Short-lived Workbench pairing code.")
     service_complete_parser.add_argument("--customer-id", required=True, help="Customer id for the selected Workbench customer.")
     service_complete_parser.add_argument("--device-name", default=None, help="Friendly Mac device name.")
+    service_complete_parser.add_argument("--device-identifier", default=None, help="Stable Workbench device identifier.")
     service_complete_parser.set_defaults(command_id="connector_service.complete_enrollment", target="connector")
 
     queue_parser = subparsers.add_parser("queue", help="Eva/OpenClaw announcement queue commands.")
@@ -750,12 +753,13 @@ def main(
             token=token,
             command_runner=lambda bridge_argv: _run_bridge_argv(bridge_argv, state_dir=state_dir),
             state_dir=state_dir,
+            owner_provider=_connector_http_owner_summary,
         )
         return 0
 
     if command_id == "diagnostics":
         token = _read_connector_token_optional(args.token_file, state_dir=state_dir)
-        result = build_diagnostics_payload(token=token, state_dir=state_dir)
+        result = _build_cli_diagnostics_payload(token=token, token_file=args.token_file, state_dir=state_dir)
         if getattr(args, "json", None) is True:
             stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         else:
@@ -792,11 +796,6 @@ def main(
 
     if command_id == "connector_service.complete_enrollment":
         result = _complete_connector_service_enrollment(args, state_dir=state_dir)
-        stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
-        return 0 if result.get("ok") is True else 2
-
-    if command_id.startswith("connector_service."):
-        result = _run_connector_service(command_id.split(".", 1)[1], state_dir=state_dir)
         stdout.write(json.dumps(redact_value(result), sort_keys=True) + "\n")
         return 0 if result.get("ok") is True else 2
 
@@ -974,6 +973,13 @@ def _run_command(
         return _prime_permission(args.permission)
     if command_id == "helper.ping":
         return _helper_ping(args, state_dir=getattr(args, "state_dir", None))
+    if command_id.startswith("connector_service."):
+        public_result = _run_public_connector_service(command_id.split(".", 1)[1], state_dir=getattr(args, "state_dir", None))
+        return CommandResult(
+            ok=public_result.get("ok") is True,
+            data=public_result,
+            provenance={"source": "connector_service"},
+        )
     if command_id == "queue.list":
         return list_queue_events(limit=args.limit, state_dir=getattr(args, "state_dir", None))
     if command_id == "queue.append":
@@ -1702,6 +1708,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
     enrollment_code = str(getattr(args, "enrollment_code", "") or "").strip()
     customer_id = str(getattr(args, "customer_id", "") or "").strip()
     device_name = str(getattr(args, "device_name", "") or "").strip() or socket.gethostname() or "Customer Mac"
+    device_identifier = str(getattr(args, "device_identifier", "") or "").strip() or socket.gethostname()
     if not enrollment_code or not customer_id:
         return {
             "ok": False,
@@ -1718,7 +1725,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
             "ok": False,
             "action": "complete-enrollment",
             "error": "connector_service_not_ready",
-            "status": status,
+            "status": _public_ready_connector_service_status(status),
         }
     if not host:
         return {
@@ -1756,7 +1763,7 @@ def _complete_connector_service_enrollment(args: argparse.Namespace, *, state_di
             connector_url=f"http://{_connector_url_host(host)}:{CONNECTOR_PORT}",
             connector_token=connector_token,
             device_name=device_name,
-            device_identifier=socket.gethostname(),
+            device_identifier=device_identifier,
         )
     except Exception as exc:
         return {
@@ -1814,6 +1821,51 @@ def _build_cli_ready_payload(*, token: str | None, token_file: str | None = None
     return payload
 
 
+def _build_cli_diagnostics_payload(*, token: str | None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
+    service_status = _connector_service_status(token=token, token_file=token_file, state_dir=state_dir)
+    return build_diagnostics_payload(
+        token=token,
+        state_dir=state_dir,
+        owner=_public_bridge_owner_from_status(service_status),
+    )
+
+
+def _connector_http_owner_summary() -> dict[str, object]:
+    return _bridge_owner_summary(
+        label=CONNECTOR_LABEL,
+        plist_path=_connector_plist_path(),
+        program_arguments=None,
+        ready=True,
+        active_program_path=_current_connector_program_path(),
+    )
+
+
+def _current_connector_program_path() -> Path | None:
+    candidates: list[Path] = []
+    argv0 = str(sys.argv[0] or "").strip()
+    if argv0:
+        candidates.append(Path(argv0).expanduser())
+    process_path = _process_program_path(os.getpid())
+    if process_path is not None:
+        candidates.append(process_path)
+    if sys.executable:
+        candidates.append(Path(sys.executable).expanduser())
+
+    preferred: tuple[int, Path] | None = None
+    classification_rank = {"workbench_bundle": 0, "legacy_bundle": 1, "global_cli": 2}
+    for candidate in candidates:
+        app_path = _owner_app_path(candidate)
+        classification = _classify_bridge_owner(program_path=candidate, app_path=app_path, bundle_id=_owner_bundle_id(app_path), ready=True)
+        rank = classification_rank.get(classification)
+        if rank is None:
+            continue
+        if preferred is None or rank < preferred[0]:
+            preferred = (rank, candidate)
+    if preferred is not None:
+        return preferred[1]
+    return candidates[0] if candidates else None
+
+
 def _public_ready_connector_service_status(status: dict[str, object]) -> dict[str, object]:
     health = status.get("health") if isinstance(status.get("health"), dict) else {}
     return {
@@ -1823,6 +1875,7 @@ def _public_ready_connector_service_status(status: dict[str, object]) -> dict[st
         "token_present": status.get("token_present") is True,
         "loaded": status.get("loaded") is True,
         "running": status.get("running") is True,
+        "owner": _public_bridge_owner_from_status(status),
         "health": {
             "reachable": health.get("reachable") is True,
             "ready": health.get("ready") is True,
@@ -1940,21 +1993,355 @@ def _connector_url_host(host: str) -> str:
     return f"[{normalized}]" if ip.version == 6 else normalized
 
 
-def _run_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
+def _run_public_connector_service(action: str, *, state_dir: Path | None = None) -> dict[str, object]:
     if action not in {"status", "start", "stop"}:
-        return {"ok": False, "error": "unsupported_connector_service_action", "action": action}
+        return {
+            "ok": False,
+            "action": action,
+            "error": "unsupported_connector_service_action",
+            "raw_output_returned": False,
+        }
 
     if action == "start":
-        start_result = _launchctl_start()
-        status = _wait_for_connector_service(state_dir=state_dir)
-        return {"ok": status["ok"], "action": action, "launchctl": start_result, "status": status}
+        start_result = _public_launchctl_result(_launchctl_start())
+        start_ok = _public_launchctl_start_ok(start_result)
+        if start_ok:
+            status = _wait_for_public_connector_service_ready(state_dir=state_dir)
+        else:
+            status = _public_connector_service_probe_status(state_dir=state_dir)
+        return {
+            "ok": start_ok and status.get("ok") is True,
+            "action": action,
+            "launchctl": start_result,
+            "status": status,
+        }
 
     if action == "stop":
-        stop_result = _launchctl_stop()
-        status = _connector_service_status(state_dir=state_dir)
-        return {"ok": True, "action": action, "launchctl": stop_result, "status": status}
+        stop_result = _public_launchctl_result(_launchctl_stop())
+        status = _public_connector_service_probe_status(state_dir=state_dir)
+        return {
+            "ok": _public_launchctl_ok(stop_result),
+            "action": action,
+            "launchctl": stop_result,
+            "status": status,
+        }
 
-    return _connector_service_status(state_dir=state_dir)
+    return _public_connector_service_probe_status(state_dir=state_dir)
+
+
+def _wait_for_public_connector_service_ready(
+    *,
+    state_dir: Path | None = None,
+    timeout_seconds: float = 8.0,
+    poll_interval_seconds: float = 0.2,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    status = _public_connector_service_probe_status(state_dir=state_dir)
+    while status.get("ok") is not True and time.monotonic() < deadline:
+        time.sleep(poll_interval_seconds)
+        status = _public_connector_service_probe_status(state_dir=state_dir)
+    return status
+
+
+def _public_connector_service_probe_status(*, state_dir: Path | None = None) -> dict[str, object]:
+    domain = _launchctl_domain()
+    print_result = _run_launchctl(["print", f"{domain}/{CONNECTOR_LABEL}"])
+    token_path = _connector_token_path(None, state_dir=state_dir)
+    plist_path = _connector_plist_path()
+    loaded = print_result["returncode"] == 0
+    connector_token = _connector_token_value(None, state_dir=state_dir)
+    health = _connector_loopback_health(connector_token=connector_token) if connector_token else _connector_public_loopback_health()
+    reachable = health.get("reachable") is True
+    ready = connector_token is not None and health.get("ready") is True and health.get("authenticated") is True
+    running = loaded and ready
+    program_arguments = _connector_plist_program_arguments(plist_path)
+    active_program_path = _active_connector_process_program_path() if reachable else None
+    status = {
+        "ok": ready,
+        "ready": ready,
+        "label": CONNECTOR_LABEL,
+        "domain": domain,
+        "managed_by": "launchagent" if running else "workbench-or-manual" if ready else "offline",
+        "plist_path": str(plist_path) if plist_path else None,
+        "plist_installed": plist_path is not None,
+        "token_path": str(token_path),
+        "token_present": connector_token is not None,
+        "loaded": loaded,
+        "running": running,
+        "tailnet_ip": _tailscale_ip(),
+        "health": health,
+        "owner": _bridge_owner_summary(
+            label=CONNECTOR_LABEL,
+            plist_path=plist_path,
+            program_arguments=program_arguments,
+            ready=ready,
+            active_program_path=active_program_path,
+        ),
+        "permission_target": _connector_permission_target(
+            "launchagent" if running else "workbench-or-manual" if ready else "offline",
+            health,
+            program_arguments,
+        ),
+        "guidance": _connector_service_guidance(plist_path, connector_token is not None, health),
+    }
+    return _public_connector_service_status(status)
+
+
+def _public_connector_service_result(result: dict[str, object]) -> dict[str, object]:
+    nested_status = result.get("status")
+    if isinstance(nested_status, dict):
+        public: dict[str, object] = {
+            "ok": result.get("ok") is True,
+            "action": result.get("action") if isinstance(result.get("action"), str) else "connector-service",
+            "status": _public_connector_service_status(nested_status),
+        }
+        launchctl = result.get("launchctl")
+        if isinstance(launchctl, dict):
+            public["launchctl"] = _public_launchctl_result(launchctl)
+        return public
+    if "health" in result or "managed_by" in result or "permission_target" in result:
+        return _public_connector_service_status(result)
+    return {
+        "ok": result.get("ok") is True,
+        "action": result.get("action") if isinstance(result.get("action"), str) else "connector-service",
+        "error": _public_connector_service_error(result.get("error")),
+        "raw_output_returned": False,
+    }
+
+
+def _public_connector_service_error(value: object) -> str:
+    allowed = {
+        "connector_identity_unverified",
+        "connector_ready_probe_failed",
+        "connector_service_failed",
+        "connector_token_missing",
+        "unsupported_connector_service_action",
+    }
+    if isinstance(value, str) and value.strip() in allowed:
+        return value.strip()
+    return "connector_service_failed"
+
+
+def _public_launchctl_result(result: dict[str, object]) -> dict[str, object]:
+    if "returncode" in result:
+        return {
+            "returncode": result.get("returncode"),
+            "stdout_present": bool(result.get("stdout")),
+            "stderr_present": bool(result.get("stderr")),
+        }
+    return {key: _public_launchctl_result(value) for key, value in result.items() if isinstance(key, str) and isinstance(value, dict)}
+
+
+def _public_launchctl_ok(result: dict[str, object]) -> bool:
+    if "returncode" in result:
+        return result.get("returncode") == 0
+    nested = [value for value in result.values() if isinstance(value, dict)]
+    return bool(nested) and all(_public_launchctl_ok(value) for value in nested)
+
+
+def _public_launchctl_start_ok(result: dict[str, object]) -> bool:
+    bootstrap = result.get("bootstrap")
+    kickstart = result.get("kickstart")
+    return (
+        isinstance(bootstrap, dict)
+        and isinstance(kickstart, dict)
+        and _public_launchctl_ok(bootstrap)
+        and _public_launchctl_ok(kickstart)
+    )
+
+
+def _public_connector_service_status(status: dict[str, object]) -> dict[str, object]:
+    health = status.get("health") if isinstance(status.get("health"), dict) else {}
+    public: dict[str, object] = {
+        "ok": status.get("ok") is True,
+        "ready": status.get("ready") is True,
+        "label": status.get("label") if isinstance(status.get("label"), str) else CONNECTOR_LABEL,
+        "domain": status.get("domain") if isinstance(status.get("domain"), str) else _launchctl_domain(),
+        "managed_by": status.get("managed_by") if isinstance(status.get("managed_by"), str) else "unknown",
+        "plist_path": _public_path(status.get("plist_path")) if status.get("plist_path") else None,
+        "plist_installed": status.get("plist_installed") is True,
+        "token_path": _public_path(status.get("token_path")) if status.get("token_path") else None,
+        "token_present": status.get("token_present") is True,
+        "loaded": status.get("loaded") is True,
+        "running": status.get("running") is True,
+        "tailnet_available": bool(status.get("tailnet_ip")),
+        "health": {
+            "reachable": health.get("reachable") is True,
+            "ready": health.get("ready") is True,
+            "authenticated": health.get("authenticated") is True,
+            "host_kind": _connector_host_kind(str(health.get("host") or "")),
+        },
+        "owner": _public_bridge_owner_from_status(status),
+        "guidance": _public_connector_guidance(status),
+    }
+    permission_target = status.get("permission_target")
+    if isinstance(permission_target, dict):
+        public["permission_target"] = redact_value(permission_target)
+    return public
+
+
+def _public_bridge_owner_from_status(status: dict[str, object]) -> dict[str, object]:
+    owner = status.get("owner")
+    if isinstance(owner, dict):
+        return owner
+    program_arguments = status.get("program_arguments") if isinstance(status.get("program_arguments"), list) else None
+    plist_path = Path(status["plist_path"]) if isinstance(status.get("plist_path"), str) else None
+    return _bridge_owner_summary(
+        label=str(status.get("label") or CONNECTOR_LABEL),
+        plist_path=plist_path,
+        program_arguments=program_arguments,
+        ready=status.get("ready") is True,
+    )
+
+
+def _bridge_owner_summary(
+    *,
+    label: str,
+    plist_path: Path | None,
+    program_arguments: list[str] | None,
+    ready: bool,
+    active_program_path: Path | None = None,
+) -> dict[str, object]:
+    configured_program_path = Path(program_arguments[0]).expanduser() if program_arguments else None
+    if active_program_path is not None and not _is_python_interpreter_path(active_program_path):
+        program_path = active_program_path
+    else:
+        program_path = configured_program_path or active_program_path
+    app_path = _owner_app_path(program_path)
+    manifest_path = _owner_manifest_path(program_path, app_path)
+    manifest = _read_owner_manifest(manifest_path)
+    bundle_id = _owner_bundle_id(app_path)
+    return {
+        "label": label,
+        "plist_path": _typed_public_path(plist_path),
+        "program_path": _typed_public_path(program_path),
+        "app_path": _typed_public_path(app_path),
+        "source_commit": _owner_source_commit(manifest),
+        "manifest_path": _typed_public_path(manifest_path),
+        "bundle_id": bundle_id,
+        "classification": _classify_bridge_owner(program_path=program_path, app_path=app_path, bundle_id=bundle_id, ready=ready),
+    }
+
+
+def _typed_public_path(path: Path | str | None) -> dict[str, object]:
+    if path is None:
+        return {"kind": "unknown"}
+    public_path = _public_path(path)
+    if not public_path:
+        return {"kind": "unknown"}
+    return {"kind": "path", "value": public_path}
+
+
+def _public_path(path: Path | str | object | None) -> str | None:
+    if path is None:
+        return None
+    return str(redact_value(str(path)))
+
+
+def _owner_app_path(program_path: Path | None) -> Path | None:
+    if program_path is None:
+        return None
+    for candidate in (program_path, *program_path.parents):
+        if candidate.suffix == ".app":
+            return candidate
+    return None
+
+
+def _owner_manifest_path(program_path: Path | None, app_path: Path | None) -> Path | None:
+    candidates: list[Path] = []
+    if program_path is not None:
+        candidates.append(program_path.parent / "manifest.json")
+    if app_path is not None:
+        candidates.append(app_path / "Contents" / "Resources" / "Bridge" / "manifest.json")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _read_owner_manifest(manifest_path: Path | None) -> dict[str, object]:
+    if manifest_path is None:
+        return {}
+    try:
+        text = _read_bounded_regular_file_text(manifest_path, max_bytes=64 * 1024)
+        if text is None:
+            return {}
+        payload = json.loads(text)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _owner_source_commit(manifest: dict[str, object]) -> str | None:
+    for key in ("source_commit", "bridge_ref", "commit_ref", "commit", "git_sha", "sha"):
+        value = manifest.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _owner_bundle_id(app_path: Path | None) -> str | None:
+    if app_path is None:
+        return None
+    info_plist = app_path / "Contents" / "Info.plist"
+    try:
+        data = _read_bounded_regular_file_bytes(info_plist, max_bytes=256 * 1024)
+        if data is None:
+            return None
+        payload = plistlib.loads(data)
+    except Exception:
+        return None
+    bundle_id = payload.get("CFBundleIdentifier") if isinstance(payload, dict) else None
+    return bundle_id if isinstance(bundle_id, str) and bundle_id.strip() else None
+
+
+def _read_bounded_regular_file_text(path: Path, *, max_bytes: int) -> str | None:
+    data = _read_bounded_regular_file_bytes(path, max_bytes=max_bytes)
+    return data.decode("utf-8", errors="replace") if data is not None else None
+
+
+def _read_bounded_regular_file_bytes(path: Path, *, max_bytes: int) -> bytes | None:
+    file_stat = path.stat()
+    if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size > max_bytes:
+        return None
+    return path.read_bytes()
+
+
+def _classify_bridge_owner(*, program_path: Path | None, app_path: Path | None, bundle_id: str | None = None, ready: bool) -> str:
+    if program_path is None:
+        return "unknown" if ready else "not_running"
+    app_name = app_path.name.lower() if app_path is not None else ""
+    if app_name == "evaos workbench.app" or bundle_id in {"com.evaos.workbench", "com.electricsheephq.EvaDesktop"}:
+        return "workbench_bundle"
+    if app_name == "evaos.app":
+        return "legacy_bundle"
+    program_text = str(program_path)
+    if program_text == "evaos-desktop-bridge" or program_text.startswith(("/opt/homebrew/bin/", "/usr/local/bin/")):
+        return "global_cli"
+    return "unknown"
+
+
+def _is_python_interpreter_path(path: Path) -> bool:
+    name = path.name.lower()
+    return name == "python" or name.startswith("python3") or name.startswith("python.")
+
+
+def _public_connector_guidance(status: dict[str, object]) -> list[object]:
+    guidance = status.get("guidance")
+    if not isinstance(guidance, list):
+        return []
+    return [_redact_connector_transport_text(str(item)) for item in guidance if isinstance(item, str)]
+
+
+def _redact_connector_transport_text(value: str) -> str:
+    redacted = str(redact_value(value))
+    redacted = re.sub(r"https?://[^\s)>\"]+", "<redacted-url>", redacted, flags=re.IGNORECASE)
+    redacted = re.sub(
+        r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?::\d{1,5})?\b",
+        "<redacted-ip>",
+        redacted,
+    )
+    return re.sub(r"\b8765\b", "<redacted-port>", redacted)
 
 
 def _connector_service_status(*, token: str | None = None, token_file: str | None = None, state_dir: Path | None = None) -> dict[str, object]:
@@ -1971,6 +2358,14 @@ def _connector_service_status(*, token: str | None = None, token_file: str | Non
     tailnet_ip = _tailscale_ip()
     managed_by = "launchagent" if running else "workbench-or-manual" if ready else "offline"
     program_arguments = _connector_plist_program_arguments(plist_path)
+    active_program_path = _active_connector_process_program_path() if reachable else None
+    owner = _bridge_owner_summary(
+        label=CONNECTOR_LABEL,
+        plist_path=plist_path,
+        program_arguments=program_arguments,
+        ready=ready,
+        active_program_path=active_program_path,
+    )
     return {
         "ok": bool(connector_token and ready),
         "ready": ready,
@@ -1986,18 +2381,10 @@ def _connector_service_status(*, token: str | None = None, token_file: str | Non
         "tailnet_ip": tailnet_ip,
         "health": health,
         "launchctl": print_result,
+        "owner": owner,
         "permission_target": _connector_permission_target(managed_by, health, program_arguments),
         "guidance": _connector_service_guidance(plist_path, token_path.exists(), health),
     }
-
-
-def _wait_for_connector_service(*, state_dir: Path | None = None, timeout_sec: float = 8.0) -> dict[str, object]:
-    deadline = time.monotonic() + timeout_sec
-    status = _connector_service_status(state_dir=state_dir)
-    while not status["ok"] and time.monotonic() < deadline:
-        time.sleep(0.25)
-        status = _connector_service_status(state_dir=state_dir)
-    return status
 
 
 def _connector_service_guidance(plist_path: Path | None, token_present: bool, health: dict[str, object]) -> list[str]:
@@ -2007,9 +2394,82 @@ def _connector_service_guidance(plist_path: Path | None, token_present: bool, he
     if not token_present:
         guidance.append("Start the connector once to mint the per-user connector token.")
     if health.get("reachable") is not True:
-        host = health.get("host") or "127.0.0.1"
-        guidance.append(f"Start the connector service and confirm http://{host}:8765/health responds.")
+        guidance.append("Start the connector service and confirm its health endpoint responds.")
     return guidance
+
+
+def _active_connector_process_program_path() -> Path | None:
+    pid = _active_connector_process_pid()
+    if pid is None:
+        return None
+    return _process_program_path(pid)
+
+
+def _active_connector_process_pid() -> int | None:
+    lsof = shutil.which("lsof") or "/usr/sbin/lsof"
+    try:
+        completed = subprocess.run(
+            [lsof, "-nP", f"-iTCP:{CONNECTOR_PORT}", "-sTCP:LISTEN", "-Fp"],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        if line.startswith("p"):
+            try:
+                pid = int(line[1:])
+            except ValueError:
+                continue
+            if pid > 0:
+                return pid
+    return None
+
+
+def _process_program_path(pid: int) -> Path | None:
+    text_path = _process_text_path(pid)
+    if text_path is not None:
+        return text_path
+    try:
+        completed = subprocess.run(
+            ["/bin/ps", "-p", str(pid), "-o", "comm="],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    path_text = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
+    return Path(path_text).expanduser() if path_text else None
+
+
+def _process_text_path(pid: int) -> Path | None:
+    lsof = shutil.which("lsof") or "/usr/sbin/lsof"
+    try:
+        completed = subprocess.run(
+            [lsof, "-nP", "-p", str(pid), "-d", "txt", "-Fn"],
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    for line in completed.stdout.splitlines():
+        if line.startswith("n"):
+            path_text = line[1:].strip()
+            if path_text:
+                return Path(path_text).expanduser()
+    return None
 
 
 def _launchctl_start() -> dict[str, object]:
@@ -2081,6 +2541,44 @@ def _connector_loopback_health(*, connector_token: str | None = None) -> dict[st
         result["ready_status_line"] = diagnostics.get("status_line") if isinstance(diagnostics.get("status_line"), str) else ""
         if not ready:
             result["error"] = "connector_ready_probe_failed"
+        return result
+    except Exception as exc:
+        return {"reachable": False, "host": host, "port": CONNECTOR_PORT, "error": str(exc)}
+
+
+def _connector_public_loopback_health() -> dict[str, object]:
+    plist_path = _connector_plist_path()
+    host = _connector_plist_host(plist_path) or _tailscale_ip() or "127.0.0.1"
+    try:
+        ready_probe = _connector_http_get(host, "/ready")
+        ready_json = ready_probe.get("json") if isinstance(ready_probe.get("json"), dict) else {}
+        if ready_json.get("schema") == "evaos.desktop_bridge.ready.v1":
+            ready = ready_probe.get("status_code") == 200 and ready_json.get("ok") is True and ready_json.get("ready") is True
+            result: dict[str, object] = {
+                "reachable": True,
+                "ready": ready,
+                "authenticated": False,
+                "host": host,
+                "port": CONNECTOR_PORT,
+                "status_line": ready_probe.get("status_line") if isinstance(ready_probe.get("status_line"), str) else "",
+            }
+            if not ready:
+                result["error"] = "connector_ready_probe_failed"
+            return result
+
+        health = _connector_http_get(host, "/health")
+        health_json = health.get("json") if isinstance(health.get("json"), dict) else {}
+        reachable = health.get("status_code") == 200 and health_json.get("service") == "evaos-desktop-bridge-connector"
+        result: dict[str, object] = {
+            "reachable": reachable,
+            "ready": reachable,
+            "authenticated": False,
+            "host": host,
+            "port": CONNECTOR_PORT,
+            "status_line": health.get("status_line") if isinstance(health.get("status_line"), str) else "",
+        }
+        if not reachable:
+            result["error"] = "connector_identity_unverified"
         return result
     except Exception as exc:
         return {"reachable": False, "host": host, "port": CONNECTOR_PORT, "error": str(exc)}
@@ -2255,13 +2753,13 @@ def _online_tailscale_status_ip() -> str | None:
 
 
 def _looks_like_tailnet_ipv4(value: str) -> bool:
-    parts = value.split(".")
-    if len(parts) != 4 or parts[0] != "100":
-        return False
     try:
-        return all(0 <= int(part) <= 255 for part in parts)
+        address = ipaddress.ip_address(value)
     except ValueError:
         return False
+    if address.version != 4:
+        return False
+    return address in ipaddress.ip_network("100.64.0.0/10")
 
 
 def _connector_plist_path() -> Path | None:

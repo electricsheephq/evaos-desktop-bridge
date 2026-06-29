@@ -1598,38 +1598,41 @@ final class WorkbenchModel: ObservableObject {
 
     func completeLocalMacEnrollment() {
         guard let enrollmentCode, !enrollmentCode.isEmpty, !isPairingMac else { return }
+        let enrollmentCustomerId = sanitizedCustomerId
         isPairingMac = true
         pairingText = "Completing this Mac enrollment..."
         Task { @MainActor in
             defer { isPairingMac = false }
             do {
-                let service = await bridge.run(arguments: ["connector-service", "status", "--json"])
-                connectorServiceText = BridgeStatusFormatter.connector(raw: service)
-                let connector = try Self.localConnectorEnrollmentContext(from: service)
-                _ = try await macControl.completeEnrollment(
-                    enrollmentCode: enrollmentCode,
-                    deviceName: Host.current().localizedName ?? "Customer Mac",
-                    deviceIdentifier: localDeviceIdentifier,
-                    tailnetIp: connector.tailnetIp,
-                    connectorUrl: connector.connectorUrl,
-                    connectorToken: connector.connectorToken,
-                    capabilities: [
-                        "connector": "evaos-desktop-bridge",
-                        "openclaw_tools": "enabled",
-                        "desktop_control": "full_access_or_ask_permission",
-                        "iphone_mirroring": "visible_control_surface"
-                    ],
-                    permissionState: [
-                        "accessibility": "check_required",
-                        "screen_recording": "check_required"
-                    ]
-                )
+                let result = await bridge.run(arguments: [
+                    "connector-service",
+                    "complete-enrollment",
+                    "--json",
+                    "--enrollment-code",
+                    enrollmentCode,
+                    "--customer-id",
+                    enrollmentCustomerId,
+                    "--device-name",
+                    Host.current().localizedName ?? "Customer Mac",
+                    "--device-identifier",
+                    localDeviceIdentifier
+                ])
+                guard enrollmentCustomerId == sanitizedCustomerId else { return }
+                guard let object = Self.connectorStatusObject(from: result) else {
+                    throw LocalConnectorEnrollmentError.statusUnavailable
+                }
+                guard object["ok"] as? Bool == true else {
+                    throw LocalConnectorEnrollmentError.commandFailed(Self.localEnrollmentErrorMessage(from: object))
+                }
                 self.enrollmentCode = nil
                 self.enrollmentExpiresAt = nil
                 pairingText = "This Mac is linked. Refresh status, then run Check Setup."
                 await refreshMacPairing()
             } catch {
-                pairingText = "Enrollment completion failed: \(error.localizedDescription)"
+                let message = error.localizedDescription
+                pairingText = message.hasPrefix("Enrollment completion failed")
+                    ? message
+                    : "Enrollment completion failed: \(message)"
             }
         }
     }
@@ -1720,38 +1723,21 @@ final class WorkbenchModel: ObservableObject {
         return next
     }
 
-    private var connectorTailnetIp: String? {
-        Self.connectorStatusObject(from: connectorServiceText)?["tailnet_ip"] as? String
-    }
-
-    private struct LocalConnectorEnrollmentContext {
-        let tailnetIp: String
-        let connectorUrl: String
-        let connectorToken: String
-    }
-
     private enum LocalConnectorEnrollmentError: LocalizedError {
         case statusUnavailable
-        case connectorNotReady
-        case missingTailnetIp
-        case missingTokenPath
-        case missingToken
+        case commandFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .statusUnavailable:
-                "Connector status could not be read. Start the connector service, then try again."
-            case .connectorNotReady:
-                "The local connector is not ready. Start the connector service and confirm it is reachable first."
-            case .missingTailnetIp:
-                "The secure network link is not connected yet. Connect this Mac to evaOS before completing pairing."
-            case .missingTokenPath:
-                "Connector token path is missing. Restart the connector service so it can mint a local token."
-            case .missingToken:
-                "Connector token is missing or invalid. Restart the connector service, then try pairing again."
+                "Enrollment result could not be read. Start the connector service, then try again."
+            case let .commandFailed(message):
+                message
             }
         }
     }
+
+    private static let genericLocalEnrollmentFailure = "Enrollment completion failed. Start the connector service and confirm the secure network link is ready."
 
     private static func connectorStatusObject(from text: String) -> [String: Any]? {
         guard let data = text.data(using: .utf8),
@@ -1762,7 +1748,46 @@ final class WorkbenchModel: ObservableObject {
         if let status = object["status"] as? [String: Any] {
             return status
         }
+        if let data = object["data"] as? [String: Any] {
+            if let status = data["status"] as? [String: Any] {
+                return status
+            }
+            return data
+        }
         return object
+    }
+
+    private static func localEnrollmentErrorMessage(from object: [String: Any]) -> String {
+        if let message = object["message"] as? String, let message = safeLocalEnrollmentDetail(message) {
+            return message
+        }
+        if let error = object["error"] as? String, let error = safeLocalEnrollmentDetail(error) {
+            return "Enrollment completion failed: \(error)"
+        }
+        return genericLocalEnrollmentFailure
+    }
+
+    private static func safeLocalEnrollmentDetail(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lowercased = trimmed.lowercased()
+        let blockedFragments = [
+            "connector_url",
+            "connector url",
+            "connector_token",
+            "token_path",
+            "tailnet_ip",
+            "bearer ",
+            "http://",
+            "https://",
+            ":8765",
+            "ssh",
+            "vnc",
+            "cdp",
+            "browser debug"
+        ]
+        guard !blockedFragments.contains(where: { lowercased.contains($0) }) else { return nil }
+        return trimmed
     }
 
     private static func connectorServiceIsRunning(statusText: String) -> Bool {
@@ -1779,35 +1804,6 @@ final class WorkbenchModel: ObservableObject {
         return false
     }
 
-    private static func localConnectorEnrollmentContext(from statusText: String) throws -> LocalConnectorEnrollmentContext {
-        guard let object = connectorStatusObject(from: statusText) else {
-            throw LocalConnectorEnrollmentError.statusUnavailable
-        }
-        guard object["ok"] as? Bool == true || object["running"] as? Bool == true else {
-            throw LocalConnectorEnrollmentError.connectorNotReady
-        }
-        guard let tailnetIp = object["tailnet_ip"] as? String, !tailnetIp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw LocalConnectorEnrollmentError.missingTailnetIp
-        }
-        guard let tokenPath = object["token_path"] as? String, !tokenPath.isEmpty else {
-            throw LocalConnectorEnrollmentError.missingTokenPath
-        }
-
-        let token = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard token.count >= 24,
-              token.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
-        else {
-            throw LocalConnectorEnrollmentError.missingToken
-        }
-
-        return LocalConnectorEnrollmentContext(
-            tailnetIp: tailnetIp,
-            connectorUrl: "http://\(tailnetIp):8765",
-            connectorToken: token
-        )
-    }
-
     private static func agentPairingPrompt(enrollmentCode: String, enrollmentExpiresAt: Date?, customerId: String) -> String {
         let expiryText = enrollmentExpiresAt.map { Self.shortDateFormatter.string(from: $0) } ?? "unknown"
         """
@@ -1822,7 +1818,7 @@ final class WorkbenchModel: ObservableObject {
         - enrollment_code: \(enrollmentCode)
         - customer_id: \(customerId)
 
-        Do not ask me for connector URLs, IP addresses, ports, SSH, VNC, browser debug details, Headscale/Tailscale keys, connector tokens, or other connector material.
+        Use only the fields above. If a tool asks for additional connector material, stop and report a Mac pairing contract mismatch.
 
         Success criteria:
         1. customer_mac_complete_pairing returns ok=true.
@@ -2593,6 +2589,8 @@ final class DesktopAuthLoopbackReceiver {
 }
 
 struct BridgeCommandService {
+    private static let commandTimeoutSeconds: TimeInterval = 20
+
     private static let allowedArgumentLists: Set<String> = [
         bridgeKey(["status", "--json"]),
         bridgeKey(["capabilities", "--json"]),
@@ -2662,7 +2660,7 @@ struct BridgeCommandService {
                 return "Unable to run evaos-desktop-bridge: \(error.localizedDescription)"
             }
 
-            let deadline = Date().addingTimeInterval(8)
+            let deadline = Date().addingTimeInterval(Self.commandTimeoutSeconds)
             while process.isRunning && Date() < deadline {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
@@ -2687,7 +2685,7 @@ struct BridgeCommandService {
             let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
             if timedOut {
                 let detail = stderr.isEmpty ? "" : " \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
-                return "evaos-desktop-bridge timed out after 8 seconds.\(detail)"
+                return "evaos-desktop-bridge timed out after \(Int(Self.commandTimeoutSeconds)) seconds.\(detail)"
             }
             let output = stdout.isEmpty ? stderr : stdout
             return output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2702,6 +2700,9 @@ struct BridgeCommandService {
         if allowedArgumentLists.contains(bridgeKey(arguments)) {
             return true
         }
+        if Self.isCompleteEnrollmentCommand(arguments) {
+            return true
+        }
         guard arguments.count == 8,
               arguments[0...3].elementsEqual(["customer-mac", "control", "start", "--json"]),
               arguments[4] == "--mode",
@@ -2711,6 +2712,19 @@ struct BridgeCommandService {
         }
         let label = arguments[7]
         return !label.isEmpty && label.count <= 80 && !label.contains(where: { $0.isNewline })
+    }
+
+    private static func isCompleteEnrollmentCommand(_ arguments: [String]) -> Bool {
+        guard arguments.count == 11,
+              arguments[0...3].elementsEqual(["connector-service", "complete-enrollment", "--json", "--enrollment-code"]),
+              arguments[5] == "--customer-id",
+              arguments[7] == "--device-name",
+              arguments[9] == "--device-identifier" else {
+            return false
+        }
+        return [arguments[4], arguments[6], arguments[8], arguments[10]].allSatisfy { value in
+            !value.isEmpty && value.count <= 240 && !value.contains(where: { $0.isNewline })
+        }
     }
 
     private static func resolveBridgeExecutable() -> URL? {
@@ -3113,7 +3127,7 @@ enum BridgeStatusFormatter {
 
     static func connectorReady(raw: String) -> Bool {
         guard let object = object(from: raw) else { return false }
-        let status = (object["status"] as? [String: Any]) ?? object
+        let status = connectorStatus(from: object)
         let health = status["health"] as? [String: Any]
         return status["ok"] as? Bool == true
             && status["token_present"] as? Bool == true
@@ -3160,11 +3174,9 @@ enum BridgeStatusFormatter {
 
     static func connector(raw: String) -> String {
         guard let object = object(from: raw) else { return cleanFallback(raw) }
-        let status = (object["status"] as? [String: Any]) ?? object
+        let status = connectorStatus(from: object)
         let ok = status["ok"] as? Bool == true
         let health = status["health"] as? [String: Any]
-        let host = health?["host"] as? String
-        let port = health?["port"] as? Int
         let managedBy = (status["managed_by"] as? String) ?? ((status["loaded"] as? Bool == true) ? "launchagent" : "workbench")
         let permissionTarget = value(at: ["permission_target", "name"], in: status) as? String
         let permissionPath = value(at: ["permission_target", "bridge_executable"], in: status) as? String
@@ -3175,13 +3187,25 @@ enum BridgeStatusFormatter {
         return compact([
             ok ? "Ready" : "Needs attention",
             "Mode: \(mode)",
-            (host != nil && port != nil) ? "Address: \(host!):\(port!)" : nil,
             "Token: \(tokenPresent ? "ready" : "missing")",
             permissionTarget.map { "Permission target: \($0)" },
             permissionHolder.map { "Permission holder: \($0)" },
             permissionPath.map { "Bridge file: \($0)" },
             ok ? nil : firstGuidance(status)
         ])
+    }
+
+    private static func connectorStatus(from object: [String: Any]) -> [String: Any] {
+        if let status = object["status"] as? [String: Any] {
+            return status
+        }
+        if let data = object["data"] as? [String: Any] {
+            if let status = data["status"] as? [String: Any] {
+                return status
+            }
+            return data
+        }
+        return object
     }
 
     static func customerMac(raw: String) -> String {

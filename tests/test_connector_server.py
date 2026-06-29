@@ -770,7 +770,22 @@ def test_connector_http_diagnostics_route_is_redacted(monkeypatch, tmp_path: Pat
         state_dir=tmp_path,
         details={"host": "100.64.1.10", "connector_token": token_fixture},
     )
-    handler = _make_handler(token=token_fixture, command_runner=lambda _argv: (0, "{}"), state_dir=tmp_path)
+    handler = _make_handler(
+        token=token_fixture,
+        command_runner=lambda _argv: (0, "{}"),
+        state_dir=tmp_path,
+        owner_provider=lambda: {
+            "label": "com.electricsheep.evaos-desktop-bridge",
+            "plist_path": {"kind": "unknown"},
+            "program_path": {"kind": "path", "value": "/Applications/evaOS Workbench.app/Contents/Resources/Bridge/evaos-desktop-bridge"},
+            "app_path": {"kind": "path", "value": "/Applications/evaOS Workbench.app"},
+            "source_commit": "ff00f606d5d4c3edf9bf97642ce9088bee645e7b",
+            "manifest_path": {"kind": "path", "value": "/Applications/evaOS Workbench.app/Contents/Resources/Bridge/manifest.json"},
+            "bundle_id": "com.evaos.workbench",
+            "classification": "workbench_bundle",
+            "transport_note": "http://100.64.1.10:8765",  # noqa: S105 - intentional redaction fixture
+        },
+    )
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -790,11 +805,47 @@ def test_connector_http_diagnostics_route_is_redacted(monkeypatch, tmp_path: Pat
         assert response.status == 200
         assert payload["schema"] == "evaos.desktop_bridge.diagnostics.v1"
         assert payload["connector"]["token_state"] == "present"
+        assert payload["connector"]["owner"]["classification"] == "workbench_bundle"
+        assert payload["connector"]["owner"]["bundle_id"] == "com.evaos.workbench"
+        assert payload["connector"]["owner"]["transport_note"] == "<redacted-url>"
         assert token_fixture not in body
         assert "100.64.1.10" not in body
         assert "127.0.0.1" not in body
         assert "http://100.64.1.10:8765" not in body
         assert payload["service_events"][0]["details"]["host"] == "<redacted>"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_connector_http_diagnostics_reports_typed_owner_provider_failure(tmp_path: Path) -> None:
+    token_fixture = "secret-token-abcdef1234567890"  # noqa: S105 - intentional redaction fixture
+
+    def fail_owner_provider() -> dict[str, object]:
+        raise RuntimeError("plist probe exploded")
+
+    handler = _make_handler(
+        token=token_fixture,
+        command_runner=lambda _argv: (0, "{}"),
+        state_dir=tmp_path,
+        owner_provider=fail_owner_provider,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        conn = HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+        conn.request("GET", "/v1/diagnostics", headers={"Authorization": f"Bearer {token_fixture}"})
+        response = conn.getresponse()
+        body = response.read().decode("utf-8")
+        payload = json.loads(body)
+
+        assert response.status == 200
+        assert payload["connector"]["owner"]["classification"] == "owner_probe_failed"
+        assert payload["connector"]["owner"]["program_path"] == {"kind": "unknown"}
+        assert "plist probe exploded" not in body
+        assert token_fixture not in body
     finally:
         server.shutdown()
         server.server_close()
