@@ -752,7 +752,9 @@ function normalizeToolParameters(parameters: Record<string, unknown>): Record<st
       ? (parameters.properties as Record<string, unknown>)
       : {};
   const required = Array.isArray(parameters.required)
-    ? parameters.required.filter((value): value is string => typeof value === "string" && value.length > 0)
+    ? parameters.required
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+        .filter((value) => Object.prototype.hasOwnProperty.call(properties, value))
     : [];
 
   return {

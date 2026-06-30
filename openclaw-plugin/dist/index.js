@@ -477,7 +477,9 @@ function normalizeToolParameters(parameters) {
         ? parameters.properties
         : {};
     const required = Array.isArray(parameters.required)
-        ? parameters.required.filter((value) => typeof value === "string" && value.length > 0)
+        ? parameters.required
+            .filter((value) => typeof value === "string" && value.length > 0)
+            .filter((value) => Object.prototype.hasOwnProperty.call(properties, value))
         : [];
     return {
         ...parameters,
