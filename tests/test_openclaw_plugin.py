@@ -135,6 +135,19 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
     assert "focus, minimize, zoom, or close" not in dist
 
 
+def test_openclaw_plugin_normalizes_optional_tool_schemas_for_acp_adapters() -> None:
+    source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
+    dist = (PLUGIN / "dist" / "index.js").read_text(encoding="utf-8")
+
+    assert "normalizeToolParameters" in source
+    assert "required: []" in source
+    assert "required:[]" in dist or "required: []" in dist
+
+    no_arg_default = 'properties: {}, required: []'
+    assert no_arg_default in source
+    assert 'parameters: normalizeToolParameters(parameters)' in source
+
+
 def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:
     source = (PLUGIN / "src" / "bridge.ts").read_text(encoding="utf-8")
 

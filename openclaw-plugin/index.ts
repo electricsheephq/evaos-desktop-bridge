@@ -736,12 +736,30 @@ function tool(
   name: string,
   description: string,
   command: BridgeCommandKey,
-  parameters: Record<string, unknown> = { type: "object", additionalProperties: false, properties: {} },
+  parameters: Record<string, unknown> = { type: "object", additionalProperties: false, properties: {}, required: [] },
 ): ToolDefinition {
   return {
     name,
     description,
-    parameters,
+    parameters: normalizeToolParameters(parameters),
     execute: (_toolCallId: string, params: BridgeParams = {}) => runBridge(command, params),
+  };
+}
+
+function normalizeToolParameters(parameters: Record<string, unknown>): Record<string, unknown> {
+  const properties =
+    parameters.properties && typeof parameters.properties === "object" && !Array.isArray(parameters.properties)
+      ? (parameters.properties as Record<string, unknown>)
+      : {};
+  const required = Array.isArray(parameters.required)
+    ? parameters.required.filter((value): value is string => typeof value === "string" && value.length > 0)
+    : [];
+
+  return {
+    ...parameters,
+    type: "object",
+    additionalProperties: parameters.additionalProperties === undefined ? false : parameters.additionalProperties,
+    properties,
+    required,
   };
 }
