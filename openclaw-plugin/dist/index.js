@@ -469,8 +469,38 @@ function tool(name, description, command, parameters = { type: "object", additio
         name,
         description,
         parameters: normalizeToolParameters(parameters),
-        execute: (_toolCallId, params = {}) => runBridge(command, params),
+        execute: async (_toolCallId, params = {}) => toToolResult(await runBridge(command, params)),
     };
+}
+function toToolResult(payload) {
+    if (isToolResultLike(payload)) {
+        return payload;
+    }
+    return {
+        content: [{ type: "text", text: stringifyToolPayload(payload) }],
+        details: payload,
+    };
+}
+function isToolResultLike(value) {
+    return isRecord(value) && Array.isArray(value.content);
+}
+function stringifyToolPayload(payload) {
+    if (typeof payload === "string") {
+        return payload;
+    }
+    try {
+        const text = JSON.stringify(payload, null, 2);
+        if (typeof text === "string") {
+            return text;
+        }
+    }
+    catch {
+        // Fall through to String(payload).
+    }
+    return String(payload);
+}
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function normalizeToolParameters(parameters) {
     const properties = parameters.properties && typeof parameters.properties === "object" && !Array.isArray(parameters.properties)
