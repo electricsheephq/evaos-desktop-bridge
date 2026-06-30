@@ -8,6 +8,7 @@ import subprocess
 import threading
 import hmac
 import hashlib
+import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -133,6 +134,95 @@ def test_openclaw_plugin_registers_read_only_tools_only() -> None:
     assert "focus, minimize, maximize, or close" in dist
     assert 'enum: ["focus", "minimize", "maximize", "zoom", "close"]' in dist
     assert "focus, minimize, zoom, or close" not in dist
+
+
+def test_openclaw_plugin_normalizes_optional_tool_schemas_for_acp_adapters(tmp_path: Path) -> None:
+    source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
+
+    assert "normalizeToolParameters" in source
+    assert 'parameters: normalizeToolParameters(parameters)' in source
+    assert "Object.prototype.hasOwnProperty.call(properties, value)" in source
+
+    schemas = _load_dist_tool_schemas(tmp_path)
+    no_arg_tool_names = [
+        "desktop_bridge_status",
+        "desktop_bridge_capabilities",
+        "desktop_bridge_latest",
+        "customer_mac_status",
+        "desktop_control_status",
+        "desktop_control_stop",
+        "desktop_kill_switch",
+        "customer_mac_capabilities",
+        "customer_mac_screen_sharing_status",
+    ]
+    for tool_name in no_arg_tool_names:
+        assert schemas[tool_name] == {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+            "required": [],
+        }
+
+    optional_schema = schemas["desktop_bridge_audit_tail"]
+    assert optional_schema["type"] == "object"
+    assert optional_schema["additionalProperties"] is False
+    assert optional_schema["required"] == []
+    assert sorted(optional_schema["properties"]) == ["limit"]
+
+    desktop_see_schema = schemas["desktop_see"]
+    assert desktop_see_schema["type"] == "object"
+    assert desktop_see_schema["additionalProperties"] is False
+    assert desktop_see_schema["required"] == []
+    assert desktop_see_schema["properties"] == {
+        "max_chars": {"type": "integer", "minimum": 1, "maximum": 20000, "default": 4000},
+        "max_nodes": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+    }
+
+    pairing_schema = schemas["customer_mac_complete_pairing"]
+    assert pairing_schema["required"] == ["enrollment_code"]
+
+
+def _load_dist_tool_schemas(tmp_path: Path) -> dict[str, dict[str, object]]:
+    package_root = tmp_path / "plugin"
+    shutil.copytree(PLUGIN / "dist", package_root / "dist")
+    (package_root / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
+
+    openclaw_package = package_root / "node_modules" / "openclaw"
+    (openclaw_package / "plugin-sdk").mkdir(parents=True)
+    (openclaw_package / "package.json").write_text(
+        json.dumps(
+            {
+                "type": "module",
+                "exports": {
+                    "./plugin-sdk/plugin-entry": "./plugin-sdk/plugin-entry.js",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (openclaw_package / "plugin-sdk" / "plugin-entry.js").write_text(
+        "export function definePluginEntry(entry) { return entry; }\n",
+        encoding="utf-8",
+    )
+
+    script = """
+        const plugin = (await import('./dist/index.js')).default;
+        const tools = [];
+        plugin.register({
+          registerTool(tool) { tools.push(tool); },
+          registerHook() {},
+        });
+        const schemas = Object.fromEntries(tools.map((tool) => [tool.name, tool.parameters]));
+        console.log(JSON.stringify(schemas));
+    """
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=package_root,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return json.loads(completed.stdout)
 
 
 def test_openclaw_plugin_uses_fixed_cli_allowlist_without_shell() -> None:

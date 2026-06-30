@@ -464,11 +464,28 @@ function readOnlyTools() {
         tool("customer_mac_screen_sharing_status", "Read Screen Sharing/Remote Management status; this tool cannot enable it.", "customerMacScreenSharingStatus"),
     ];
 }
-function tool(name, description, command, parameters = { type: "object", additionalProperties: false, properties: {} }) {
+function tool(name, description, command, parameters = { type: "object", additionalProperties: false, properties: {}, required: [] }) {
     return {
         name,
         description,
-        parameters,
+        parameters: normalizeToolParameters(parameters),
         execute: (_toolCallId, params = {}) => runBridge(command, params),
+    };
+}
+function normalizeToolParameters(parameters) {
+    const properties = parameters.properties && typeof parameters.properties === "object" && !Array.isArray(parameters.properties)
+        ? parameters.properties
+        : {};
+    const required = Array.isArray(parameters.required)
+        ? parameters.required
+            .filter((value) => typeof value === "string" && value.length > 0)
+            .filter((value) => Object.prototype.hasOwnProperty.call(properties, value))
+        : [];
+    return {
+        ...parameters,
+        type: "object",
+        additionalProperties: parameters.additionalProperties === undefined ? false : parameters.additionalProperties,
+        properties,
+        required,
     };
 }
