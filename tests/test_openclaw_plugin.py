@@ -144,19 +144,42 @@ def test_openclaw_plugin_normalizes_optional_tool_schemas_for_acp_adapters(tmp_p
     assert "Object.prototype.hasOwnProperty.call(properties, value)" in source
 
     schemas = _load_dist_tool_schemas(tmp_path)
-    no_arg_schema = schemas["desktop_bridge_status"]
-    assert no_arg_schema == {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {},
-        "required": [],
-    }
+    no_arg_tool_names = [
+        "desktop_bridge_status",
+        "desktop_bridge_capabilities",
+        "desktop_bridge_latest",
+        "customer_mac_status",
+        "desktop_control_status",
+        "desktop_control_stop",
+        "desktop_kill_switch",
+        "customer_mac_capabilities",
+        "customer_mac_screen_sharing_status",
+    ]
+    for tool_name in no_arg_tool_names:
+        assert schemas[tool_name] == {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+            "required": [],
+        }
 
     optional_schema = schemas["desktop_bridge_audit_tail"]
     assert optional_schema["type"] == "object"
     assert optional_schema["additionalProperties"] is False
     assert optional_schema["required"] == []
     assert sorted(optional_schema["properties"]) == ["limit"]
+
+    desktop_see_schema = schemas["desktop_see"]
+    assert desktop_see_schema["type"] == "object"
+    assert desktop_see_schema["additionalProperties"] is False
+    assert desktop_see_schema["required"] == []
+    assert desktop_see_schema["properties"] == {
+        "max_chars": {"type": "integer", "minimum": 1, "maximum": 20000, "default": 4000},
+        "max_nodes": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+    }
+
+    pairing_schema = schemas["customer_mac_complete_pairing"]
+    assert pairing_schema["required"] == ["enrollment_code"]
 
 
 def _load_dist_tool_schemas(tmp_path: Path) -> dict[str, dict[str, object]]:
