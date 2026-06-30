@@ -7,7 +7,17 @@ type ToolDefinition = {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  execute: (toolCallId: string, params: BridgeParams) => Promise<unknown>;
+  execute: (toolCallId: string, params: BridgeParams) => Promise<ToolResult>;
+};
+
+type ToolTextContent = {
+  type: "text";
+  text: string;
+};
+
+type ToolResult = {
+  content: ToolTextContent[];
+  details: unknown;
 };
 
 const approvalAuditIdProperty = {
@@ -742,8 +752,44 @@ function tool(
     name,
     description,
     parameters: normalizeToolParameters(parameters),
-    execute: (_toolCallId: string, params: BridgeParams = {}) => runBridge(command, params),
+    execute: async (_toolCallId: string, params: BridgeParams = {}) => toToolResult(await runBridge(command, params)),
   };
+}
+
+function toToolResult(payload: unknown): ToolResult {
+  if (isToolResultLike(payload)) {
+    return payload;
+  }
+
+  return {
+    content: [{ type: "text", text: stringifyToolPayload(payload) }],
+    details: payload,
+  };
+}
+
+function isToolResultLike(value: unknown): value is ToolResult {
+  return isRecord(value) && Array.isArray(value.content);
+}
+
+function stringifyToolPayload(payload: unknown): string {
+  if (typeof payload === "string") {
+    return payload;
+  }
+
+  try {
+    const text = JSON.stringify(payload, null, 2);
+    if (typeof text === "string") {
+      return text;
+    }
+  } catch {
+    // Fall through to String(payload).
+  }
+
+  return String(payload);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeToolParameters(parameters: Record<string, unknown>): Record<string, unknown> {

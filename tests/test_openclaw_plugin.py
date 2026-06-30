@@ -182,7 +182,17 @@ def test_openclaw_plugin_normalizes_optional_tool_schemas_for_acp_adapters(tmp_p
     assert pairing_schema["required"] == ["enrollment_code"]
 
 
-def _load_dist_tool_schemas(tmp_path: Path) -> dict[str, dict[str, object]]:
+def test_openclaw_plugin_execute_returns_agent_tool_result_for_acp_adapters(tmp_path: Path) -> None:
+    result = _execute_dist_tool(tmp_path, "evaos_provider_profiles", {})
+
+    assert sorted(result) == ["content", "details"]
+    assert isinstance(result["content"], list)
+    assert result["content"][0]["type"] == "text"
+    assert result["details"]["ok"] is True
+    assert json.loads(result["content"][0]["text"]) == result["details"]
+
+
+def _prepare_dist_plugin_package(tmp_path: Path) -> Path:
     package_root = tmp_path / "plugin"
     shutil.copytree(PLUGIN / "dist", package_root / "dist")
     (package_root / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
@@ -204,6 +214,11 @@ def _load_dist_tool_schemas(tmp_path: Path) -> dict[str, dict[str, object]]:
         "export function definePluginEntry(entry) { return entry; }\n",
         encoding="utf-8",
     )
+    return package_root
+
+
+def _load_dist_tool_schemas(tmp_path: Path) -> dict[str, dict[str, object]]:
+    package_root = _prepare_dist_plugin_package(tmp_path)
 
     script = """
         const plugin = (await import('./dist/index.js')).default;
@@ -218,6 +233,42 @@ def _load_dist_tool_schemas(tmp_path: Path) -> dict[str, dict[str, object]]:
     completed = subprocess.run(
         ["node", "--input-type=module", "-e", script],
         cwd=package_root,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def _execute_dist_tool(tmp_path: Path, tool_name: str, params: dict[str, object]) -> dict[str, object]:
+    package_root = _prepare_dist_plugin_package(tmp_path)
+    params_json = json.dumps(params)
+
+    script = f"""
+        const plugin = (await import('./dist/index.js')).default;
+        const tools = [];
+        plugin.register({{
+          registerTool(tool) {{ tools.push(tool); }},
+          registerHook() {{}},
+        }});
+        const tool = tools.find((candidate) => candidate.name === {json.dumps(tool_name)});
+        if (!tool) {{
+          throw new Error('Tool not registered: {tool_name}');
+        }}
+        const result = await tool.execute('call-fixture', {params_json});
+        console.log(JSON.stringify(result));
+    """
+    env = {
+        **os.environ,
+        "HOME": str(tmp_path / "home"),
+        "EVAOS_CUSTOMER_ID": "fixture-customer",
+        "EVAOS_PROVIDER_PROFILES_JSON": json.dumps({"provider_profiles": []}),
+        "EVAOS_PROVIDER_GRANTS_JSON": json.dumps({}),
+    }
+    completed = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=package_root,
+        env=env,
         text=True,
         capture_output=True,
         check=True,
@@ -1441,7 +1492,7 @@ def test_openclaw_plugin_registers_tool_objects_for_runtime_discovery() -> None:
 def test_openclaw_plugin_execute_preserves_tool_arguments() -> None:
     source = (PLUGIN / "index.ts").read_text(encoding="utf-8")
 
-    assert "execute: (_toolCallId: string, params: BridgeParams = {}) => runBridge(command, params)" in source
+    assert "execute: async (_toolCallId: string, params: BridgeParams = {}) => toToolResult(await runBridge(command, params))" in source
     assert "execute: (params: BridgeParams = {}) =>" not in source
 
 
